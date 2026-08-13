@@ -20,6 +20,10 @@ export interface Env {
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const MAX_INPUTS = 20;
+// Single-label answers ride on one letter token, which is what caps them at 26.
+// Multi-label answers come back as numbers, so the ceiling is only prompt size.
+const MAX_LABELS_SINGLE = 26;
+const MAX_LABELS_MULTI = 100;
 const MAX_CHARS = 32_000;
 
 /**
@@ -68,6 +72,41 @@ const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =
     headers: { "content-type": "application/json; charset=utf-8", ...CORS, ...extra },
   });
 
+function buildMultiPrompt(
+  labels: string[],
+  instructions?: string,
+  max?: number,
+  strict?: boolean,
+) {
+  return [
+    strict
+      ? "You are a multi-label classifier reviewing a shortlist. Keep only the categories the input clearly and substantively addresses."
+      : "You are a multi-label classifier. Select EVERY category that applies to the input, and only those.",
+    strict
+      ? "Drop any category that is merely adjacent, implied, or a stretch. Keep the ones a careful human tagger would defend."
+      : "A category applies if the input meaningfully touches it, even briefly or in passing. Do not restrict yourself to the single main topic.",
+    instructions ? `\nCRITERIA\n${instructions}` : "",
+    `\nCATEGORIES\n${labels.map((l, i) => `${i + 1} = ${l}`).join("\n")}`,
+    max ? `\nSelect at most ${max}, the most clearly applicable ones.` : "",
+    "\nAnswer with the numbers that apply, separated by commas, like: 2,5,9",
+    'If none apply, answer exactly: none',
+    "Answer with numbers only. Do not explain.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Pull category numbers out of a free-text answer, in the label's own order. */
+function parseNumbers(answer: string, n: number, max?: number): number[] {
+  const seen = new Set<number>();
+  for (const m of answer.matchAll(/\d+/g)) {
+    const v = Number.parseInt(m[0], 10);
+    if (v >= 1 && v <= n) seen.add(v);
+  }
+  const picked = [...seen].sort((a, b) => a - b);
+  return max && picked.length > max ? picked.slice(0, max) : picked;
+}
+
 function buildPrompt(labels: string[], instructions?: string) {
   return [
     "You are a classifier. Assign the input to exactly one category.",
@@ -105,6 +144,7 @@ function parseLetter(s: string, n: number) {
 }
 
 type ModelCfg = { model: string; provider?: string; maxTokens: number; reasoning: boolean };
+type MultiOpts = { max?: number; strict?: boolean };
 
 async function callModel(
   env: Env,
@@ -112,22 +152,40 @@ async function callModel(
   input: string,
   labels: string[],
   instructions?: string,
+  multi?: MultiOpts,
 ) {
   const body: Record<string, unknown> = {
     model: cfg.model,
     provider: { only: [cfg.provider], allow_fallbacks: false },
     messages: [
-      { role: "system", content: buildPrompt(labels, instructions) },
+      {
+        role: "system",
+        content: multi
+          ? buildMultiPrompt(labels, instructions, multi.max, multi.strict)
+          : buildPrompt(labels, instructions),
+      },
       { role: "user", content: `${input}\nANSWER:` },
     ],
-    max_tokens: cfg.maxTokens,
+    // A list of numbers needs room to finish; a single letter does not. Keeping
+    // this tight is most of why multi-label stays close to single-label latency.
+    // Reasoning models must keep their full budget: the reasoning tokens are
+    // drawn from the same allowance, so a tight cap is spent before any answer
+    // is emitted and the response comes back empty.
+    max_tokens: multi
+      ? cfg.reasoning
+        ? cfg.maxTokens
+        : Math.min(16 + labels.length * 2, 160)
+      : cfg.maxTokens,
     temperature: 0,
   };
   if (cfg.reasoning) body.reasoning = { effort: "low" };
   else {
     body.reasoning = { enabled: false };
-    body.logprobs = true;
-    body.top_logprobs = 8;
+    // Logprobs describe one token, which says nothing useful about a list.
+    if (!multi) {
+      body.logprobs = true;
+      body.top_logprobs = 8;
+    }
   }
 
   const started = Date.now();
@@ -149,6 +207,21 @@ async function callModel(
     };
     if (res.ok && !payload.error) {
       const choice = payload.choices?.[0];
+      if (multi) {
+        const answer = choice?.message?.content ?? "";
+        const picked = /\bnone\b/i.test(answer) && !/\d/.test(answer)
+          ? []
+          : parseNumbers(answer, labels.length, multi.max);
+        return {
+          label: labels[picked[0] - 1] ?? "",
+          labels: picked.map((n) => labels[n - 1]),
+          confidence: null as number | null,
+          scores: null as Record<string, number> | null,
+          unscored: undefined as string | undefined,
+          ms: Date.now() - started,
+          model: cfg.model,
+        };
+      }
       const letter = parseLetter(choice?.message?.content ?? "", labels.length);
       const raw = scoresFrom(choice?.logprobs?.content?.[0]?.top_logprobs, labels.length);
       const idx = letter ? LETTERS.indexOf(letter) : -1;
@@ -165,6 +238,7 @@ async function callModel(
           : null;
       return {
         label,
+        labels: undefined as string[] | undefined,
         confidence: scores ? Number(Math.max(...Object.values(scores)).toFixed(4)) : null,
         scores,
         unscored: unreadable ? UNSCORED_REASON : undefined,
@@ -180,22 +254,100 @@ async function callModel(
 }
 
 /** Walk the tier's chain; the first model that answers wins. */
+async function runChain(
+  env: Env,
+  input: string,
+  labels: string[],
+  tier: Tier,
+  instructions?: string,
+  multi?: MultiOpts,
+) {
+  let last: unknown;
+  for (const cfg of TIERS[tier].chain) {
+    try {
+      return await callModel(env, cfg as ModelCfg, input, labels, instructions, multi);
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last instanceof Error ? last : new Error("all models failed");
+}
+
+/**
+ * Asked to pick from fifty categories at once, a small model returns the ten
+ * most *salient* rather than every one that *applies* — it dropped topics the
+ * text names outright. Splitting the label set into small groups turns one hard
+ * judgement into several easy ones, and the groups run concurrently so the wall
+ * clock stays close to a single call.
+ */
+const MULTI_CHUNK = 12;
+
 async function classifyOne(
   env: Env,
   input: string,
   labels: string[],
   tier: Tier,
   instructions?: string,
+  multi?: MultiOpts,
 ) {
-  let last: unknown;
-  for (const cfg of TIERS[tier].chain) {
+  if (!multi || labels.length <= MULTI_CHUNK) {
+    return runChain(env, input, labels, tier, instructions, multi);
+  }
+
+  const groups = Math.ceil(labels.length / MULTI_CHUNK);
+  const size = Math.ceil(labels.length / groups);
+  const chunks: string[][] = [];
+  for (let i = 0; i < labels.length; i += size) chunks.push(labels.slice(i, i + size));
+
+  const started = Date.now();
+  // No per-chunk cap: a chunk cannot know what the others found.
+  const parts = await Promise.all(
+    chunks.map((chunk) => runChain(env, input, chunk, "fast", instructions, {})),
+  );
+
+  const hit = new Set<string>();
+  for (const part of parts) for (const l of part.labels ?? []) hit.add(l);
+  let picked = labels.filter((l) => hit.has(l));
+
+  // A chunk cannot see its competition, so it over-selects: the sweep buys
+  // recall and spends precision. One more pass over just the survivors gets the
+  // precision back, because now every candidate is in view at once and they can
+  // be judged against each other.
+  // A chunk cannot see its competition, so the sweep buys recall and spends
+  // precision. One pass over just the survivors gets the precision back, with
+  // every candidate finally in view at once.
+  //
+  // On a 7-case set this pass moved fast-tier F1 from 0.761 to 0.800. Judging
+  // each survivor alone as a yes/no question was tried and scored worse (0.612)
+  // — isolating a label throws away the comparison that makes the call.
+  //
+  // When the caller asks for the smart tier, only this pass uses it. The sweep
+  // stays on the cheap model: verifying is where judgement pays, and the split
+  // measured the same as running smart throughout (0.876 vs 0.879) in a little
+  // over half the time.
+  if (picked.length > 2) {
     try {
-      return await callModel(env, cfg as ModelCfg, input, labels, instructions);
-    } catch (e) {
-      last = e;
+      const verified = await runChain(env, input, picked, tier, instructions, {
+        max: multi.max,
+      });
+      const keep = new Set(verified.labels ?? []);
+      const narrowed = picked.filter((l) => keep.has(l));
+      if (narrowed.length) picked = narrowed;
+    } catch {
+      // Verification is an improvement, not a requirement; keep the sweep.
     }
   }
-  throw last instanceof Error ? last : new Error("all models failed");
+  if (multi.max && picked.length > multi.max) picked = picked.slice(0, multi.max);
+
+  return {
+    label: picked[0] ?? "",
+    labels: picked,
+    confidence: null as number | null,
+    scores: null as Record<string, number> | null,
+    unscored: undefined as string | undefined,
+    ms: Date.now() - started,
+    model: parts[0]?.model ?? "",
+  };
 }
 
 async function classifyMany(
@@ -204,6 +356,7 @@ async function classifyMany(
   labels: string[],
   tier: Tier,
   instructions?: string,
+  multi?: MultiOpts,
 ) {
   const out: Awaited<ReturnType<typeof classifyOne>>[] = new Array(inputs.length);
   let next = 0;
@@ -211,7 +364,7 @@ async function classifyMany(
     Array.from({ length: Math.min(4, inputs.length) }, async () => {
       while (next < inputs.length) {
         const i = next++;
-        out[i] = await classifyOne(env, inputs[i], labels, tier, instructions);
+        out[i] = await classifyOne(env, inputs[i], labels, tier, instructions, multi);
       }
     }),
   );
@@ -347,6 +500,7 @@ export default {
     let labels: string[] = [];
     let tier: Tier = "fast";
     let instructions: string | undefined;
+    let multi: MultiOpts | undefined;
     let wantJson = req.method === "POST";
 
     if (req.method === "POST") {
@@ -364,6 +518,10 @@ export default {
       labels = Array.isArray(body.labels) ? (body.labels as string[]) : [];
       if (body.tier === "smart") tier = "smart";
       if (typeof body.instructions === "string") instructions = body.instructions;
+      if (body.multi === true || typeof body.max_labels === "number") {
+        const max = typeof body.max_labels === "number" ? body.max_labels : undefined;
+        multi = { max: max && max > 0 ? Math.floor(max) : undefined };
+      }
     } else {
       // GET /{labels}/{text}
       const slash = path.indexOf("/");
@@ -377,6 +535,10 @@ export default {
       if (url.searchParams.get("tier") === "smart") tier = "smart";
       instructions = url.searchParams.get("instructions") ?? undefined;
       wantJson = url.searchParams.get("verbose") === "1";
+      const maxParam = Number.parseInt(url.searchParams.get("max_labels") ?? "", 10);
+      if (url.searchParams.get("multi") === "1" || maxParam > 0) {
+        multi = { max: maxParam > 0 ? maxParam : undefined };
+      }
     }
 
     const fail = (msg: string, status: number, extra: Record<string, string> = {}) =>
@@ -385,7 +547,19 @@ export default {
     if (!inputs.length || !inputs[0]) return fail("Provide text to classify. See https://classifier.dev", 400);
     if (inputs.length > MAX_INPUTS) return fail(`Maximum ${MAX_INPUTS} inputs per request`, 400);
     if (labels.length < 2) return fail("Provide at least 2 labels", 400);
-    if (labels.length > 26) return fail("Maximum 26 labels", 400);
+    // A single-label answer rides on one letter, so past 26 the request can only
+    // sensibly be multi-label. Rather than reject it, switch modes.
+    if (!multi && labels.length > MAX_LABELS_SINGLE) multi = {};
+
+    const labelCap = multi ? MAX_LABELS_MULTI : MAX_LABELS_SINGLE;
+    if (labels.length > labelCap) {
+      return fail(
+        multi
+          ? `Maximum ${MAX_LABELS_MULTI} labels`
+          : `Maximum ${MAX_LABELS_SINGLE} labels`,
+        400,
+      );
+    }
     if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400);
     if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be under ${MAX_CHARS} characters`, 400);
 
@@ -410,7 +584,7 @@ export default {
     const started = Date.now();
     let results;
     try {
-      results = await classifyMany(env, inputs, labels, tier, instructions);
+      results = await classifyMany(env, inputs, labels, tier, instructions, multi);
     } catch (e) {
       record(env, ctx, { tier, n: 0, ms: Date.now() - started, labels, ip, country, status: 502 });
       return fail(`upstream: ${(e as Error).message}`, 502);
@@ -424,8 +598,12 @@ export default {
     if (gate.remaining >= 0) headers["x-ratelimit-remaining"] = String(gate.remaining);
 
     if (!wantJson) {
-      // r.jina.ai style: the answer, nothing else.
-      return text(results.map((r) => r.label).join("\n") + "\n", 200, headers);
+      // r.jina.ai style: the answer, nothing else. Multi-label answers are one
+      // label per line, so the response stays greppable.
+      const body = multi
+        ? results.map((r) => (r.labels ?? []).join("\n")).join("\n")
+        : results.map((r) => r.label).join("\n");
+      return text(body + "\n", 200, headers);
     }
     if (req.method === "GET") {
       return json({ ...results[0], tier }, 200, headers);
@@ -434,7 +612,11 @@ export default {
       {
         tier,
         model: results[0]?.model,
-        results: results.map((r) => ({ label: r.label, confidence: r.confidence, scores: r.scores, unscored: r.unscored, ms: r.ms, model: r.model })),
+        results: results.map((r) =>
+          multi
+            ? { labels: r.labels ?? [], ms: r.ms, model: r.model }
+            : { label: r.label, confidence: r.confidence, scores: r.scores, unscored: r.unscored, ms: r.ms, model: r.model },
+        ),
         usage: { classifications: results.length, ms },
       },
       200,

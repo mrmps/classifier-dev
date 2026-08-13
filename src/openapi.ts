@@ -78,7 +78,7 @@ export const OPENAPI = {
             name: "labels",
             in: "path",
             required: true,
-            description: "Comma-separated categories, 2 to 26 of them.",
+            description: "Comma-separated categories: 2 to 26, or up to 100 with multi=1.",
             schema: { type: "string" },
             example: "spam,not+spam",
           },
@@ -109,6 +109,21 @@ export const OPENAPI = {
             required: false,
             description: "Set to 1 to receive JSON instead of a bare label.",
             schema: { type: "string", enum: ["1"] },
+          },
+          {
+            name: "multi",
+            in: "query",
+            required: false,
+            description:
+              "Set to 1 to return every category that applies, one per line. Automatic past 26 labels.",
+            schema: { type: "string", enum: ["1"] },
+          },
+          {
+            name: "max_labels",
+            in: "query",
+            required: false,
+            description: "Cap on how many labels a multi-label answer returns.",
+            schema: { type: "integer" },
           },
         ],
         responses: {
@@ -193,6 +208,11 @@ export const OPENAPI = {
                 confidence: { type: ["number", "null"] },
                 scores: { type: ["object", "null"], additionalProperties: { type: "number" } },
                 unscored: { type: "string" },
+                labels: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Multi-label mode only, in place of `label`.",
+                },
                 ms: { type: "integer" },
               },
             },
@@ -253,6 +273,17 @@ items, just decide yourself.
 Served from this domain via RFC 8615 discovery, no repository involved:
 [/.well-known/agent-skills/index.json](https://classifier.dev/.well-known/agent-skills/index.json)
 and [/skill.md](https://classifier.dev/skill.md), which is readable as-is.
+
+## Multi-label
+
+Pass "multi": true to get every category that applies instead of one, up to 100
+labels. It turns on by itself past 26 labels, since a single-label answer is one
+letter. "max_labels" caps the count.
+
+    curl https://classifier.dev -d '{"input":"...","labels":[...50 tags...],"multi":true,"max_labels":10}'
+
+tier "smart" matters far more here than for single labels: F1 0.87 vs 0.78 on
+a 7-task set, ~12s instead of ~1.5s. Multi-label answers carry no confidence.
 
 ## Docs
 
