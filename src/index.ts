@@ -1,5 +1,6 @@
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT } from "./openapi";
+import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { dailyReport } from "./report";
 export { RateLimiter } from "./limiter";
 
@@ -227,7 +228,14 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
     const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-    if (req.method === "GET" && (path === "" || path === "index.html")) return text(DOCS);
+    if (req.method === "GET" && (path === "" || path === "index.html")) {
+      if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
+        return new Response(unfurlHtml(), {
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600", ...CORS },
+        });
+      }
+      return text(DOCS);
+    }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) return text(BENCHMARK);
     if (path === "robots.txt") {
       return text("User-agent: *\nAllow: /\n\nSitemap: https://classifier.dev/llms.txt\n");
@@ -253,7 +261,21 @@ export default {
         return text(`report failed: ${(e as Error).message}\n`, 500);
       }
     }
-    if (path === "favicon.ico") return new Response(null, { status: 204 });
+    if (path === "favicon.svg") {
+      return new Response(FAVICON_SVG, {
+        headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", ...CORS },
+      });
+    }
+    if (path === "favicon.ico") {
+      return new Response(FAVICON_SVG, {
+        headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", ...CORS },
+      });
+    }
+    if (path === "og.png") {
+      return new Response(ogPngBytes(), {
+        headers: { "content-type": "image/png", "cache-control": "public, max-age=86400", ...CORS },
+      });
+    }
 
     // ---- gather params from either shape -----------------------------------
     let inputs: string[] = [];
