@@ -1,3 +1,4 @@
+import { isUnintelligible, UNSCORED_REASON } from "./unintelligible";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
@@ -151,15 +152,21 @@ async function callModel(
       const raw = scoresFrom(choice?.logprobs?.content?.[0]?.top_logprobs, labels.length);
       const idx = letter ? LETTERS.indexOf(letter) : -1;
       const label = idx >= 0 && idx < labels.length ? labels[idx] : labels[0];
-      const scores = raw
-        ? Object.fromEntries(
-            Object.entries(raw).map(([l, v]) => [labels[LETTERS.indexOf(l)] ?? l, Number(v.toFixed(4))]),
-          )
-        : null;
+      // The model still picks a letter for input that is not language, and does
+      // so with a near-perfect score. Publishing that invites callers to
+      // threshold on it, so the label ships without a score instead.
+      const unreadable = isUnintelligible(input);
+      const scores =
+        raw && !unreadable
+          ? Object.fromEntries(
+              Object.entries(raw).map(([l, v]) => [labels[LETTERS.indexOf(l)] ?? l, Number(v.toFixed(4))]),
+            )
+          : null;
       return {
         label,
         confidence: scores ? Number(Math.max(...Object.values(scores)).toFixed(4)) : null,
         scores,
+        unscored: unreadable ? UNSCORED_REASON : undefined,
         ms: Date.now() - started,
         model: cfg.model,
       };
@@ -412,7 +419,7 @@ export default {
       {
         tier,
         model: results[0]?.model,
-        results: results.map((r) => ({ label: r.label, confidence: r.confidence, scores: r.scores, ms: r.ms, model: r.model })),
+        results: results.map((r) => ({ label: r.label, confidence: r.confidence, scores: r.scores, unscored: r.unscored, ms: r.ms, model: r.model })),
         usage: { classifications: results.length, ms },
       },
       200,

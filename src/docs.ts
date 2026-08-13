@@ -40,9 +40,23 @@ PARAMETERS
   verbose       On GET requests, ?verbose=1 returns JSON instead of a bare label.
 
   JSON responses carry a confidence between 0 and 1 and a per-label score map.
-  Both are occasionally null: when the model is so certain that the upstream
-  probability rounds to exactly one, the provider omits the distribution
-  entirely. A null confidence means very high certainty, not low.
+  Both can be null for two opposite reasons, so read the unscored field to tell
+  them apart.
+
+  unscored absent   The provider returned no distribution, either because it was
+                    so certain the probability rounded to one, or because the
+                    smart tier's model emits no logprobs. Certainty is high.
+
+  unscored present  The input does not read as natural language, so the score
+                    was withheld. A forced single-token choice still lands near
+                    1.0 on gibberish — measured 0.9921 on "asdkjfhaskdjfh" —
+                    which would be noise wearing the costume of a signal.
+
+  Confidence says how sure the model is of the letter it picked, not whether
+  your text belongs to any of the labels. It is not out-of-distribution
+  detection: a well-formed sentence that fits none of your categories can still
+  score 1.0. If you need an escape hatch, add a label such as "none" and the
+  classifier will use it. That works; thresholding on confidence does not.
 
 
 TIERS
