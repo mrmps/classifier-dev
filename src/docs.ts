@@ -74,12 +74,15 @@ EXAMPLES
 
 PARAMETERS
 
-  labels        Two to twenty-six categories, required.
+  labels        Two to twenty-six categories, or up to a hundred in multi-label
+                mode. Required.
   input         The text to classify, up to roughly 8,000 tokens.
   inputs        Up to twenty strings classified in a single call.
   tier          Either fast (the default) or smart.
   instructions  Extra criteria, such as "judge the reviewer's overall verdict".
   verbose       On GET requests, ?verbose=1 returns JSON instead of a bare label.
+  multi         Return every category that applies instead of just one.
+  max_labels    Cap how many multi-label answers come back.
 
   JSON responses carry a confidence between 0 and 1 and a per-label score map.
   Both can be null for two opposite reasons, so read the unscored field to tell
@@ -99,6 +102,34 @@ PARAMETERS
   detection: a well-formed sentence that fits none of your categories can still
   score 1.0. If you need an escape hatch, add a label such as "none" and the
   classifier will use it. That works; thresholding on confidence does not.
+
+
+MULTI-LABEL
+
+  One article, fifty tags, the ten that fit:
+
+    curl classifier.dev -d '{"input":"...","labels":["ml","databases",...],
+                             "multi":true,"max_labels":10}'
+    {"results":[{"labels":["databases","serverless","rust","caching", ...]}]}
+
+  On GET, add ?multi=1 and the labels come back one per line.
+
+  Passing more than 26 labels turns this on by itself, because a single-label
+  answer is one letter and there are only 26 of them. You do not have to ask.
+
+  Under the hood the label set is swept in small groups, concurrently, and then
+  the survivors are re-judged in one pass with all of them finally in view. The
+  sweep alone finds nearly everything but over-selects, since no group can see
+  what the others found; the second pass is what buys back precision. Measured
+  on a seven-task set, that pass moved F1 from 0.761 to 0.800.
+
+  tier=smart is worth it here, far more than it is for single labels: F1 0.87
+  against 0.78, at around twelve seconds instead of one and a half. Only the
+  second pass runs on the smart model — the sweep stays cheap, which scores the
+  same as running smart throughout and takes a little over half as long.
+
+  Multi-label answers carry no confidence. A score describes one token, and a
+  list is not one token.
 
 
 TIERS

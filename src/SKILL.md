@@ -63,6 +63,32 @@ Fan out several calls in parallel for more.
 Labels are read semantically, so name them in words: `urgent bug` classifies
 better than `p0`.
 
+## Many labels at once
+
+To tag rather than sort — an article against fifty topics, a ticket against every
+subsystem it touches — ask for every label that applies:
+
+    curl https://classifier.dev -d '{
+      "input": "...",
+      "labels": ["machine learning", "databases", "... up to 100 ..."],
+      "multi": true,
+      "max_labels": 10
+    }'
+
+Results carry `labels` (an array) instead of `label`. On GET, add `?multi=1` and
+they come back one per line. Passing more than 26 labels switches this on by
+itself, so you do not have to remember the flag.
+
+**Use `tier: "smart"` when you care about the answer.** It matters far more here
+than for single labels — measured F1 0.87 against 0.78 on a seven-task set — at
+roughly 12s instead of 1.5s. For tagging, that trade is usually right.
+
+`max_labels` is worth setting when you want the *best* N rather than everything
+plausible: on the fifty-tag article it took precision to 1.00.
+
+Multi-label answers carry no confidence — a score describes a single token, and
+a list of labels is not a single token.
+
 ## Two things that will bite you
 
 **1. Every call returns one of your labels, always.** There is no "none of the

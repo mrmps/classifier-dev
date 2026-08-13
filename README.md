@@ -40,6 +40,42 @@ no `SELECT DISTINCT`, and a bare `SELECT col ... GROUP BY col` is rejected.
 Distinct counts therefore use `SELECT col, count() ... GROUP BY col` and count
 the returned rows. Each query is isolated so one failure cannot blank the report.
 
+## Multi-label
+
+`multi: true` returns every label that applies, up to 100 of them, and switches
+on by itself past 26 — a single-label answer rides on one letter token, which is
+exactly why 26 was ever the cap.
+
+Asked to pick from fifty categories at once, the small model returns the ten most
+*salient* rather than every one that *applies*: it dropped topics the text named
+outright while inventing one it never mentioned. So the label set is swept in
+groups of twelve, concurrently, and the survivors are re-judged in a single pass
+with all of them finally in view.
+
+Each stage fixes what the other breaks. The sweep alone reaches recall 0.90 but
+precision 0.71, because no group can see what the others found. The second pass
+pulls precision to 0.90. Measured on a seven-task set:
+
+| configuration                | P    | R    | F1    | latency |
+| ---------------------------- | ---- | ---- | ----- | ------- |
+| single call, all 50 labels   | 0.79 | 0.62 | 0.686 | 0.7s    |
+| sweep only, no second pass   | 0.71 | 0.90 | 0.761 | 0.7s    |
+| sweep + second pass (fast)   | 0.90 | 0.69 | 0.777 | 1.4s    |
+| sweep + second pass (smart)  | 0.87 | 0.89 | 0.868 | 12s     |
+
+Two approaches were tried and rejected. Judging each survivor alone as a yes/no
+question scored 0.612 — isolating a label throws away the comparison that makes
+the call, even though it is the textbook one-vs-rest method. And a deliberately
+strict pruning prompt scored 0.556, dropping topics the text stated plainly.
+
+`tier: "smart"` runs only the second pass on the smart model; the sweep stays
+cheap. That measured the same as running smart throughout (0.868 vs 0.879) in
+a little over half the time, so the split is strictly better.
+
+Reasoning models need their full token budget in this mode. Capping them to the
+tight multi-label allowance spends it on reasoning before any answer is emitted,
+and the response comes back empty — which is exactly how it failed the first time.
+
 ## Rate limiting
 
 Per IP, per minute, in a Durable Object: 60 fast, 10 smart.
