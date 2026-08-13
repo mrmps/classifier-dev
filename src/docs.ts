@@ -75,7 +75,7 @@ PRIVACY
   which is what makes the usage counts on this service possible.
 
 
-Built by @micheal_chomsky — https://x.com/micheal_chomsky
+Built by @michael_chomsky — https://x.com/michael_chomsky
 `;
 
 export const BENCHMARK = `classifier.dev/benchmark
@@ -155,5 +155,5 @@ If you want help measuring your own data, the offer of a call stands:
 https://cal.com/michaelsf/coffee
 
 
-Built by @micheal_chomsky — https://x.com/micheal_chomsky
+Built by @michael_chomsky — https://x.com/michael_chomsky
 `;
