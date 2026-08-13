@@ -163,8 +163,17 @@ export const OPENAPI = {
         type: "object",
         properties: {
           label: { type: "string" },
-          confidence: { type: ["number", "null"], description: "0 to 1. Null when the model returns no logprobs." },
+          confidence: {
+            type: ["number", "null"],
+            description:
+              "0 to 1. How sure the model is of the label it picked, NOT whether the text fits any label \u2014 a well-formed sentence matching none of your categories can still score 1.0. Null either because the provider returned no logprobs (certainty high) or because the score was withheld; see unscored. For a real 'no fit' answer, add a label such as 'none'.",
+          },
           scores: { type: ["object", "null"], additionalProperties: { type: "number" } },
+          unscored: {
+            type: "string",
+            description:
+              "Present only when confidence and scores were withheld because the input does not read as natural language. Treat the label as unreliable.",
+          },
           ms: { type: "integer" },
           tier: { type: "string" },
           model: { type: "string" },
@@ -183,6 +192,7 @@ export const OPENAPI = {
                 label: { type: "string" },
                 confidence: { type: ["number", "null"] },
                 scores: { type: ["object", "null"], additionalProperties: { type: "number" } },
+                unscored: { type: "string" },
                 ms: { type: "integer" },
               },
             },
