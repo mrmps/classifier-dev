@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "bun run test/unintelligible.test.ts"
+    "test": "bun run test/unintelligible.test.ts",
+    "eval": "cd eval && python3 run.py"
   },
   "keywords": [],
   "author": "",
