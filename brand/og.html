@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background: #0b0b0c;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 96px;
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    color: #ededf0;
+    position: relative;
+  }
+  /* the mark: three label scores, one winning — what the API actually returns */
+  .mark { display: flex; flex-direction: column; gap: 9px; margin-bottom: 52px; }
+  .bar { height: 13px; border-radius: 7px; background: #2a2a30; }
+  .bar.win { width: 188px; background: #4dbba1; }
+  .bar.b   { width: 96px; }
+  .bar.c   { width: 52px; }
+
+  h1 { font-size: 92px; letter-spacing: -0.045em; font-weight: 600; line-height: 1; }
+  h1 .dot { color: #4dbba1; }
+  p { margin-top: 30px; font-size: 30px; color: #9a9aa4; letter-spacing: -0.015em; line-height: 1.35; }
+  .foot {
+    position: absolute; left: 96px; bottom: 60px;
+    font-size: 23px; color: #6a6a74; letter-spacing: -0.01em;
+  }
+  .foot b { color: #b6b6c0; font-weight: 500; }
+</style></head>
+<body>
+  <div class="mark">
+    <div class="bar win"></div>
+    <div class="bar b"></div>
+    <div class="bar c"></div>
+  </div>
+  <h1>classifier<span class="dot">.dev</span></h1>
+  <p>Zero-shot text classification over plain HTTP.</p>
+  <div class="foot"><b>curl classifier.dev/spam,not+spam/Win+a+free+iPhone</b> &nbsp;→&nbsp; spam</div>
+</body>
+</html>

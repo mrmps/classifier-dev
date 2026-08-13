@@ -39,6 +39,11 @@ PARAMETERS
   instructions  Extra criteria, such as "judge the reviewer's overall verdict".
   verbose       On GET requests, ?verbose=1 returns JSON instead of a bare label.
 
+  JSON responses carry a confidence between 0 and 1 and a per-label score map.
+  Both are occasionally null: when the model is so certain that the upstream
+  probability rounds to exactly one, the provider omits the distribution
+  entirely. A null confidence means very high certainty, not low.
+
 
 TIERS
 
@@ -53,6 +58,14 @@ TIERS
   Most classification tasks saturate, meaning every model lands above 95% and
   paying more buys nothing, so start on fast and only move up if you measure a
   reason to. The full numbers are at https://classifier.dev/benchmark
+
+  Measured on the live API: binary sentiment 95%, four-way news topic 88%, and
+  documents up to about 4,000 tokens hold accuracy. Two things degrade it.
+  Fine-grained sets where the categories overlap are much harder — six-way
+  emotion scored 52% on fast and 61% on smart, because sadness, fear and anger
+  genuinely blur. And accuracy starts slipping near the input ceiling, from 95%
+  at 4,000 tokens to 75% at 7,500. Prefer distinct labels, and trim long inputs
+  to the part that carries the signal.
 
 
 LIMITS
