@@ -52,11 +52,13 @@ TIERS
 
 LIMITS
 
-  Requests are limited per IP address: 60 per minute on the fast tier and 10 per
-  minute on the smart tier. A batch counts as one request no matter how many
-  inputs it carries, so batching is the cheapest way to go faster.
+  Limits are counted per IP address in classifications, not in requests, so a
+  batch of twenty inputs spends twenty of them. The fast tier allows 60 per
+  minute and 5,000 per day; the smart tier allows 10 per minute and 500 per day.
 
-  Each input is capped at about 8,000 tokens and each request at twenty inputs.
+  Each input is capped at about 8,000 tokens, and a single request may carry at
+  most twenty inputs. Batching is still worth doing because twenty inputs in one
+  request is far faster than twenty round trips.
 
   Every response carries an X-RateLimit-Limit header and, where it can be
   determined, X-RateLimit-Remaining. Exceeding a limit returns 429 with a

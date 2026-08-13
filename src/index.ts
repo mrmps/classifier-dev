@@ -19,8 +19,8 @@ const MAX_INPUTS = 20;
 const MAX_CHARS = 32_000;
 
 const TIERS = {
-  fast: { model: "inclusionai/ling-2.6-flash", provider: "Novita", maxTokens: 1, reasoning: false, rpm: 60 },
-  smart: { model: "qwen/qwen3.7-flash", provider: "Alibaba", maxTokens: 2000, reasoning: true, rpm: 10 },
+  fast: { model: "inclusionai/ling-2.6-flash", provider: "Novita", maxTokens: 1, reasoning: false, rpm: 60, daily: 5000 },
+  smart: { model: "qwen/qwen3.7-flash", provider: "Alibaba", maxTokens: 2000, reasoning: true, rpm: 10, daily: 500 },
 } as const;
 type Tier = keyof typeof TIERS;
 
@@ -203,9 +203,14 @@ async function limited(env: Env, tier: Tier, ip: string, cost: number) {
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
     const res = await env.LIMITER.get(id).fetch(
-      `https://limiter/?limit=${rpm}&cost=${cost}`,
+      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily}&cost=${cost}`,
     );
-    return (await res.json()) as { limited: boolean; remaining: number; resetIn?: number };
+    return (await res.json()) as {
+      limited: boolean;
+      remaining: number;
+      scope?: "minute" | "day";
+      resetIn?: number;
+    };
   } catch {
     // Never fail closed because the limiter had a bad moment.
     return { limited: false, remaining: -1 };
@@ -290,10 +295,17 @@ export default {
     const gate = await limited(env, tier, ip, inputs.length);
     if (gate.limited) {
       record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 429 });
+      const perDay = gate.scope === "day";
       return fail(
-        `Rate limit: ${rpm} ${tier} requests/minute per IP. Need more? https://cal.com/michaelsf/coffee`,
+        perDay
+          ? `Daily limit reached: ${TIERS[tier].daily} ${tier} classifications per IP per day. Need more? https://cal.com/michaelsf/coffee`
+          : `Rate limit: ${rpm} ${tier} classifications/minute per IP. Need more? https://cal.com/michaelsf/coffee`,
         429,
-        { "retry-after": "60", "x-ratelimit-limit": `${rpm}/min`, "x-ratelimit-remaining": "0" },
+        {
+          "retry-after": String(gate.resetIn ?? 60),
+          "x-ratelimit-limit": perDay ? `${TIERS[tier].daily}/day` : `${rpm}/min`,
+          "x-ratelimit-remaining": "0",
+        },
       );
     }
 
