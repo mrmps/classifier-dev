@@ -1,4 +1,5 @@
 import { DOCS, BENCHMARK } from "./docs";
+import { OPENAPI, LLMS_TXT } from "./openapi";
 import { dailyReport } from "./report";
 export { RateLimiter } from "./limiter";
 
@@ -228,7 +229,17 @@ export default {
     const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
     if (req.method === "GET" && (path === "" || path === "index.html")) return text(DOCS);
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) return text(BENCHMARK);
-    if (path === "robots.txt") return text("User-agent: *\nAllow: /\n");
+    if (path === "robots.txt") {
+      return text("User-agent: *\nAllow: /\n\nSitemap: https://classifier.dev/llms.txt\n");
+    }
+    // Machine-readable surfaces. /openapi.json is the conventional location;
+    // /.well-known/ and /llms.txt are where agents increasingly look first.
+    if (path === "openapi.json" || path === ".well-known/openapi.json") {
+      return json(OPENAPI, 200, { "cache-control": "public, max-age=3600" });
+    }
+    if (path === "llms.txt" || path === ".well-known/llms.txt") {
+      return text(LLMS_TXT, 200, { "cache-control": "public, max-age=3600" });
+    }
     // Preview the daily digest on demand (also proves the cron path works).
     if (req.method === "GET" && path === "report") {
       if (!env.REPORT_KEY || url.searchParams.get("key") !== env.REPORT_KEY) {
