@@ -1,0 +1,29 @@
+name = "classifier-dev"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+account_id = "0f43966d80a42e1f8038d48af053400d"
+
+# Daily digest at 15:00 UTC (08:00 PT)
+[triggers]
+crons = ["0 15 * * *"]
+
+[[kv_namespaces]]
+binding = "STATS"
+id = "c54bfb85afc64eff90484c267a2004c1"
+
+[[analytics_engine_datasets]]
+binding = "AE"
+dataset = "classifier_events"
+
+
+[vars]
+CLOUDFLARE_ACCOUNT_ID = "0f43966d80a42e1f8038d48af053400d"
+REPORT_TO = "miryaboy@gmail.com"
+
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
