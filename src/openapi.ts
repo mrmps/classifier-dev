@@ -237,8 +237,26 @@ JSON:
 
     curl https://classifier.dev -d '{"input":"...","labels":["a","b"]}'
 
+## When an agent should call this
+
+You can already classify text you can see. Call this when reading the input is
+the expensive part: filtering search results before opening them, pre-filtering
+before expensive reasoning, bucketing logs or tickets nobody reads line by line,
+or routing a pipeline branch deterministically. The thread joining those is
+classifying many things without pulling them into context. Under about five
+items, just decide yourself.
+
+## Install as an agent skill
+
+    npx skills add https://classifier.dev
+
+Served from this domain via RFC 8615 discovery, no repository involved:
+[/.well-known/agent-skills/index.json](https://classifier.dev/.well-known/agent-skills/index.json)
+and [/skill.md](https://classifier.dev/skill.md), which is readable as-is.
+
 ## Docs
 
+- [Skill](https://classifier.dev/skill.md): when to reach for this, batching, pitfalls
 - [Documentation](https://classifier.dev): full parameter list, tiers, limits
 - [OpenAPI specification](https://classifier.dev/openapi.json): machine-readable, OpenAPI 3.1
 - [Benchmark](https://classifier.dev/benchmark): measured accuracy, cost and latency

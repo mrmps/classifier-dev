@@ -1,4 +1,5 @@
 import { isUnintelligible, UNSCORED_REASON } from "./unintelligible";
+import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
@@ -292,6 +293,20 @@ export default {
     }
     // Machine-readable surfaces. /openapi.json is the conventional location;
     // /.well-known/ and /llms.txt are where agents increasingly look first.
+    // Agent Skills discovery (RFC 8615). Lets `npx skills add https://classifier.dev`
+    // install the skill straight from here, with no repository in the middle.
+    // The legacy path is served too because the CLI falls back to it.
+    if (
+      path === ".well-known/agent-skills/index.json" ||
+      path === ".well-known/skills/index.json"
+    ) {
+      return json(await skillIndex(new URL(req.url).origin));
+    }
+    if (path === "skill.md" || path === "SKILL.md") {
+      return new Response(SKILL_MD, {
+        headers: { "content-type": "text/markdown; charset=utf-8", ...CORS },
+      });
+    }
     if (path === "openapi.json" || path === ".well-known/openapi.json") {
       return json(OPENAPI, 200, { "cache-control": "public, max-age=3600" });
     }
