@@ -20,9 +20,31 @@ const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const MAX_INPUTS = 20;
 const MAX_CHARS = 32_000;
 
+/**
+ * Each tier is a chain, not a single model. The primary is the cheapest thing
+ * that clears the accuracy bar; the fallback is on a *different* provider so a
+ * provider-side outage cannot take the tier down. Measured failure rate on the
+ * primary alone was about 15%, and ling-2.6-flash is served by exactly one
+ * provider, so retries against it could not help.
+ */
 const TIERS = {
-  fast: { model: "inclusionai/ling-2.6-flash", provider: "Novita", maxTokens: 1, reasoning: false, rpm: 60, daily: 5000 },
-  smart: { model: "qwen/qwen3.7-flash", provider: "Alibaba", maxTokens: 2000, reasoning: true, rpm: 10, daily: 500 },
+  fast: {
+    rpm: 60,
+    daily: 5000,
+    chain: [
+      { model: "inclusionai/ling-2.6-flash", provider: "Novita", maxTokens: 1, reasoning: false },
+      { model: "ibm-granite/granite-4.0-h-micro", provider: "Cloudflare", maxTokens: 1, reasoning: false },
+      { model: "mistralai/mistral-nemo", provider: "DeepInfra", maxTokens: 1, reasoning: false },
+    ],
+  },
+  smart: {
+    rpm: 10,
+    daily: 500,
+    chain: [
+      { model: "qwen/qwen3.7-flash", provider: "Alibaba", maxTokens: 2000, reasoning: true },
+      { model: "deepseek/deepseek-v4-flash-0731", provider: undefined, maxTokens: 2000, reasoning: true },
+    ],
+  },
 } as const;
 type Tier = keyof typeof TIERS;
 
@@ -80,14 +102,15 @@ function parseLetter(s: string, n: number) {
   return null;
 }
 
-async function classifyOne(
+type ModelCfg = { model: string; provider?: string; maxTokens: number; reasoning: boolean };
+
+async function callModel(
   env: Env,
+  cfg: ModelCfg,
   input: string,
   labels: string[],
-  tier: Tier,
   instructions?: string,
 ) {
-  const cfg = TIERS[tier];
   const body: Record<string, unknown> = {
     model: cfg.model,
     provider: { only: [cfg.provider], allow_fallbacks: false },
@@ -138,13 +161,33 @@ async function classifyOne(
         confidence: scores ? Number(Math.max(...Object.values(scores)).toFixed(4)) : null,
         scores,
         ms: Date.now() - started,
+        model: cfg.model,
       };
     }
     last = payload.error?.message ?? `upstream ${res.status}`;
-    if (!/429|rate|timeout|50\d|Provider returned error/i.test(last)) break;
-    await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
+    if (!/429|rate|timeout|50\d|Provider returned error|overload/i.test(last)) break;
+    await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
   }
   throw new Error(last || "upstream failure");
+}
+
+/** Walk the tier's chain; the first model that answers wins. */
+async function classifyOne(
+  env: Env,
+  input: string,
+  labels: string[],
+  tier: Tier,
+  instructions?: string,
+) {
+  let last: unknown;
+  for (const cfg of TIERS[tier].chain) {
+    try {
+      return await callModel(env, cfg as ModelCfg, input, labels, instructions);
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last instanceof Error ? last : new Error("all models failed");
 }
 
 async function classifyMany(
@@ -363,13 +406,13 @@ export default {
       return text(results.map((r) => r.label).join("\n") + "\n", 200, headers);
     }
     if (req.method === "GET") {
-      return json({ ...results[0], tier, model: TIERS[tier].model }, 200, headers);
+      return json({ ...results[0], tier }, 200, headers);
     }
     return json(
       {
         tier,
-        model: TIERS[tier].model,
-        results: results.map((r) => ({ label: r.label, confidence: r.confidence, scores: r.scores, ms: r.ms })),
+        model: results[0]?.model,
+        results: results.map((r) => ({ label: r.label, confidence: r.confidence, scores: r.scores, ms: r.ms, model: r.model })),
         usage: { classifications: results.length, ms },
       },
       200,

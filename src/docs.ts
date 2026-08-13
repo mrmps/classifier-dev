@@ -55,6 +55,11 @@ TIERS
   around 2.4 seconds. It scored 80.0% on ANLI R3, where the frontier model
   gpt-5.6-sol scored 79.2% at eleven times the price.
 
+  Each tier is a chain rather than a single model. If the primary provider errors,
+  the request falls through to a second model on a different provider, so a
+  provider-side outage degrades accuracy slightly instead of failing the call.
+  JSON responses report which model actually answered.
+
   Most classification tasks saturate, meaning every model lands above 95% and
   paying more buys nothing, so start on fast and only move up if you measure a
   reason to. The full numbers are at https://classifier.dev/benchmark
