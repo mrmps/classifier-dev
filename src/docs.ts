@@ -1,4 +1,8 @@
-export const DOCS = `classifier.dev — zero-shot text classification. No key. No signup.
+export const DOCS = `classifier.dev
+
+Zero-shot text classification over plain HTTP. You send text and a list of
+labels, you get back the label that fits. There is no API key to obtain and no
+account to create, so the example below works if you paste it right now.
 
 
 USAGE
@@ -18,60 +22,71 @@ EXAMPLES
   curl "classifier.dev/entailment,neutral,contradiction/Only+12+of+40+sites+were+inspected.+Every+site+was+inspected.?tier=smart"
   contradiction
 
+  Spaces can be written as + or %20, and labels are separated by commas.
+
 
 PARAMETERS
 
-  labels        2-26 categories. Required.
-  input         text, up to ~8000 tokens
-  inputs        up to 20 strings, classified in one call
-  tier          fast (default) | smart
-  instructions  extra criteria, e.g. "judge the reviewer's verdict, not the plot"
-  verbose       GET only: append ?verbose=1 for JSON instead of a bare label
+  labels        Two to twenty-six categories, required.
+  input         The text to classify, up to roughly 8,000 tokens.
+  inputs        Up to twenty strings classified in a single call.
+  tier          Either fast (the default) or smart.
+  instructions  Extra criteria, such as "judge the reviewer's overall verdict".
+  verbose       On GET requests, ?verbose=1 returns JSON instead of a bare label.
 
 
 TIERS
 
-  fast   ling-2.6-flash, one output token, ~450ms p50
-         97.1% on 1k-token article sentiment; beat gpt-4o-mini at 1/15th the cost
+  The fast tier runs ling-2.6-flash and emits a single token, so it answers in
+  about 450ms. It scored 97.1% on 1k-token article sentiment, beating gpt-4o-mini
+  at roughly a fifteenth of the cost.
 
-  smart  qwen3.7-flash with native reasoning, ~2.4s
-         80.0% on ANLI R3 — frontier gpt-5.6-sol scores 79.2% at 11x the price
+  The smart tier runs qwen3.7-flash with its native reasoning enabled and takes
+  around 2.4 seconds. It scored 80.0% on ANLI R3, where the frontier model
+  gpt-5.6-sol scored 79.2% at eleven times the price.
 
-  Most tasks saturate: every model scores 95%+ and paying more buys nothing.
-  Use fast until you measure otherwise. Full numbers: classifier.dev/benchmark
-
-
-RATE LIMITS   per IP, no key required
-
-  fast    60 requests / minute
-  smart   10 requests / minute
-  batch   20 inputs per request, each counts as one classification
-
-  Every response carries X-RateLimit-Limit. A 429 carries Retry-After.
-  Nothing is throttled silently and nothing is queued.
-
-  Need more, a private deployment, or a task-specific classifier?
-  https://cal.com/michaelsf/coffee
+  Most classification tasks saturate, meaning every model lands above 95% and
+  paying more buys nothing, so start on fast and only move up if you measure a
+  reason to. The full numbers are at https://classifier.dev/benchmark
 
 
-NOTES
+LIMITS
 
-  Free while in beta. No logging of your text — only counts, label names,
-  latency and tier. Deleted after 30 days.
+  Requests are limited per IP address: 60 per minute on the fast tier and 10 per
+  minute on the smart tier. A batch counts as one request no matter how many
+  inputs it carries, so batching is the cheapest way to go faster.
 
-  Labels are semantic: "urgent bug" classifies better than "p0".
-  Order does not matter. 2-26 labels.
+  Each input is capped at about 8,000 tokens and each request at twenty inputs.
 
-  Built by smry.ai
+  Every response carries an X-RateLimit-Limit header and, where it can be
+  determined, X-RateLimit-Remaining. Exceeding a limit returns 429 with a
+  Retry-After header rather than a slow or silently dropped request.
+
+  If you need more than this, or you want a classifier tuned to your own data,
+  the fastest path is a short call: https://cal.com/michaelsf/coffee
+
+
+PRIVACY
+
+  The text you send is never stored or logged. What gets recorded is the label
+  names, which tier ran, the latency, the response status and a coarse country,
+  which is what makes the usage counts on this service possible.
+
+
+Built by @micheal_chomsky — https://x.com/micheal_chomsky
 `;
 
-export const BENCHMARK = `classifier.dev/benchmark — measured, not quoted.
+export const BENCHMARK = `classifier.dev/benchmark
 
-Every number is a real run against the live API with billed cost from
-OpenRouter usage accounting. Dated 2026-08-12.
+Every number here comes from a real run against the live API, with cost taken
+from OpenRouter usage accounting rather than a price list. Measured 2026-08-12.
 
 
-HARD TASKS   ANLI R3 (3-class, adversarial, chance 33%) and WiC (binary, chance 50%)
+HARD TASKS
+
+ANLI R3 is three-class natural language inference collected adversarially
+against models, so chance is 33% and there is real headroom. WiC is binary word
+sense disambiguation, where chance is 50%.
 
   model                         ANLI    WiC    $/1M calls   p50
   ------------------------------------------------------------------
@@ -81,11 +96,14 @@ HARD TASKS   ANLI R3 (3-class, adversarial, chance 33%) and WiC (binary, chance 
   gpt-oss-120b (low)            72.5%   74.0%   $48         645ms
   classifier-fast               60.8%   67.0%   $2          452ms
 
-  n=120 (ANLI) and n=100 (WiC), so roughly +/-9 points. Treat smart and
-  frontier as parity, not a ranking.
+With 120 ANLI items and 100 WiC items the noise band is roughly nine points, so
+the smart tier and the frontier model should be read as parity rather than as a
+ranking.
 
 
-SATURATED TASKS   1k-token article sentiment, n=140
+SATURATED TASKS
+
+1k-token article sentiment, 140 items.
 
   model                  accuracy   $/1M calls   p50
   ---------------------------------------------------
@@ -95,23 +113,25 @@ SATURATED TASKS   1k-token article sentiment, n=140
   gpt-4o-mini             95.0%      $143.44     408ms
   gemini-2.5-flash-lite   94.9%      $96.29      251ms
 
-  This is why the default is fast. On tasks like this, 14x the price
-  bought two points less accuracy.
+This is why the default is the fast tier. On a task like this, paying fourteen
+times more returned two points less accuracy.
 
 
-WHAT MOVED THE NUMBERS
+WHAT ACTUALLY MOVED THE NUMBERS
 
-  +15 pts   enabling a model's native reasoning (60.8% -> 75.8% on ANLI)
+  +15 pts   turning on a model's native reasoning (60.8% to 75.8% on ANLI)
   -15 pts   prompting chain-of-thought into a model not trained to reason
    +4 pts   few-shot examples
-   -3 pts   naive batching without per-item keys in the output
-    0 pts   trimming an 830-token rubric to 30 tokens (saved 25% of cost, free)
+   -3 pts   batching without per-item keys in the output
+    0 pts   cutting an 830-token rubric to 30 tokens, which saved 25% of cost
 
-  Reasoning is a model property, not a prompt. That is the whole difference
-  between the two tiers.
+Reasoning turns out to be a property of the model rather than of the prompt,
+and that difference is the entire reason there are two tiers.
 
 
-THROUGHPUT   classifier-fast, 1k-token inputs
+THROUGHPUT
+
+The fast tier on 1k-token inputs, measured at increasing concurrency.
 
   concurrency   req/s   p50    errors
   ----------------------------------
@@ -120,14 +140,18 @@ THROUGHPUT   classifier-fast, 1k-token inputs
   32            49.7    472ms  0
   64            64.2    495ms  0
 
-  Scales close to linearly with no latency penalty.
+Throughput scales close to linearly with almost no latency penalty.
 
 
 CAVEATS
 
-  Public benchmarks are likely in training data, so absolute accuracy is
-  optimistic. Use these to rank, not to predict your task.
+Public benchmarks are likely present in training data, so treat these accuracy
+figures as optimistic and use them to rank models rather than to predict what
+you will see on your own task.
 
-  Measure on your own data. If you want help doing that:
-  https://cal.com/michaelsf/coffee
+If you want help measuring your own data, the offer of a call stands:
+https://cal.com/michaelsf/coffee
+
+
+Built by @micheal_chomsky — https://x.com/micheal_chomsky
 `;

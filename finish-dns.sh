@@ -30,11 +30,13 @@ NS=$(echo "$ZONE" | python3 -c "import json,sys; print(' '.join(json.load(sys.st
 echo "==> cloudflare nameservers: $NS"
 
 echo "==> pointing porkbun at cloudflare"
-NS_JSON=$(python3 -c "
-import json,os
-ns=os.environ['NS'].split()
-print(json.dumps({'apikey':os.environ['PORKBUN_API_KEY'],'secretapikey':os.environ['PORKBUN_SECRET_KEY'],'ns':ns}))
-" NS="$NS")
+NS_JSON=$(NS="$NS" python3 -c "
+import json, os
+print(json.dumps({
+    'apikey': os.environ['PORKBUN_API_KEY'],
+    'secretapikey': os.environ['PORKBUN_SECRET_KEY'],
+    'ns': os.environ['NS'].split(),
+}))")
 curl -s "https://api.porkbun.com/api/json/v3/domain/updateNs/$DOMAIN" \
   -H "Content-Type: application/json" -d "$NS_JSON" | head -c 200; echo
 
