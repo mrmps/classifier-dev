@@ -62,3 +62,25 @@ token here has `zone.create`, so that one step is manual:
 1. https://dash.cloudflare.com -> Add a domain -> `classifier.dev` -> Free plan
 2. `./finish-dns.sh` — reads the assigned nameservers, points Porkbun at them
    via the Porkbun API, and attaches the Worker to the apex and `www`.
+
+## Discovery surfaces
+
+    GET /openapi.json               OpenAPI 3.1, also at /.well-known/openapi.json
+    GET /llms.txt                   short index for agents, linked from robots.txt
+    GET /benchmark                  measured accuracy, cost, latency
+
+Both are linked from the third paragraph of `GET /` so an agent reading the
+landing page finds them immediately.
+
+## Known issue: Cloudflare's managed robots.txt
+
+Adding the zone enabled Cloudflare AI Crawl Control, which prepends a managed
+block to `/robots.txt` disallowing GPTBot, ClaudeBot, CCBot, Google-Extended,
+Bytespider, Amazonbot and meta-externalagent. The Worker's own robots.txt is
+appended after it and cannot override it.
+
+This blocks *training* crawlers, not runtime API consumers — any agent can still
+call the API. But it does keep the docs out of future model training data, which
+works against discovery. The toggles at
+dash.cloudflare.com -> classifier.dev -> AI Crawl Control -> Security did not
+persist when flipped, so this likely needs a plan-level change or support.

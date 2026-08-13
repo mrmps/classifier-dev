@@ -5,6 +5,11 @@ labels, you get back the label that fits. There is no API key to obtain and no
 account to create, so the example below works if you paste it right now.
 
 
+If you are an agent or a code generator, the machine-readable description of
+this API lives at https://classifier.dev/openapi.json (OpenAPI 3.1), with a
+short index at https://classifier.dev/llms.txt
+
+
 USAGE
 
   GET  https://classifier.dev/{labels}/{text}

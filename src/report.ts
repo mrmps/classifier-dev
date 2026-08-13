@@ -1,6 +1,7 @@
 import type { Env } from "./index";
 
 const DATASET = "classifier_events";
+const WINDOW_HOURS = 8; // three reports a day
 
 /**
  * Daily digest. Reads Cloudflare Analytics Engine over its SQL API — nothing to
@@ -27,7 +28,7 @@ const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);
 export async function dailyReport(env: Env, opts: { send?: boolean } = { send: true }) {
   const lines: string[] = [];
   const today = new Date().toISOString().slice(0, 10);
-  lines.push(`classifier.dev — ${today}`, "");
+  lines.push(`classifier.dev — last ${WINDOW_HOURS}h — ${today}`, "");
 
   let totals: Record<string, unknown>[] = [];
   let byTier: Record<string, unknown>[] = [];
@@ -42,7 +43,7 @@ export async function dailyReport(env: Env, opts: { send?: boolean } = { send: t
   // Cloudflare's Analytics Engine SQL is a narrow ClickHouse subset: no uniq(),
   // no SELECT DISTINCT. Distinct counts come from GROUP BY row counts. Each
   // query is isolated so one unsupported feature cannot blank the whole report.
-  const since = "toDateTime(now()) - INTERVAL '1' DAY";
+  const since = `toDateTime(now()) - INTERVAL '${WINDOW_HOURS}' HOUR`;
   const q = async <T>(query: string, fallback: T, use: (rows: Record<string, unknown>[]) => T): Promise<T> => {
     try {
       return use(await sql(env, query));
@@ -97,7 +98,7 @@ export async function dailyReport(env: Env, opts: { send?: boolean } = { send: t
   const requests = num(t.requests);
   const classifications = num(t.classifications);
 
-  lines.push("LAST 24 HOURS");
+  lines.push(`LAST ${WINDOW_HOURS} HOURS`);
   lines.push(`  requests         ${requests}`);
   lines.push(`  classifications  ${classifications}`);
   lines.push(`  unique visitors  ${visitors}`);
@@ -151,11 +152,33 @@ export async function dailyReport(env: Env, opts: { send?: boolean } = { send: t
 
   lines.push("https://classifier.dev  ·  https://classifier.dev/benchmark");
 
+  // Compare against the previous window so the subject can show direction.
+  let prev = 0;
+  try {
+    prev = Number((await env.STATS.get("last:requests")) ?? "0");
+    await env.STATS.put("last:requests", String(requests));
+  } catch {
+    /* ignore */
+  }
+  const arrow = prev === 0 ? (requests > 0 ? "+" : "") : requests > prev ? "▲" : requests < prev ? "▼" : "=";
+  const errCount = errors.reduce((a, r) => a + num(r.n), 0);
+
   const body = lines.join("\n");
+
+  // The subject is the report. Reading it in a notification should be enough.
   const subject =
-    requests > 0
-      ? `classifier.dev — ${requests} req, ${visitors} visitors, ${classifiers} classifiers`
-      : `classifier.dev — quiet day`;
+    requests === 0
+      ? `classifier.dev · quiet · 0 req/${WINDOW_HOURS}h`
+      : [
+          "classifier.dev ·",
+          errCount ? `⚠${errCount} err ·` : "",
+          `${arrow}${requests} req ·`,
+          `${visitors} ppl ·`,
+          `${classifiers} labelsets ·`,
+          `${Math.round(num(t.avg_ms))}ms`,
+        ]
+          .filter(Boolean)
+          .join(" ");
 
   if (opts.send === false) return body + "\n\n(preview only — not emailed)";
 

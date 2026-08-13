@@ -3,9 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2026-08-01"
 account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
 
-# Daily digest at 15:00 UTC (08:00 PT)
+# Three digests a day: 08:00, 14:00 and 20:00 Pacific
 [triggers]
-crons = ["0 15 * * *"]
+crons = ["0 15 * * *", "0 21 * * *", "0 3 * * *"]
 
 [[kv_namespaces]]
 binding = "STATS"
