@@ -10,6 +10,48 @@ this API lives at https://classifier.dev/openapi.json (OpenAPI 3.1), with a
 short index at https://classifier.dev/llms.txt
 
 
+WHEN THIS IS WORTH A NETWORK CALL
+
+  If you are a language model, you can already classify any text you can see,
+  for free. So the question is never "can I classify this" — it is whether you
+  want the text in your context at all.
+
+  This is worth calling when reading the input is the expensive part:
+
+  Filtering before reading. You have forty search results and want the six worth
+  opening. Judging them yourself means pulling all forty into context first,
+  which is the cost you were trying to avoid. One batch call returns forty
+  labels and you read only the survivors.
+
+  Cascade pre-filtering. Drop the obvious no's cheaply, then spend real
+  reasoning on what is left.
+
+  Streams nobody reads line by line. Log lines, error buckets, inbound tickets,
+  the changed files in a large diff.
+
+  Deterministic routing. A pipeline branch that must take the same path for the
+  same input on every run, instead of drifting with a model's reasoning.
+
+  The thread joining those: classify ten thousand things without reading them
+  yourself. Below about five items, skip it — you have already paid the context
+  cost, so just decide.
+
+
+AGENT SKILL
+
+  Install this as a skill and your agent will remember to reach for it:
+
+    npx skills add https://classifier.dev
+
+  It is served straight from this domain over RFC 8615 well-known discovery,
+  so there is no repository in the middle:
+
+    /.well-known/agent-skills/index.json   the discovery document
+    /skill.md                              the skill itself, readable as-is
+
+  Agents without a skills runtime can simply fetch /skill.md and follow it.
+
+
 USAGE
 
   GET  https://classifier.dev/{labels}/{text}

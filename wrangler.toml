@@ -27,3 +27,8 @@ class_name = "RateLimiter"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RateLimiter"]
+
+# Keeps SKILL.md a real markdown file rather than an escaped string literal.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]

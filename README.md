@@ -63,6 +63,34 @@ token here has `zone.create`, so that one step is manual:
 2. `./finish-dns.sh` — reads the assigned nameservers, points Porkbun at them
    via the Porkbun API, and attaches the Worker to the apex and `www`.
 
+## Agent skill
+
+    npx skills add https://classifier.dev
+
+Served from this domain over RFC 8615 well-known discovery, so there is no
+repository in the middle:
+
+    src/SKILL.md                          the skill, bundled as a Text module
+    GET /skill.md                         the artifact
+    GET /.well-known/agent-skills/index.json   discovery, schema v0.2.0
+
+The index must carry a sha256 of the artifact, and an index that disagrees with
+the file makes the skill uninstallable. Rather than commit a digest that a later
+edit would silently invalidate, `src/skill.ts` hashes the bytes it actually
+serves, once per isolate. Editing SKILL.md is therefore enough; nothing else
+needs updating.
+
+The skill teaches the case the API pitch misses: you are already a model and can
+classify anything you can see, so the reason to call out is context, not
+capability — filtering forty search results down to six without reading forty.
+
+Two things it documents because testing found them the hard way. Cloudflare
+403s Python's stdlib `urllib` User-Agent before the request reaches the Worker,
+so the recipe sets one explicitly. And filters should be told "when in doubt,
+keep it": on a ten-snippet research filter that took signal kept from 4/6 to
+6/6 with no extra noise, where adding a third "possibly relevant" label did
+nothing.
+
 ## Discovery surfaces
 
     GET /openapi.json               OpenAPI 3.1, also at /.well-known/openapi.json
