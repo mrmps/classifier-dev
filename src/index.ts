@@ -489,9 +489,15 @@ export default {
         headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", ...CORS },
       });
     }
-    if (path === "og.png") {
+    if (path === "og.png" || path === "og-v2.png") {
       return new Response(ogPngBytes(), {
-        headers: { "content-type": "image/png", "cache-control": "public, max-age=86400", ...CORS },
+        headers: {
+          "content-type": "image/png",
+          "cache-control": path === "og-v2.png"
+            ? "public, max-age=31536000, immutable"
+            : "public, max-age=86400",
+          ...CORS,
+        },
       });
     }
 
