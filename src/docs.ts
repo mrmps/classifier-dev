@@ -134,13 +134,14 @@ MULTI-LABEL
 
 TIERS
 
-  The fast tier runs ling-2.6-flash and emits a single token, so it answers in
-  about 450ms. It scored 97.1% on 1k-token article sentiment, beating gpt-4o-mini
-  at roughly a fifteenth of the cost.
+  The fast tier optimizes for latency and cost. The smart tier spends more time
+  reasoning on harder distinctions.
 
-  The smart tier runs qwen3.7-flash with its native reasoning enabled and takes
-  around 2.4 seconds. It scored 80.0% on ANLI R3, where the frontier model
-  gpt-5.6-sol scored 79.2% at eleven times the price.
+  The models behind both tiers are not fixed. They will change over time as
+  availability shifts and new benchmark results come in. classifier.dev is
+  built for general classification tasks, so it should improve as models get
+  better. The team continually benchmarks candidates and monitors performance,
+  choosing the best model for each tier.
 
   Each tier is a chain rather than a single model. If the primary provider errors,
   the request falls through to a second model on a different provider, so a
