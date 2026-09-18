@@ -212,7 +212,7 @@ export async function dailyReport(
     lines.push("BY MODEL");
     for (const r of byModel) {
       const model = String(r.model ?? "?");
-      const fallback = primaries.length && !primaries.includes(model);
+      const fallback = primaries.length && !primaries.some((p) => model === p || model.startsWith(p));
       lines.push(
         `  ${pad(String(num(r.requests)), 6)} ${pad(String(r.tier ?? "?"), 6)} ${pad(model, 34)} ` +
           `${Math.round(num(r.avg_ms))}ms${fallback ? "  <- FALLBACK, primary is not answering" : ""}`,
