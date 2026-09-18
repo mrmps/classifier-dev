@@ -94,7 +94,7 @@ backends without re-spending. `eval/README.md` lists the caveats.
 
 ## Rate limiting
 
-Per IP in a Durable Object, counted in classifications: 1,000/min and
+Per IP in a Durable Object, counted in classifications: 3,000/min and
 20,000/day on fast, 200/min and 2,000/day on smart.
 
 Two other approaches were tried and rejected:

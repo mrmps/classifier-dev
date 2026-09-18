@@ -9,7 +9,7 @@ export const OPENAPI = {
       "Send text and a list of labels, receive the label that fits, a calibrated confidence " +
       "and a score per label. Up to 1,000 texts per request, ~1s. Tiers: fast (default) and " +
       "smart, which re-asks answers below 0.7 confidence of a fast reasoning model. " +
-      "Limits are per IP and counted in classifications: 1,000/min and 20,000/day on fast, " +
+      "Limits are per IP and counted in classifications: 3,000/min and 20,000/day on fast, " +
       "200/min and 2,000/day on smart. Benchmarks: https://classifier.dev/benchmark",
     contact: { name: "Book a call", url: "https://cal.com/michaelsf/coffee" },
   },
@@ -55,7 +55,7 @@ export const OPENAPI = {
           "200": {
             description: "Classification results",
             headers: {
-              "X-RateLimit-Limit": { schema: { type: "string" }, description: "e.g. 1000/min" },
+              "X-RateLimit-Limit": { schema: { type: "string" }, description: "e.g. 3000/min" },
               "X-RateLimit-Remaining": { schema: { type: "string" } },
             },
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
@@ -323,7 +323,7 @@ with a score. Labels scoring >= 0.7 are returned, most likely first;
 
 ## Limits
 
-Per IP, counted in classifications: 1,000/minute and 20,000/day on the fast
+Per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
 characters, 1,000 per request. Exceeding a limit returns 429 with Retry-After.
 

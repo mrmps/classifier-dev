@@ -166,7 +166,7 @@ LIMITS
 
   Limits are counted per IP address in classifications, not requests, so a
   batch of a thousand inputs spends a thousand of them. The fast tier allows
-  1,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
+  3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
   per day.
 
   Each input is capped at 32,000 characters, and a request may carry up to a
