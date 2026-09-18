@@ -5,6 +5,8 @@ import { OPENAPI, LLMS_TXT } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { dailyReport } from "./report";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
+import { newMeter, addUsd, type Meter } from "./cost";
+import { adminResponse } from "./admin";
 export { RateLimiter } from "./limiter";
 
 export interface Env {
@@ -19,6 +21,8 @@ export interface Env {
   LIMITER: DurableObjectNamespace;
   AE: AnalyticsEngineDataset;
   REPORT_KEY: string;
+  /** Gates /admin. Set with `npx wrangler secret put ADMIN_PASSWORD`. */
+  ADMIN_PASSWORD?: string;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -214,6 +218,7 @@ async function callModel(
   labels: string[],
   instructions?: string,
   multi?: MultiOpts,
+  meter?: Meter,
 ) {
   const body: Record<string, unknown> = {
     model: cfg.model,
@@ -240,6 +245,9 @@ async function callModel(
         : Math.min(16 + labels.length * 2, 160)
       : cfg.maxTokens,
     temperature: 0,
+    // Ask OpenRouter to price the call. The dashboard reports what the
+    // provider actually charged rather than a rate card that can drift.
+    usage: { include: true },
   };
   if (cfg.reasoning) body.reasoning = { effort: "low" };
   else {
@@ -267,8 +275,12 @@ async function callModel(
     const payload = (await res.json()) as {
       error?: { message?: string };
       choices?: { message?: { content?: string }; logprobs?: { content?: { top_logprobs?: { token: string; logprob: number }[] }[] } }[];
+      usage?: { cost?: number };
     };
     if (res.ok && !payload.error) {
+      // Charged only for a call that answered; a failed attempt that falls
+      // through to the next model in the chain is not billed here.
+      addUsd(meter, payload.usage?.cost);
       const choice = payload.choices?.[0];
       if (multi) {
         const answer = choice?.message?.content ?? "";
@@ -330,11 +342,12 @@ async function runChain(
   tier: Tier,
   instructions?: string,
   multi?: MultiOpts,
+  meter?: Meter,
 ) {
   let last: unknown;
   for (const cfg of chainFor(tier, multi)) {
     try {
-      return await callModel(env, cfg, input, labels, instructions, multi);
+      return await callModel(env, cfg, input, labels, instructions, multi, meter);
     } catch (e) {
       last = e;
     }
@@ -358,9 +371,10 @@ async function classifyOne(
   tier: Tier,
   instructions?: string,
   multi?: MultiOpts,
+  meter?: Meter,
 ) {
   if (!multi || labels.length <= MULTI_CHUNK) {
-    return runChain(env, input, labels, tier, instructions, multi);
+    return runChain(env, input, labels, tier, instructions, multi, meter);
   }
 
   const groups = Math.ceil(labels.length / MULTI_CHUNK);
@@ -371,7 +385,7 @@ async function classifyOne(
   const started = Date.now();
   // No per-chunk cap: a chunk cannot know what the others found.
   const parts = await Promise.all(
-    chunks.map((chunk) => runChain(env, input, chunk, "fast", instructions, {})),
+    chunks.map((chunk) => runChain(env, input, chunk, "fast", instructions, {}, meter)),
   );
 
   const hit = new Set<string>();
@@ -398,7 +412,7 @@ async function classifyOne(
     try {
       const verified = await runChain(env, input, picked, tier, instructions, {
         max: multi.max,
-      });
+      }, meter);
       const keep = new Set(verified.labels ?? []);
       const narrowed = picked.filter((l) => keep.has(l));
       if (narrowed.length) picked = narrowed;
@@ -446,6 +460,7 @@ async function llmClassifyMany(
   tier: Tier,
   instructions?: string,
   multi?: MultiOpts,
+  meter?: Meter,
 ): Promise<Result[]> {
   // Single-label past 26 labels has no letter to ride on: run the multi prompt
   // and keep its top pick, so the response shape the caller asked for holds.
@@ -456,7 +471,7 @@ async function llmClassifyMany(
     Array.from({ length: Math.min(4, inputs.length) }, async () => {
       while (next < inputs.length) {
         const i = next++;
-        const r = await classifyOne(env, inputs[i], labels, tier, instructions, asMulti);
+        const r = await classifyOne(env, inputs[i], labels, tier, instructions, asMulti, meter);
         out[i] = multi ? r : { ...r, labels: undefined };
       }
     }),
@@ -469,7 +484,7 @@ async function llmClassifyMany(
  * knows when it is unsure, and that is where the reasoning model earns its
  * cost: only the answers below ESCALATE_BELOW are re-asked, in place.
  */
-async function escalate(env: Env, inputs: string[], labels: string[], instructions: string | undefined, results: Result[]) {
+async function escalate(env: Env, inputs: string[], labels: string[], instructions: string | undefined, results: Result[], meter?: Meter) {
   const idx = results.flatMap((r, i) => (r.confidence !== null && r.confidence < ESCALATE_BELOW ? [i] : []));
   let failed = 0;
   let next = 0;
@@ -480,8 +495,8 @@ async function escalate(env: Env, inputs: string[], labels: string[], instructio
         try {
           const r =
             labels.length > MAX_LABELS_SINGLE
-              ? await runChain(env, inputs[i], labels, "smart", instructions, { max: 1 })
-              : await runChain(env, inputs[i], labels, "smart", instructions);
+              ? await runChain(env, inputs[i], labels, "smart", instructions, { max: 1 }, meter)
+              : await runChain(env, inputs[i], labels, "smart", instructions, undefined, meter);
           if (r.label) results[i] = { ...results[i], label: r.label, model: r.model, escalated: true };
         } catch (e) {
           // The fast answer stands; it was uncertain, not absent. Say so in
@@ -508,12 +523,13 @@ async function classifyMany(
   tier: Tier,
   instructions?: string,
   multi?: MultiOpts,
+  meter?: Meter,
 ): Promise<{ results: Result[]; escalationFailed: number }> {
   if (env.TYPESAFE_API_KEY) {
     const started = Date.now();
     let jev: Awaited<ReturnType<typeof jevClassify>> | null = null;
     try {
-      jev = await jevClassify(env.TYPESAFE_API_KEY, inputs, labels, instructions, !!multi);
+      jev = await jevClassify(env.TYPESAFE_API_KEY, inputs, labels, instructions, !!multi, meter);
     } catch (e) {
       console.warn(`jev failed, falling back: ${(e as Error).message}`);
     }
@@ -548,14 +564,14 @@ async function classifyMany(
         };
       });
       const escalationFailed =
-        tier === "smart" && !multi ? await escalate(env, inputs, labels, instructions, results) : 0;
+        tier === "smart" && !multi ? await escalate(env, inputs, labels, instructions, results, meter) : 0;
       return { results, escalationFailed };
     }
   }
   if (inputs.length > FALLBACK_MAX_INPUTS) {
     throw new Error(`batch classification is temporarily unavailable; send up to ${FALLBACK_MAX_INPUTS} inputs or retry shortly`);
   }
-  return { results: await llmClassifyMany(env, inputs, labels, tier, instructions, multi), escalationFailed: 0 };
+  return { results: await llmClassifyMany(env, inputs, labels, tier, instructions, multi, meter), escalationFailed: 0 };
 }
 
 /** Fingerprint a label set so we can count distinct classifiers without storing text. */
@@ -582,11 +598,15 @@ function record(env: Env, ctx: ExecutionContext, d: {
   status: number;
   client: "public" | "enterprise";
   model: string;
+  /** Upstream spend for this request, in USD. See cost.ts. */
+  usd: number;
 }) {
   try {
     env.AE?.writeDataPoint({
       blobs: [d.tier, classifierId(d.labels), d.country, String(d.status), d.client, d.model],
-      doubles: [d.n, d.ms],
+      // double3 was added after launch: rows written before it read back as 0,
+      // so cost is only meaningful from that deploy forward.
+      doubles: [d.n, d.ms, d.usd],
       indexes: [d.ip.slice(0, 32)],
     });
   } catch {
@@ -635,10 +655,16 @@ export default {
     const country = (req as { cf?: { country?: string } }).cf?.country ?? "??";
     const enterprise = hasEnterpriseAccess(req, env);
     const client = enterprise ? "enterprise" : "public";
+    // One meter per request, read once by record(). Never a module global:
+    // the isolate serves concurrent requests.
+    const meter = newMeter();
 
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
     const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    // The operator dashboard. Returns null for every other path.
+    const admin = await adminResponse(req, env, path, ip);
+    if (admin) return admin;
     if (req.method === "GET" && (path === "" || path === "index.html")) {
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
         return new Response(unfurlHtml(), {
@@ -649,7 +675,7 @@ export default {
     }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) return text(BENCHMARK);
     if (path === "robots.txt") {
-      return text("User-agent: *\nAllow: /\n\nSitemap: https://classifier.dev/llms.txt\n");
+      return text("User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: https://classifier.dev/llms.txt\n");
     }
     // Machine-readable surfaces. /openapi.json is the conventional location;
     // /.well-known/ and /llms.txt are where agents increasingly look first.
@@ -721,7 +747,7 @@ export default {
       try {
         body = (await req.json()) as Record<string, unknown>;
       } catch {
-        record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 400, client, model: "" });
+        record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 400, client, model: "", usd: meter.usd });
         return json({ error: "Body must be JSON. See https://classifier.dev" }, 400);
       }
       inputs = Array.isArray(body.inputs)
@@ -756,7 +782,7 @@ export default {
     }
 
     const fail = (msg: string, status: number, extra: Record<string, string> = {}, ms = 0) => {
-      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "" });
+      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "", usd: meter.usd });
       return wantJson ? json({ error: msg }, status, extra) : text(`error: ${msg}\n`, status, extra);
     };
 
@@ -792,7 +818,7 @@ export default {
     let results: Result[];
     let escalationFailed = 0;
     try {
-      ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi));
+      ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter));
     } catch (e) {
       return fail(`upstream: ${(e as Error).message}`, 502, {}, Date.now() - started);
     }
@@ -800,7 +826,7 @@ export default {
     const modelSummary = summarizeModels(results);
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
-      model: modelSummary.modelsUsed.join(","),
+      model: modelSummary.modelsUsed.join(","), usd: meter.usd,
     });
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
