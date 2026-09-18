@@ -8,7 +8,7 @@ export const OPENAPI = {
     description:
       "Send text and a list of labels, receive the label that fits, a calibrated confidence " +
       "and a score per label. Up to 1,000 texts per request, ~1s. Tiers: fast (default) and " +
-      "smart, which re-asks answers below 0.7 confidence of a frontier reasoning model. " +
+      "smart, which re-asks answers below 0.7 confidence of a fast reasoning model. " +
       "Limits are per IP and counted in classifications: 1,000/min and 20,000/day on fast, " +
       "200/min and 2,000/day on smart. Benchmarks: https://classifier.dev/benchmark",
     contact: { name: "Book a call", url: "https://cal.com/michaelsf/coffee" },
