@@ -89,6 +89,10 @@ PARAMETERS
   Results come back in input order. Each carries the label, a confidence from
   0 to 1, a score for every label, and the model that answered.
 
+  Batch responses also carry modelsUsed. The top-level model is "mixed" when
+  different results were answered by different models, such as a smart-tier
+  batch where only some inputs were escalated.
+
 
 CONFIDENCE
 
