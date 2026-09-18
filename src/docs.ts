@@ -1,8 +1,9 @@
 export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
-labels, you get back the label that fits. There is no API key to obtain and no
-account to create, so the example below works if you paste it right now.
+labels, you get back the label that fits and how sure the model is. There is no
+API key to obtain and no account to create, so the example below works if you
+paste it right now.
 
 
 If you are an agent or a code generator, the machine-readable description of
@@ -20,8 +21,8 @@ WHEN THIS IS WORTH A NETWORK CALL
 
   Filtering before reading. You have forty search results and want the six worth
   opening. Judging them yourself means pulling all forty into context first,
-  which is the cost you were trying to avoid. One batch call returns forty
-  labels and you read only the survivors.
+  which is the cost you were trying to avoid. One call returns forty labels and
+  you read only the survivors.
 
   Cascade pre-filtering. Drop the obvious no's cheaply, then spend real
   reasoning on what is left.
@@ -33,7 +34,8 @@ WHEN THIS IS WORTH A NETWORK CALL
   same input on every run, instead of drifting with a model's reasoning.
 
   The thread joining those: classify ten thousand things without reading them
-  yourself. Below about five items, skip it — you have already paid the context
+  yourself. A thousand inputs go in one request and come back in about a
+  second. Below about five items, skip it — you have already paid the context
   cost, so just decide.
 
 
@@ -56,6 +58,7 @@ USAGE
 
   GET  https://classifier.dev/{labels}/{text}
   POST https://classifier.dev  {"input":"...","labels":["...","..."]}
+  POST https://classifier.dev  {"inputs":["...", ...up to 1000],"labels":[...]}
 
 
 EXAMPLES
@@ -64,9 +67,9 @@ EXAMPLES
   spam
 
   curl classifier.dev -d '{"input":"the checkout button does nothing","labels":["bug","feature","praise"]}'
-  {"label":"bug","confidence":0.9971,"tier":"fast","model":"inclusionai/ling-2.6-flash","ms":431}
+  {"label":"bug","confidence":1,"scores":{"bug":1,"feature":0,"praise":0},"model":"jev-1.13.0","ms":260}
 
-  curl "classifier.dev/entailment,neutral,contradiction/Only+12+of+40+sites+were+inspected.+Every+site+was+inspected.?tier=smart"
+  curl "classifier.dev/entailment,neutral,contradiction/Only+12+of+40+sites+were+inspected.+Every+site+was+inspected."
   contradiction
 
   Spaces can be written as + or %20, and labels are separated by commas.
@@ -74,106 +77,102 @@ EXAMPLES
 
 PARAMETERS
 
-  labels        Two to twenty-six categories, or up to a hundred in multi-label
-                mode. Required.
-  input         The text to classify, up to roughly 8,000 tokens.
-  inputs        Up to twenty strings classified in a single call.
-  tier          Either fast (the default) or smart.
+  labels        Two to one hundred categories. Required.
+  input         The text to classify, up to 32,000 characters.
+  inputs        Up to one thousand strings classified in a single call.
+  tier          Either fast (the default) or smart. See TIERS.
   instructions  Extra criteria, such as "judge the reviewer's overall verdict".
   verbose       On GET requests, ?verbose=1 returns JSON instead of a bare label.
   multi         Return every category that applies instead of just one.
   max_labels    Cap how many multi-label answers come back.
 
-  JSON responses carry a confidence between 0 and 1 and a per-label score map.
-  Both can be null for two opposite reasons, so read the unscored field to tell
-  them apart.
+  Results come back in input order. Each carries the label, a confidence from
+  0 to 1, a score for every label, and the model that answered.
 
-  unscored absent   The provider returned no distribution, either because it was
-                    so certain the probability rounded to one, or because the
-                    smart tier's model emits no logprobs. Certainty is high.
 
-  unscored present  The input does not read as natural language, so the score
-                    was withheld. A forced single-token choice still lands near
-                    1.0 on gibberish — measured 0.9921 on "asdkjfhaskdjfh" —
-                    which would be noise wearing the costume of a signal.
+CONFIDENCE
 
-  Confidence says how sure the model is of the letter it picked, not whether
-  your text belongs to any of the labels. It is not out-of-distribution
-  detection: a well-formed sentence that fits none of your categories can still
-  score 1.0. If you need an escape hatch, add a label such as "none" and the
-  classifier will use it. That works; thresholding on confidence does not.
+  The model behind this is not a language model prompted to classify. It is a
+  decision model that returns a calibrated probability for every label, so the
+  confidence is a real forecast of whether the label is right, measured:
+
+    six-way emotion, 400 items      confidence >= 0.9   right 82% of the time
+                                    confidence <  0.5   right 29% of the time
+    four-way news topic, 400 items  confidence >= 0.9   right 92% of the time
+                                    confidence <  0.5   right 64% of the time
+
+  Use it. Act on high-confidence answers, and route the rest to a person, a
+  reasoning model, or the smart tier, which does exactly that for you.
+
+  Two things confidence does not measure.
+
+  It is not out-of-distribution detection. It says which of your labels fits
+  best, not whether any of them fit. "The weather is nice today" against
+  bug / feature / praise is "praise" at 0.97. If none-of-the-above is a real
+  outcome, add it as a label — the same text against those three plus
+  "none of these" picks "none of these" at 0.78. That works; hoping for a low
+  score does not.
+
+  It is withheld for input that is not language. A forced choice on
+  "asdkjfhaskdjfh" still lands somewhere, so the label ships with confidence
+  and scores null and an unscored field explaining why.
 
 
 MULTI-LABEL
 
-  One article, fifty tags, the ten that fit:
+  One article, fifty tags, the ones that fit:
 
     curl classifier.dev -d '{"input":"...","labels":["ml","databases",...],
                              "multi":true,"max_labels":10}'
-    {"results":[{"labels":["databases","serverless","rust","caching", ...]}]}
+    {"results":[{"labels":["databases","serverless","rust","caching", ...],
+                 "scores":{"databases":0.98,"serverless":0.98,...,"gaming":0.01}}]}
 
   On GET, add ?multi=1 and the labels come back one per line.
 
-  Passing more than 26 labels turns this on by itself, because a single-label
-  answer is one letter and there are only 26 of them. You do not have to ask.
-
-  Under the hood the label set is swept in small groups, concurrently, and then
-  the survivors are re-judged in one pass with all of them finally in view. The
-  sweep alone finds nearly everything but over-selects, since no group can see
-  what the others found; the second pass is what buys back precision. Measured
-  on a seven-task set, that pass moved F1 from 0.761 to 0.800.
-
-  tier=smart is worth it here, far more than it is for single labels: F1 0.87
-  against 0.78, at around twelve seconds instead of one and a half. Only the
-  second pass runs on the smart model — the sweep stays cheap, which scores the
-  same as running smart throughout and takes a little over half as long.
-
-  Multi-label answers carry no confidence. A score describes one token, and a
-  list is not one token.
+  Every label is judged independently as a yes/no probability, and the answer
+  lists those at or above 0.7, most likely first. The full score map is
+  returned so you can set your own threshold: on a seven-task set, 0.7 gave
+  recall 0.99 and precision 0.81 (F1 0.887); 0.5 gave recall 1.00 and precision
+  0.74. max_labels keeps the top N. One request, about 200ms.
 
 
 TIERS
 
-  The fast tier optimizes for latency and cost. The smart tier spends more time
-  reasoning on harder distinctions.
+  fast     Every answer comes from the decision model, in one round trip.
+           Measured: four-way news topic 87.7%, six-way emotion 60.5%, which is
+           the same accuracy as a 3.4-second reasoning model on the news topics
+           at two milliseconds per item.
 
-  The models behind both tiers are not fixed. They will change over time as
-  availability shifts and new benchmark results come in. classifier.dev is
-  built for general classification tasks, so it should improve as models get
-  better. The team continually benchmarks candidates and monitors performance,
-  choosing the best model for each tier.
+  smart    Same first pass, then every single-label answer below 0.7 confidence
+           is re-asked of a frontier reasoning model and replaced. Measured:
+           emotion 61.8% to 72.3%, news topics 87.5% to 90.7%, by re-asking
+           30% and 12% of the items. Those results carry escalated: true and
+           the reasoning model's name; the confidence and scores shown are
+           still the decision model's, since they are why it was escalated.
+           usage.escalated counts them. A few seconds per escalated item, so
+           a batch on smart is slower in proportion to how uncertain it is.
 
-  Each tier is a chain rather than a single model. If the primary provider errors,
-  the request falls through to a second model on a different provider, so a
-  provider-side outage degrades accuracy slightly instead of failing the call.
-  JSON responses report which model actually answered.
+           Multi-label answers ignore the tier: the reasoning model was
+           measured re-judging them and made them worse.
 
-  Most classification tasks saturate, meaning every model lands above 95% and
-  paying more buys nothing, so start on fast and only move up if you measure a
-  reason to. The full numbers are at https://classifier.dev/benchmark
-
-  Measured on the live API: binary sentiment 95%, four-way news topic 88%, and
-  documents up to about 4,000 tokens hold accuracy. Two things degrade it.
-  Fine-grained sets where the categories overlap are much harder — six-way
-  emotion scored 52% on fast and 61% on smart, because sadness, fear and anger
-  genuinely blur. And accuracy starts slipping near the input ceiling, from 95%
-  at 4,000 tokens to 75% at 7,500. Prefer distinct labels, and trim long inputs
-  to the part that carries the signal.
+  The models are not fixed. They are benchmarked as candidates appear and
+  swapped when a measurement, not a launch post, says to. If the decision
+  model is unavailable, requests of up to twenty inputs fall back to a chain of
+  language models on different providers; JSON responses always report which
+  model actually answered.
 
 
 LIMITS
 
-  Limits are counted per IP address in classifications, not in requests, so a
-  batch of twenty inputs spends twenty of them. The fast tier allows 60 per
-  minute and 5,000 per day; the smart tier allows 10 per minute and 500 per day.
+  Limits are counted per IP address in classifications, not requests, so a
+  batch of a thousand inputs spends a thousand of them. The fast tier allows
+  1,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
+  per day.
 
-  Each input is capped at about 8,000 tokens, and a single request may carry at
-  most twenty inputs. Batching is still worth doing because twenty inputs in one
-  request is far faster than twenty round trips.
-
-  Every response carries an X-RateLimit-Limit header and, where it can be
-  determined, X-RateLimit-Remaining. Exceeding a limit returns 429 with a
-  Retry-After header rather than a slow or silently dropped request.
+  Each input is capped at 32,000 characters, and a request may carry up to a
+  thousand inputs. Every response carries an X-RateLimit-Limit header and, where
+  it can be determined, X-RateLimit-Remaining. Exceeding a limit returns 429
+  with a Retry-After header rather than a slow or silently dropped request.
 
   If you need more than this, or you want a classifier tuned to your own data,
   the fastest path is a short call: https://cal.com/michaelsf/coffee
@@ -181,9 +180,11 @@ LIMITS
 
 PRIVACY
 
-  The text you send is never stored or logged. What gets recorded is the label
-  names, which tier ran, the latency, the response status and a coarse country,
-  which is what makes the usage counts on this service possible.
+  The text you send is never stored or logged here. It is forwarded to the
+  model provider for the classification and nothing else. What gets recorded
+  is the label names, which tier ran, which model answered, the latency, the
+  response status and a coarse country, which is what makes the usage counts
+  on this service possible.
 
 
 Built by @michael_chomsky — https://x.com/michael_chomsky
@@ -191,76 +192,96 @@ Built by @michael_chomsky — https://x.com/michael_chomsky
 
 export const BENCHMARK = `classifier.dev/benchmark
 
-Every number here comes from a real run against the live API, with cost taken
-from OpenRouter usage accounting rather than a price list. Measured 2026-08-12.
+Every number here comes from a real run, with cost taken from the providers'
+own usage accounting rather than a price list. Measured 2026-09-17. The eval
+code is in the repository (eval/), so all of this is re-runnable.
 
 
-HARD TASKS
+SINGLE LABEL
 
-ANLI R3 is three-class natural language inference collected adversarially
-against models, so chance is 33% and there is real headroom. WiC is binary word
-sense disambiguation, where chance is 50%.
+Two public test sets, 400 items each. AG News is four-way topic; emotion is
+six-way and genuinely hard, because sadness, fear and anger blur.
 
-  model                         ANLI    WiC    $/1M calls   p50
-  ------------------------------------------------------------------
-  classifier-smart              80.0%   82.0%   $148        586ms
-  gpt-5.6-sol (frontier)        79.2%   84.0%   $1,646      348ms
-  deepseek-v4-flash             74.2%   84.0%   $83         756ms
-  gpt-oss-120b (low)            72.5%   74.0%   $48         645ms
-  classifier-fast               60.8%   67.0%   $2          452ms
+  model                              AG News   emotion   ms/item   $/1k
+  ---------------------------------------------------------------------
+  jev-1.13 (classifier-fast)          87.7%     60.5%       2      0.005
+  qwen3.7-flash, reasoning            87.5%       *      3,445     0.040
+  ling-3.0-flash                      82.0%     57.0%     731      0.002
+  granite-4.0-h-micro (before)        63.2%     52.5%     594      0.002
 
-With 120 ANLI items and 100 WiC items the noise band is roughly nine points, so
-the smart tier and the frontier model should be read as parity rather than as a
-ranking.
+The ms/item for jev is amortised: 400 items ride in one request that returns
+in about 650ms. The others are one call per item.
 
-
-SATURATED TASKS
-
-1k-token article sentiment, 140 items.
-
-  model                  accuracy   $/1M calls   p50
-  ---------------------------------------------------
-  classifier-fast         97.1%      $9.82       455ms
-  qwen3.7-flash           97.9%      $29.45      635ms
-  llama-3.1-8b            96.2%      $19.50      350ms
-  gpt-4o-mini             95.0%      $143.44     408ms
-  gemini-2.5-flash-lite   94.9%      $96.29      251ms
-
-This is why the default is the fast tier. On a task like this, paying fourteen
-times more returned two points less accuracy.
+The last row is what this service was quietly serving until 2026-09-17. Its
+primary model had been delisted upstream, every request 404'd against it and
+fell through to granite, and nothing in the deployed numbers said so.
 
 
-WHAT ACTUALLY MOVED THE NUMBERS
+CALIBRATION
 
-  +15 pts   turning on a model's native reasoning (60.8% to 75.8% on ANLI)
-  -15 pts   prompting chain-of-thought into a model not trained to reason
-   +4 pts   few-shot examples
-   -3 pts   batching without per-item keys in the output
-    0 pts   cutting an 830-token rubric to 30 tokens, which saved 25% of cost
+Accuracy by the confidence the model attached to its own answer.
 
-Reasoning turns out to be a property of the model rather than of the prompt,
-and that difference is the entire reason there are two tiers.
+                        n     accuracy          n     accuracy
+  confidence         AG News             emotion
+  ---------------------------------------------------------------
+  [0.9, 1.0]        323      91.6%       200      82.0%
+  [0.7, 0.9)         27      85.2%        79      49.4%
+  [0.5, 0.7)         28      64.3%        52      36.5%
+  [0.0, 0.5)         22      63.6%        69      29.0%
+
+For comparison, the previous model's logprob "confidence" put 348 of 400 news
+items at or above 0.9 and was right on 68% of them.
+
+
+ESCALATION (the smart tier)
+
+Only the items Jev put under 0.7 confidence are re-asked. What matters is how a
+second model does on exactly those, not overall.
+
+                                emotion, 122 uncertain    news, 49 uncertain
+  model                          acc      -> whole set     acc    -> whole set
+  ------------------------------------------------------------------------------
+  jev alone                     36.9%        61.8%        65.3%      87.5%
+  claude-fable-5.1              71.3%        72.3%        91.8%      90.7%
+  gpt-6-astra                   54.9%        67.2%        69.4%      88.0%
+  gemini-3.8-flash              44.3%        64.0%          -          -
+  qwen3.7-flash                 ~37%         61.0%        ~66%       87.7%
+  deepseek-v4-pro               33.6%        60.8%        55.1%      86.3%
+
+The cheaper reasoning models are no better than Jev on the cases Jev finds
+hard; only the frontier model is, so that is what the smart tier calls. About
+$2 per thousand escalated items, 3 seconds each.
+
+
+MULTI LABEL
+
+Seven hand-written tasks, 12 to 50 labels each, 3 runs. Macro P/R/F1.
+
+  configuration                          P      R      F1     latency   $/1k
+  --------------------------------------------------------------------------
+  jev, one yes/no per label, >= 0.7    0.81   0.99   0.887     232ms   0.053
+  ling-3.0 sweep + second pass          0.90   0.74   0.799   1,538ms   0.008
+  mercury-2.5 sweep + second pass       0.92   0.72   0.797     945ms   0.038
+  granite-4.0 sweep + second pass       0.71   0.46   0.546   1,575ms   0.017
+  jev candidates re-judged by qwen3.7   0.43 (parse failures) 23,000ms
+
+Read eval/README.md before quoting these: n=7, one annotator, no held-out
+split. Gaps of 0.03 are noise; the gaps above are not.
 
 
 THROUGHPUT
 
-The fast tier on 1k-token inputs, measured at increasing concurrency.
-
-  concurrency   req/s   p50    errors
-  ----------------------------------
-  8             15.0    451ms  0
-  16            29.0    458ms  0
-  32            49.7    472ms  0
-  64            64.2    495ms  0
-
-Throughput scales close to linearly with almost no latency penalty.
+Twelve concurrent requests of 300 inputs each against the decision model:
+3,600 classifications in 2.7 seconds wall clock, no throttling. A single
+request of 1,000 short inputs returns in about 1.5 seconds.
 
 
 CAVEATS
 
-Public benchmarks are likely present in training data, so treat these accuracy
-figures as optimistic and use them to rank models rather than to predict what
-you will see on your own task.
+Public benchmarks are likely present in training data, so treat the accuracy
+figures as optimistic and use them to rank rather than to predict what you will
+see on your own task. The calibration table is the number to trust: it says
+how much to believe an answer, which is the thing you can act on.
 
 If you want help measuring your own data, the offer of a call stands:
 https://cal.com/michaelsf/coffee

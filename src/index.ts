@@ -4,10 +4,13 @@ import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { dailyReport } from "./report";
+import { jevClassify, MULTI_THRESHOLD } from "./jev";
 export { RateLimiter } from "./limiter";
 
 export interface Env {
   OPENROUTER_API_KEY: string;
+  TYPESAFE_API_KEY?: string;
+  ENTERPRISE_API_KEY?: string;
   RESEND_API_KEY: string;
   REPORT_TO: string;
   CLOUDFLARE_ACCOUNT_ID: string;
@@ -19,45 +22,98 @@ export interface Env {
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-const MAX_INPUTS = 20;
-// Single-label answers ride on one letter token, which is what caps them at 26.
-// Multi-label answers come back as numbers, so the ceiling is only prompt size.
+// Jev packs a thousand short inputs into one upstream request; see jev.ts.
+const MAX_INPUTS = 1000;
+const MAX_LABELS = 100;
+// The LLM fallback answers single-label with one letter token, which caps it at
+// 26; past that it runs the multi-label prompt and keeps the top pick.
 const MAX_LABELS_SINGLE = 26;
-const MAX_LABELS_MULTI = 100;
+// The fallback is one upstream call per input, so it cannot take a real batch.
+const FALLBACK_MAX_INPUTS = 20;
 const MAX_CHARS = 32_000;
+// Smart tier: a fast answer below this confidence is re-asked of the reasoning chain.
+const ESCALATE_BELOW = 0.7;
 
 /**
  * Each tier is a chain, not a single model. The primary is the cheapest thing
  * that clears the accuracy bar; the fallback is on a *different* provider so a
- * provider-side outage cannot take the tier down. Measured failure rate on the
- * primary alone was about 15%, and ling-2.6-flash is served by exactly one
- * provider, so retries against it could not help.
+ * provider-side outage cannot take the tier down. Measured failure rate on a
+ * single-provider primary was about 15%, and retries against the same provider
+ * could not help.
+ *
+ * A model can also vanish outright: ling-2.6-flash was delisted upstream and
+ * every fast request quietly paid a 404 and answered from the fallback for
+ * weeks, at F1 0.546 against the 0.800 the docs advertised. `npm run bench`
+ * exists to catch that, and the digest now reports which model actually served.
+ *
+ * Single-label and multi-label want different models, so the fast tier names
+ * both. A single-label answer is one token, so a provider that returns
+ * logprobs buys a real confidence score — only granite-4.0-h-micro and
+ * deepseek-v4-flash do, of everything benchmarked. Multi-label answers carry no
+ * confidence anyway, so that chain is free to pick on F1 and price alone.
  */
 const TIERS = {
   fast: {
-    rpm: 60,
-    daily: 5000,
+    rpm: 1000,
+    daily: 20_000,
+    // Logprob-capable, in latency order. Losing this chain's scores is a
+    // visible product regression, so accuracy is traded for it deliberately.
     chain: [
-      { model: "inclusionai/ling-2.6-flash", provider: "Novita", maxTokens: 1, reasoning: false },
       { model: "ibm-granite/granite-4.0-h-micro", provider: "Cloudflare", maxTokens: 1, reasoning: false },
-      { model: "mistralai/mistral-nemo", provider: "DeepInfra", maxTokens: 1, reasoning: false },
+      { model: "deepseek/deepseek-v4-flash", provider: "StreamLake", maxTokens: 1, reasoning: false },
+      { model: "inclusionai/ling-3.0-flash", provider: "Novita", maxTokens: 1, reasoning: false },
+    ],
+    // Measured by eval/bench.py, 7 cases x 3 runs, multi-label pipeline:
+    //   ling-3.0-flash   F1 0.799  1538ms  $0.008/1k   <- primary
+    //   mercury-2.5      F1 0.797   945ms  $0.038/1k
+    //   granite-4.2-8b   F1 0.704  1008ms  $0.036/1k
+    //   mistral-nemo     F1 0.729  2098ms  $0.016/1k
+    //   granite-4.0-h-micro F1 0.546 1575ms $0.017/1k  <- what shipped by accident
+    // The top two are within noise of each other on F1 and sit on different
+    // providers, which is exactly what a fallback pair should look like.
+    multiChain: [
+      { model: "inclusionai/ling-3.0-flash", provider: "Novita", maxTokens: 1, reasoning: false },
+      { model: "inception/mercury-2.5", provider: "Inception", maxTokens: 1, reasoning: false },
+      { model: "ibm-granite/granite-4.2-8b", provider: "DeepInfra", maxTokens: 1, reasoning: false },
     ],
   },
   smart: {
-    rpm: 10,
-    daily: 500,
+    rpm: 200,
+    daily: 2000,
+    // Only ever sees the answers Jev was unsure about, so it has to be a model
+    // that is actually better than Jev on hard cases. Measured on the items
+    // Jev put under 0.7 confidence (eval/single.py + escalate.py, 2026-09-17):
+    //   six-way emotion, 122 items      jev 36.9%  fable-5.1 71.3%  gpt-6-astra 54.9%  qwen3.7-flash ~37%
+    //   four-way news, 49 items         jev 65.3%  fable-5.1 91.8%  gpt-6-astra 69.4%  deepseek-v4-pro 55.1%
+    // which moves the whole set from 61.8% to 72.3% and 87.5% to 90.7%. The
+    // cheaper reasoning models were no better than Jev on exactly these items.
     chain: [
-      { model: "qwen/qwen3.7-flash", provider: "Alibaba", maxTokens: 2000, reasoning: true },
-      { model: "deepseek/deepseek-v4-flash-0731", provider: undefined, maxTokens: 2000, reasoning: true },
+      { model: "anthropic/claude-fable-5.1", provider: undefined, maxTokens: 2000, reasoning: true },
+      { model: "openai/gpt-6-astra", provider: undefined, maxTokens: 2000, reasoning: true },
     ],
   },
 } as const;
 type Tier = keyof typeof TIERS;
 
+/**
+ * The models a tier is supposed to answer from. Anything else in the digest
+ * means the chain is falling through — which is how a delisted primary hid for
+ * weeks. Both fast chains count, since either can legitimately serve.
+ */
+export function primaryModels(): string[] {
+  const out: string[] = [];
+  for (const tier of Object.keys(TIERS) as Tier[]) {
+    const t = TIERS[tier] as { chain: readonly ModelCfg[]; multiChain?: readonly ModelCfg[] };
+    out.push(t.chain[0].model);
+    if (t.multiChain) out.push(t.multiChain[0].model);
+  }
+  return out;
+}
+
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "Content-Type",
+  "access-control-allow-headers": "Content-Type, Authorization",
 };
 
 const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
@@ -156,7 +212,9 @@ async function callModel(
 ) {
   const body: Record<string, unknown> = {
     model: cfg.model,
-    provider: { only: [cfg.provider], allow_fallbacks: false },
+    // An unpinned entry means "any provider"; sending only:[undefined] pins it
+    // to nothing and the call fails.
+    ...(cfg.provider ? { provider: { only: [cfg.provider], allow_fallbacks: false } } : {}),
     messages: [
       {
         role: "system",
@@ -253,6 +311,12 @@ async function callModel(
   throw new Error(last || "upstream failure");
 }
 
+/** Single-label and multi-label can run different models; smart shares one chain. */
+function chainFor(tier: Tier, multi?: MultiOpts): readonly ModelCfg[] {
+  const t = TIERS[tier] as { chain: readonly ModelCfg[]; multiChain?: readonly ModelCfg[] };
+  return multi && t.multiChain ? t.multiChain : t.chain;
+}
+
 /** Walk the tier's chain; the first model that answers wins. */
 async function runChain(
   env: Env,
@@ -263,9 +327,9 @@ async function runChain(
   multi?: MultiOpts,
 ) {
   let last: unknown;
-  for (const cfg of TIERS[tier].chain) {
+  for (const cfg of chainFor(tier, multi)) {
     try {
-      return await callModel(env, cfg as ModelCfg, input, labels, instructions, multi);
+      return await callModel(env, cfg, input, labels, instructions, multi);
     } catch (e) {
       last = e;
     }
@@ -350,6 +414,80 @@ async function classifyOne(
   };
 }
 
+type Result = {
+  label: string;
+  labels?: string[];
+  confidence: number | null;
+  scores: Record<string, number> | null;
+  unscored?: string;
+  ms: number;
+  model: string;
+  escalated?: true;
+};
+
+/** The LLM chain, one upstream call per input. Fallback for when Jev is unavailable. */
+async function llmClassifyMany(
+  env: Env,
+  inputs: string[],
+  labels: string[],
+  tier: Tier,
+  instructions?: string,
+  multi?: MultiOpts,
+): Promise<Result[]> {
+  // Single-label past 26 labels has no letter to ride on: run the multi prompt
+  // and keep its top pick, so the response shape the caller asked for holds.
+  const asMulti = multi ?? (labels.length > MAX_LABELS_SINGLE ? { max: 1 } : undefined);
+  const out: Result[] = new Array(inputs.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(4, inputs.length) }, async () => {
+      while (next < inputs.length) {
+        const i = next++;
+        const r = await classifyOne(env, inputs[i], labels, tier, instructions, asMulti);
+        out[i] = multi ? r : { ...r, labels: undefined };
+      }
+    }),
+  );
+  return out;
+}
+
+/**
+ * Smart tier. Jev is right about as often as the reasoning model, but it also
+ * knows when it is unsure, and that is where the reasoning model earns its
+ * cost: only the answers below ESCALATE_BELOW are re-asked, in place.
+ */
+async function escalate(env: Env, inputs: string[], labels: string[], instructions: string | undefined, results: Result[]) {
+  const idx = results.flatMap((r, i) => (r.confidence !== null && r.confidence < ESCALATE_BELOW ? [i] : []));
+  let failed = 0;
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(8, idx.length) }, async () => {
+      while (next < idx.length) {
+        const i = idx[next++];
+        try {
+          const r =
+            labels.length > MAX_LABELS_SINGLE
+              ? await runChain(env, inputs[i], labels, "smart", instructions, { max: 1 })
+              : await runChain(env, inputs[i], labels, "smart", instructions);
+          if (r.label) results[i] = { ...results[i], label: r.label, model: r.model, escalated: true };
+        } catch (e) {
+          // The fast answer stands; it was uncertain, not absent. Say so in
+          // the logs, because a chain that fails every time looks identical
+          // to a batch that was simply confident.
+          failed++;
+          console.warn(`escalation failed: ${(e as Error).message}`);
+        }
+      }
+    }),
+  );
+  return failed;
+}
+
+/**
+ * `escalationFailed` counts smart-tier answers that could not reach the
+ * reasoning model, so the response can say so instead of quietly returning
+ * fast-tier answers under a smart-tier label.
+ */
 async function classifyMany(
   env: Env,
   inputs: string[],
@@ -357,18 +495,54 @@ async function classifyMany(
   tier: Tier,
   instructions?: string,
   multi?: MultiOpts,
-) {
-  const out: Awaited<ReturnType<typeof classifyOne>>[] = new Array(inputs.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(4, inputs.length) }, async () => {
-      while (next < inputs.length) {
-        const i = next++;
-        out[i] = await classifyOne(env, inputs[i], labels, tier, instructions, multi);
-      }
-    }),
-  );
-  return out;
+): Promise<{ results: Result[]; escalationFailed: number }> {
+  if (env.TYPESAFE_API_KEY) {
+    const started = Date.now();
+    let jev: Awaited<ReturnType<typeof jevClassify>> | null = null;
+    try {
+      jev = await jevClassify(env.TYPESAFE_API_KEY, inputs, labels, instructions, !!multi);
+    } catch (e) {
+      console.warn(`jev failed, falling back: ${(e as Error).message}`);
+    }
+    if (jev) {
+      const ms = Date.now() - started;
+      const results: Result[] = jev.map((r, i) => {
+        // Jev still picks confidently for input that is not language, so the
+        // score is withheld there exactly as it was for the LLMs.
+        const unreadable = isUnintelligible(inputs[i]);
+        if (multi) {
+          let picked = labels
+            .filter((l) => r.scores[l] >= MULTI_THRESHOLD)
+            .sort((a, b) => r.scores[b] - r.scores[a]);
+          if (multi.max) picked = picked.slice(0, multi.max);
+          return {
+            label: picked[0] ?? "",
+            labels: picked,
+            confidence: null,
+            scores: unreadable ? null : r.scores,
+            unscored: unreadable ? UNSCORED_REASON : undefined,
+            ms,
+            model: r.model,
+          };
+        }
+        return {
+          label: r.label,
+          confidence: unreadable ? null : r.confidence,
+          scores: unreadable ? null : r.scores,
+          unscored: unreadable ? UNSCORED_REASON : undefined,
+          ms,
+          model: r.model,
+        };
+      });
+      const escalationFailed =
+        tier === "smart" && !multi ? await escalate(env, inputs, labels, instructions, results) : 0;
+      return { results, escalationFailed };
+    }
+  }
+  if (inputs.length > FALLBACK_MAX_INPUTS) {
+    throw new Error(`batch classification is temporarily unavailable; send up to ${FALLBACK_MAX_INPUTS} inputs or retry shortly`);
+  }
+  return { results: await llmClassifyMany(env, inputs, labels, tier, instructions, multi), escalationFailed: 0 };
 }
 
 /** Fingerprint a label set so we can count distinct classifiers without storing text. */
@@ -376,12 +550,29 @@ function classifierId(labels: string[]) {
   return [...labels].map((l) => l.toLowerCase().trim()).sort().join("|").slice(0, 120);
 }
 
+/** Enterprise callers use a secret bearer token and are not application-rate-limited. */
+function hasEnterpriseAccess(req: Request, env: Env) {
+  if (!env.ENTERPRISE_API_KEY) return false;
+  const authorization = req.headers.get("authorization");
+  if (!authorization) return false;
+  const [scheme, token, extra] = authorization.trim().split(/\s+/);
+  return !extra && scheme.toLowerCase() === "bearer" && token === env.ENTERPRISE_API_KEY;
+}
+
 function record(env: Env, ctx: ExecutionContext, d: {
-  tier: Tier; n: number; ms: number; labels: string[]; ip: string; country: string; status: number;
+  tier: Tier;
+  n: number;
+  ms: number;
+  labels: string[];
+  ip: string;
+  country: string;
+  status: number;
+  client: "public" | "enterprise";
+  model: string;
 }) {
   try {
     env.AE?.writeDataPoint({
-      blobs: [d.tier, classifierId(d.labels), d.country, String(d.status)],
+      blobs: [d.tier, classifierId(d.labels), d.country, String(d.status), d.client, d.model],
       doubles: [d.n, d.ms],
       indexes: [d.ip.slice(0, 32)],
     });
@@ -392,6 +583,7 @@ function record(env: Env, ctx: ExecutionContext, d: {
   ctx.waitUntil(
     (async () => {
       try {
+        if (!d.labels.length) return;
         const key = `cls:${classifierId(d.labels)}`;
         if (!(await env.STATS.get(key))) {
           await env.STATS.put(key, new Date().toISOString(), { expirationTtl: 60 * 60 * 24 * 90 });
@@ -428,6 +620,8 @@ export default {
     const url = new URL(req.url);
     const ip = req.headers.get("cf-connecting-ip") ?? "anon";
     const country = (req as { cf?: { country?: string } }).cf?.country ?? "??";
+    const enterprise = hasEnterpriseAccess(req, env);
+    const client = enterprise ? "enterprise" : "public";
 
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
@@ -473,7 +667,7 @@ export default {
       }
       const send = url.searchParams.get("send") === "1";
       try {
-        const body = await dailyReport(env, { send });
+        const body = await dailyReport(env, { send, primaries: primaryModels() });
         return text(body);
       } catch (e) {
         return text(`report failed: ${(e as Error).message}\n`, 500);
@@ -514,6 +708,7 @@ export default {
       try {
         body = (await req.json()) as Record<string, unknown>;
       } catch {
+        record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 400, client, model: "" });
         return json({ error: "Body must be JSON. See https://classifier.dev" }, 400);
       }
       inputs = Array.isArray(body.inputs)
@@ -547,32 +742,25 @@ export default {
       }
     }
 
-    const fail = (msg: string, status: number, extra: Record<string, string> = {}) =>
-      wantJson ? json({ error: msg }, status, extra) : text(`error: ${msg}\n`, status, extra);
+    const fail = (msg: string, status: number, extra: Record<string, string> = {}, ms = 0) => {
+      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "" });
+      return wantJson ? json({ error: msg }, status, extra) : text(`error: ${msg}\n`, status, extra);
+    };
 
     if (!inputs.length || !inputs[0]) return fail("Provide text to classify. See https://classifier.dev", 400);
     if (inputs.length > MAX_INPUTS) return fail(`Maximum ${MAX_INPUTS} inputs per request`, 400);
     if (labels.length < 2) return fail("Provide at least 2 labels", 400);
-    // A single-label answer rides on one letter, so past 26 the request can only
-    // sensibly be multi-label. Rather than reject it, switch modes.
-    if (!multi && labels.length > MAX_LABELS_SINGLE) multi = {};
-
-    const labelCap = multi ? MAX_LABELS_MULTI : MAX_LABELS_SINGLE;
-    if (labels.length > labelCap) {
-      return fail(
-        multi
-          ? `Maximum ${MAX_LABELS_MULTI} labels`
-          : `Maximum ${MAX_LABELS_SINGLE} labels`,
-        400,
-      );
-    }
+    if (labels.length > MAX_LABELS) return fail(`Maximum ${MAX_LABELS} labels`, 400);
+    if (labels.some((l) => typeof l !== "string" || !l.trim())) return fail("Labels must be non-empty strings", 400);
+    if (new Set(labels).size !== labels.length) return fail("Labels must be distinct", 400);
     if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400);
     if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be under ${MAX_CHARS} characters`, 400);
 
     const rpm = TIERS[tier].rpm;
-    const gate = await limited(env, tier, ip, inputs.length);
+    const gate = enterprise
+      ? { limited: false, remaining: -1 }
+      : await limited(env, tier, ip, inputs.length);
     if (gate.limited) {
-      record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 429 });
       const perDay = gate.scope === "day";
       return fail(
         perDay
@@ -588,19 +776,24 @@ export default {
     }
 
     const started = Date.now();
-    let results;
+    let results: Result[];
+    let escalationFailed = 0;
     try {
-      results = await classifyMany(env, inputs, labels, tier, instructions, multi);
+      ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi));
     } catch (e) {
-      record(env, ctx, { tier, n: 0, ms: Date.now() - started, labels, ip, country, status: 502 });
-      return fail(`upstream: ${(e as Error).message}`, 502);
+      return fail(`upstream: ${(e as Error).message}`, 502, {}, Date.now() - started);
     }
     const ms = Date.now() - started;
-    record(env, ctx, { tier, n: results.length, ms, labels, ip, country, status: 200 });
+    record(env, ctx, {
+      tier, n: results.length, ms, labels, ip, country, status: 200, client,
+      model: results[0]?.model ?? "",
+    });
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
     // fabricated remaining count. The limit is also documented at GET /.
-    const headers: Record<string, string> = { "x-ratelimit-limit": `${rpm}/min` };
+    const headers: Record<string, string> = {
+      "x-ratelimit-limit": enterprise ? "unlimited" : `${rpm}/min`,
+    };
     if (gate.remaining >= 0) headers["x-ratelimit-remaining"] = String(gate.remaining);
 
     if (!wantJson) {
@@ -620,10 +813,23 @@ export default {
         model: results[0]?.model,
         results: results.map((r) =>
           multi
-            ? { labels: r.labels ?? [], ms: r.ms, model: r.model }
-            : { label: r.label, confidence: r.confidence, scores: r.scores, unscored: r.unscored, ms: r.ms, model: r.model },
+            ? { labels: r.labels ?? [], scores: r.scores, unscored: r.unscored, ms: r.ms, model: r.model }
+            : {
+                label: r.label,
+                confidence: r.confidence,
+                scores: r.scores,
+                unscored: r.unscored,
+                escalated: r.escalated,
+                ms: r.ms,
+                model: r.model,
+              },
         ),
-        usage: { classifications: results.length, ms },
+        usage: {
+          classifications: results.length,
+          escalated: results.filter((r) => r.escalated).length,
+          ...(escalationFailed ? { escalation_failed: escalationFailed } : {}),
+          ms,
+        },
       },
       200,
       headers,
@@ -631,6 +837,6 @@ export default {
   },
 
   async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(dailyReport(env));
+    ctx.waitUntil(dailyReport(env, { send: true, primaries: primaryModels() }));
   },
 };
