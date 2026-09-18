@@ -50,6 +50,9 @@ Many texts, one call — **this is the path that matters**:
 Returns `results` in input order, each `{label, confidence, scores}`. Up to
 1,000 texts per call; 400 news headlines measured at 650ms end to end. For
 more, fan out calls in parallel — the limit is 3,000 classifications a minute.
+Each result also names the model that answered it. At the batch level,
+`modelsUsed` lists every serving model and `model` is `mixed` when more than one
+model answered the batch.
 
 ## Parameters
 

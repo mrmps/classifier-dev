@@ -430,6 +430,14 @@ type Result = {
   escalated?: true;
 };
 
+export function summarizeModels(results: readonly { model: string }[]) {
+  const modelsUsed = [...new Set(results.map((result) => result.model).filter(Boolean))];
+  return {
+    model: modelsUsed.length > 1 ? "mixed" : modelsUsed[0] ?? "",
+    modelsUsed,
+  };
+}
+
 /** The LLM chain, one upstream call per input. Fallback for when Jev is unavailable. */
 async function llmClassifyMany(
   env: Env,
@@ -789,9 +797,10 @@ export default {
       return fail(`upstream: ${(e as Error).message}`, 502, {}, Date.now() - started);
     }
     const ms = Date.now() - started;
+    const modelSummary = summarizeModels(results);
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
-      model: results[0]?.model ?? "",
+      model: modelSummary.modelsUsed.join(","),
     });
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
@@ -815,7 +824,7 @@ export default {
     return json(
       {
         tier,
-        model: results[0]?.model,
+        ...modelSummary,
         results: results.map((r) =>
           multi
             ? { labels: r.labels ?? [], scores: r.scores, unscored: r.unscored, ms: r.ms, model: r.model }

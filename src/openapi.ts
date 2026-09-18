@@ -214,7 +214,15 @@ export const OPENAPI = {
         type: "object",
         properties: {
           tier: { type: "string" },
-          model: { type: "string" },
+          model: {
+            type: "string",
+            description: "The model used for every result, or `mixed` when the batch used more than one model.",
+          },
+          modelsUsed: {
+            type: "array",
+            items: { type: "string" },
+            description: "Every model that served at least one result, in first-use order.",
+          },
           results: {
             type: "array",
             items: {
