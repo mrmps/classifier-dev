@@ -767,13 +767,15 @@ export default {
         headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", ...CORS },
       });
     }
-    if (path === "og.png" || path === "og-v2.png") {
+    if (path === "og.png" || path === "og-v2.png" || path === "og-v3.png") {
       return new Response(ogPngBytes(), {
         headers: {
           "content-type": "image/png",
-          "cache-control": path === "og-v2.png"
-            ? "public, max-age=31536000, immutable"
-            : "public, max-age=86400",
+          // The versioned names are immutable by construction: new art gets a
+          // new number, which is what makes a crawler re-fetch it.
+          "cache-control": path === "og.png"
+            ? "public, max-age=86400"
+            : "public, max-age=31536000, immutable",
           ...CORS,
         },
       });
