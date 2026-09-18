@@ -22,6 +22,8 @@
  * a conservative budget and run concurrently.
  */
 
+import { addJevCost, type Meter } from "./cost";
+
 const API = "https://api.typesafe.ai/v1/systemone";
 const MODEL = "jev-latest";
 
@@ -97,7 +99,7 @@ function pack(inputs: string[], labels: string[], instructions: string | undefin
   return out;
 }
 
-async function post(key: string, body: unknown) {
+async function post(key: string, body: unknown, meter?: Meter) {
   let last = "";
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(API, {
@@ -108,9 +110,14 @@ async function post(key: string, body: unknown) {
     const payload = (await res.json().catch(() => ({}))) as {
       model?: string;
       answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>;
+      usage?: { input_tokens?: number };
       detail?: unknown;
     };
-    if (res.ok && payload.answers) return payload as Required<Pick<typeof payload, "model" | "answers">>;
+    if (res.ok && payload.answers) {
+      // Only a call that answered is billed; a retried 429 is not.
+      addJevCost(meter, payload.usage?.input_tokens);
+      return payload as Required<Pick<typeof payload, "model" | "answers">>;
+    }
     last = `typesafe ${res.status}: ${JSON.stringify(payload.detail ?? payload).slice(0, 200)}`;
     // 429 and 529 are the documented "back off and retry" statuses.
     if (res.status !== 429 && res.status !== 529 && res.status < 500) break;
@@ -125,6 +132,7 @@ export async function jevClassify(
   labels: string[],
   instructions: string | undefined,
   multi: boolean,
+  meter?: Meter,
 ): Promise<JevResult[]> {
   const batches = pack(inputs, labels, instructions, multi);
   const out: JevResult[] = new Array(inputs.length);
@@ -134,7 +142,7 @@ export async function jevClassify(
     Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
       while (next < batches.length) {
         const b = batches[next++];
-        const res = await post(key, { state: b.items, model: MODEL, questions: b.questions });
+        const res = await post(key, { state: b.items, model: MODEL, questions: b.questions }, meter);
         b.items.forEach((item, k) => {
           const i = b.start + k;
           if (multi) {

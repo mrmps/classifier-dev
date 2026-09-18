@@ -25,6 +25,8 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
     src/jev.ts      TypeSafe's Jev: packs inputs into requests, reads probabilities
     src/limiter.ts  Durable Object: per-IP rate limiting
     src/report.ts   digest — Analytics Engine SQL -> Resend, flags model fallbacks
+    src/admin.ts    /admin — the operator dashboard, same data as the digest
+    src/cost.ts     per-request upstream spend, from the providers' own accounting
     src/docs.ts     the site (GET / and GET /benchmark), plain text
     cli/            the `classify` command, published to npm as classifier-dev
     eval/           benchmarks; read eval/README.md before quoting a number
@@ -35,7 +37,8 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
     npx wrangler deploy
 
 Secrets already set: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, `RESEND_API_KEY`,
-`CF_ANALYTICS_TOKEN`, `REPORT_KEY`. Add one with `npx wrangler secret put NAME`.
+`CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `ADMIN_PASSWORD`. Add one with
+`npx wrangler secret put NAME`.
 
 ## The model
 
@@ -80,7 +83,26 @@ weeks at F1 0.546 without anything saying so.
 Every request writes one Analytics Engine datapoint (tier, label-set fingerprint,
 country, status, count, latency). No request text is ever stored.
 
+Every request also records what it cost us: OpenRouter returns the charge for
+a call when asked, and Jev is billed on the input tokens it reports, at the
+rate `eval/bench.py` prices the benchmarks with. Spend accumulates in a
+per-request meter (`src/cost.ts`) and lands in `double3`. That column was added
+after launch, so it reads 0 for anything older than that deploy.
+
 A cron at 15:00 UTC queries it and emails a digest via Resend.
+
+### /admin
+
+The same dataset, rendered: <https://classifier.dev/admin>. Requests,
+classifications, upstream spend, cost per 1,000, latency, error rate, unique
+IPs and distinct label sets, over 24h / 7d / 30d, plus breakdowns by tier,
+model, status and country, and the busiest label sets. Every chart is backed by
+a table, so nothing is readable by colour alone.
+
+One shared password, in the `ADMIN_PASSWORD` secret — never in the source. A
+correct password mints an HMAC-signed cookie that expires in 12 hours; there is
+no session store. Wrong guesses go through the same Durable Object limiter the
+API uses, capped at 10 a minute per IP.
 
 Preview it any time without sending:
 
