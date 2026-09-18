@@ -303,7 +303,7 @@ function areaChart(id: string, points: { t: string; v: number }[], color: string
 function barList(rows: { name: string; value: number; note?: string; color: string }[], fmt: (n: number) => string) {
   if (!rows.length) return `<div class="empty">nothing here yet</div>`;
   const max = Math.max(...rows.map((r) => r.value), 1);
-  return `<div class="bars">${rows
+  return `<div class="scroll"><div class="bars">${rows
     .map(
       (r) => `<div class="bar">
       <span class="bname" title="${esc(r.name)}">${esc(r.name)}</span>
@@ -312,7 +312,7 @@ function barList(rows: { name: string; value: number; note?: string; color: stri
       <span class="bnote">${r.note ? esc(r.note) : ""}</span>
     </div>`,
     )
-    .join("")}</div>`;
+    .join("")}</div></div>`;
 }
 
 // ---------------------------------------------------------------- page
@@ -360,13 +360,13 @@ p{margin:0}
 .note{border-left:2px solid var(--amber);padding-left:12px;color:var(--muted)}
 .note b{color:var(--fg);font-weight:600}
 /* key/value block: the digest's aligned columns, on screen */
-.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0 32px;margin:0}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:0 32px;margin:0}
 .kv .k{display:flex;justify-content:space-between;gap:16px;padding:1px 0}
 .kv dt{color:var(--dim)}
 .kv dd{margin:0;color:var(--bright);font-variant-numeric:tabular-nums}
 .kv .sub{color:var(--dim)}
 /* block-character bars */
-.bars{display:grid;grid-template-columns:auto auto minmax(0,9ch) 1fr;gap:2px 12px;align-items:baseline}
+.bars{display:grid;grid-template-columns:auto auto minmax(0,9ch) 1fr;gap:2px 12px;align-items:baseline;min-width:max-content}
 /* Rows share the grid so every bar starts on the same column. */
 .bar{display:contents}
 .bname{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40ch}
@@ -400,6 +400,11 @@ details>summary:hover{color:var(--fg)}
 details>summary::before{content:"▸ ";color:var(--syntax)}
 details[open]>summary::before{content:"▾ ";color:var(--syntax)}
 .empty{color:var(--dim)}
+@media (max-width:640px){
+  .page{padding:40px 12px}
+  .bname{max-width:20ch}
+  .doc{font-size:13px}
+}
 /* login */
 .login{min-height:100dvh;display:grid;place-items:center;padding:24px}
 .loginbox{width:100%;max-width:420px}
