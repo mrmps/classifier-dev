@@ -8,6 +8,17 @@ confidence out. No key, no signup. Up to a thousand texts per request.
 
 Single Cloudflare Worker. No database, no framework, no build step beyond esbuild.
 
+## CLI
+
+    npm i -g classifier-dev
+    classify bug,feature,praise < feedback.txt
+
+`cli/` is a separate npm package (`classifier-dev`, bin `classify`): one
+dependency-free Node file, tests against a mock API (`npm test`), semver with
+its own CHANGELOG, released with `npm run release patch|minor|major` which
+tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
+(needs an `NPM_TOKEN` repo secret). It talks to the API exactly like curl does.
+
 ## Layout
 
     src/index.ts    routing, validation, tiers, LLM fallback chain, analytics
@@ -15,6 +26,7 @@ Single Cloudflare Worker. No database, no framework, no build step beyond esbuil
     src/limiter.ts  Durable Object: per-IP rate limiting
     src/report.ts   digest — Analytics Engine SQL -> Resend, flags model fallbacks
     src/docs.ts     the site (GET / and GET /benchmark), plain text
+    cli/            the `classify` command, published to npm as classifier-dev
     eval/           benchmarks; read eval/README.md before quoting a number
     finish-dns.sh   one-shot DNS wiring, see below
 
