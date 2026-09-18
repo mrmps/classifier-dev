@@ -5,7 +5,7 @@
 // tab-separated and greppable, or NDJSON with --json. Errors go to stderr with
 // exit 1; nothing else ever does.
 
-import { readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, statSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -310,6 +310,9 @@ export async function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// npm installs the bin as a symlink, so argv[1] must be resolved before it can
+// be compared with this file; without that a global install runs nothing.
+const invokedAs = (() => { try { return realpathSync(process.argv[1] ?? ""); } catch { return ""; } })();
+if (invokedAs === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => fail(e.message));
 }
