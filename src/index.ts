@@ -101,7 +101,9 @@ type Tier = keyof typeof TIERS;
  * weeks. Both fast chains count, since either can legitimately serve.
  */
 export function primaryModels(): string[] {
-  const out: string[] = [];
+  // Jev answers as a versioned id ("jev-1.13.0") while we ask for "jev-latest",
+  // so the digest matches it by prefix.
+  const out: string[] = ["jev"];
   for (const tier of Object.keys(TIERS) as Tier[]) {
     const t = TIERS[tier] as { chain: readonly ModelCfg[]; multiChain?: readonly ModelCfg[] };
     out.push(t.chain[0].model);
