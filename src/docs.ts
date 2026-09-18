@@ -144,8 +144,8 @@ TIERS
            at two milliseconds per item.
 
   smart    Same first pass, then every single-label answer below 0.7 confidence
-           is re-asked of a frontier reasoning model and replaced. Measured:
-           emotion 61.8% to 72.3%, news topics 87.5% to 90.7%, by re-asking
+           is re-asked of a fast reasoning model and replaced. Measured:
+           emotion 61.8% to 63.7%, news topics 87.5% to 90.0%, by re-asking
            30% and 12% of the items. Those results carry escalated: true and
            the reasoning model's name; the confidence and scores shown are
            still the decision model's, since they are why it was escalated.
@@ -242,15 +242,18 @@ second model does on exactly those, not overall.
   model                          acc      -> whole set     acc    -> whole set
   ------------------------------------------------------------------------------
   jev alone                     36.9%        61.8%        65.3%      87.5%
+  gemini-3.8-flash  (smart)     43.4%        63.7%        85.7%      90.0%
+  qwen3.8-flash                 36.1%        61.5%        79.6%      89.2%
+  qwen3.7-flash                 ~37%         61.0%        ~66%       87.7%
+  deepseek-v4-flash             36.9%        61.8%        34.7%      83.8%
+  mercury-2.5                   26.2%        58.5%        38.8%      84.3%
   claude-fable-5.1              71.3%        72.3%        91.8%      90.7%
   gpt-6-astra                   54.9%        67.2%        69.4%      88.0%
-  gemini-3.8-flash              44.3%        64.0%          -          -
-  qwen3.7-flash                 ~37%         61.0%        ~66%       87.7%
-  deepseek-v4-pro               33.6%        60.8%        55.1%      86.3%
 
-The cheaper reasoning models are no better than Jev on the cases Jev finds
-hard; only the frontier model is, so that is what the smart tier calls. About
-$2 per thousand escalated items, 3 seconds each.
+Most cheap models are no better than Jev on the cases Jev finds hard; the
+frontier models are, at about $2 per thousand escalations. The smart tier
+calls gemini-3.8-flash, the fast model that helped on both sets: about $0.70
+per thousand escalated items, 2.3 seconds each.
 
 
 MULTI LABEL

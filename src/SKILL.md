@@ -83,9 +83,9 @@ for text, r in zip(texts, results):
 ```
 
 `tier: "smart"` does that routing server-side: every single-label answer under
-0.7 confidence is re-asked of a frontier reasoning model and replaced, marked
+0.7 confidence is re-asked of a fast reasoning model and replaced, marked
 `escalated: true`, with `usage.escalated` telling you how many. Measured:
-six-way emotion 61.8% → 72.3% by re-asking 30% of items. It costs a few
+four-way news 87.5% → 90.0% by re-asking 12% of items. It costs a few
 seconds per escalated item, so a batch on smart is slower in proportion to how
 uncertain it is.
 

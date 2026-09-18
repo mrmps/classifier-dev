@@ -83,13 +83,14 @@ const TIERS = {
     // Only ever sees the answers Jev was unsure about, so it has to be a model
     // that is actually better than Jev on hard cases. Measured on the items
     // Jev put under 0.7 confidence (eval/single.py + escalate.py, 2026-09-17):
-    //   six-way emotion, 122 items      jev 36.9%  fable-5.1 71.3%  gpt-6-astra 54.9%  qwen3.7-flash ~37%
-    //   four-way news, 49 items         jev 65.3%  fable-5.1 91.8%  gpt-6-astra 69.4%  deepseek-v4-pro 55.1%
-    // which moves the whole set from 61.8% to 72.3% and 87.5% to 90.7%. The
-    // cheaper reasoning models were no better than Jev on exactly these items.
+    //   six-way emotion, 122 items   jev 36.9%  gemini-3.8-flash 43.4%  qwen3.8-flash 36.1%  deepseek-v4-flash 36.9%
+    //   four-way news, 49 items      jev 65.3%  gemini-3.8-flash 85.7%  qwen3.8-flash 79.6%  deepseek-v4-flash 34.7%
+    // which moves the whole set from 61.8% to 63.7% and 87.5% to 90.0%.
+    // Frontier models do much better here (claude-fable-5.1: 71.3% / 91.8%)
+    // but cost ~$2 per thousand escalations; the brief is fast and cheap.
     chain: [
-      { model: "anthropic/claude-fable-5.1", provider: undefined, maxTokens: 2000, reasoning: true },
-      { model: "openai/gpt-6-astra", provider: undefined, maxTokens: 2000, reasoning: true },
+      { model: "google/gemini-3.8-flash", provider: undefined, maxTokens: 2000, reasoning: true },
+      { model: "qwen/qwen3.8-flash", provider: undefined, maxTokens: 2000, reasoning: true },
     ],
   },
 } as const;

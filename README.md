@@ -43,11 +43,13 @@ same as sending them one at a time.
 >= 0.9 confidence were right 82% of the time and answers below 0.5 were right
 29%. The previous model's logprob "confidence" put 87% of news items above 0.9
 and was right on 68% of those. So `tier: "smart"` now means: re-ask the
-single-label answers below 0.7 of a frontier model and replace them, marked
-`escalated: true`. Nothing else changes. Which model matters: on exactly the
-items Jev is unsure about, qwen3.7-flash, deepseek-v4-pro and gemini-3.8-flash
-were no better than Jev, while claude-fable-5.1 took emotion from 61.8% to
-72.3% overall and news topics from 87.5% to 90.7%, so that is the chain.
+single-label answers below 0.7 of a fast reasoning model and replace them,
+marked `escalated: true`. Nothing else changes. Which model matters: on
+exactly the items Jev is unsure about, deepseek-v4-flash, qwen3.7-flash and
+mercury-2.5 were no better than Jev; gemini-3.8-flash took news topics from
+87.5% to 90.0% and emotion from 61.8% to 63.7%, so that is the chain. A
+frontier model (claude-fable-5.1) gets 72.3% / 90.7% at ~3x the price; the
+numbers are on /benchmark if that trade ever looks worth it.
 
 **Multi-label in one pass.** One yes/no question per label, labels at >= 0.7
 returned most-likely-first with the full score map. F1 0.887 on the seven-case
