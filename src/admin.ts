@@ -222,19 +222,30 @@ async function load(env: Env, range: RangeKey) {
 
 // ---------------------------------------------------------------- charts
 
+/** Bar cells, in block characters. Monospace makes the column align itself. */
+const BAR_CELLS = 20;
+
+function blockBar(value: number, max: number, color: string) {
+  const filled = max > 0 ? Math.max(1, Math.round((value / max) * BAR_CELLS)) : 0;
+  return (
+    `<span class="fill" style="color:${color}">${"█".repeat(filled)}</span>` +
+    `<span class="track">${"░".repeat(BAR_CELLS - filled)}</span>`
+  );
+}
+
 /**
  * One measure over time. Two measures of different scale get two charts, never
- * two y-axes on one. Marks are thin, the grid is recessive, and the hover layer
- * is wired up by the script at the bottom of the page.
+ * two y-axes on one. Thin marks, a recessive grid, and the hover layer wired up
+ * by the script at the bottom of the page.
  */
 function areaChart(id: string, points: { t: string; v: number }[], color: string, fmt: (n: number) => string) {
   const W = 760;
-  const H = 200;
-  const L = 52;
-  const R = 12;
-  const T = 14;
-  const B = 28;
-  if (!points.length) return `<div class="empty">No data in this range yet.</div>`;
+  const H = 190;
+  const L = 64;
+  const R = 8;
+  const T = 12;
+  const B = 26;
+  if (!points.length) return `<div class="empty">no data in this range yet</div>`;
 
   const max = Math.max(...points.map((p) => p.v), 0);
   const top = max <= 0 ? 1 : max * 1.15;
@@ -246,12 +257,11 @@ function areaChart(id: string, points: { t: string; v: number }[], color: string
   const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
   const area = `${line}L${x(points.length - 1).toFixed(1)},${T + ih}L${x(0).toFixed(1)},${T + ih}Z`;
 
-  const ticks = [0, top / 2, top];
-  const grid = ticks
+  const grid = [0, top / 2, top]
     .map(
       (v) =>
         `<line class="gridline" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>` +
-        `<text class="ylab" x="${L - 8}" y="${(y(v) + 4).toFixed(1)}">${esc(fmt(v))}</text>`,
+        `<text class="ylab" x="${L - 10}" y="${(y(v) + 4).toFixed(1)}">${esc(fmt(v))}</text>`,
     )
     .join("");
 
@@ -266,25 +276,22 @@ function areaChart(id: string, points: { t: string; v: number }[], color: string
     )
     .join("");
 
+  const cell = iw / Math.max(points.length, 1);
   const hit = points
-    .map(
-      (p, i) =>
-        `<rect class="hit" data-i="${i}" x="${(x(i) - iw / Math.max(points.length, 1) / 2).toFixed(1)}" y="${T}" ` +
-        `width="${(iw / Math.max(points.length, 1)).toFixed(1)}" height="${ih}"/>`,
-    )
+    .map((p, i) => `<rect class="hit" data-i="${i}" x="${(x(i) - cell / 2).toFixed(1)}" y="${T}" width="${cell.toFixed(1)}" height="${ih}"/>`)
     .join("");
 
   return `<div class="chartwrap" data-chart="${id}">
-  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Time series; the table below lists every value.">
+  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Time series; the table at the end of the page lists every value.">
     <defs><linearGradient id="g-${id}" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="${color}" stop-opacity="0.26"/>
-      <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      <stop offset="0%" stop-color="${color}" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="${color}" stop-opacity="0.01"/>
     </linearGradient></defs>
     ${grid}
     <path d="${area}" fill="url(#g-${id})"/>
     <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     <line class="cross" x1="0" x2="0" y1="${T}" y2="${T + ih}" style="display:none"/>
-    <circle class="dot" r="4.5" fill="${color}" style="display:none"/>
+    <circle class="dot" r="4" fill="${color}" style="display:none"/>
     ${xlab}
     ${hit}
   </svg>
@@ -292,16 +299,17 @@ function areaChart(id: string, points: { t: string; v: number }[], color: string
 </div>`;
 }
 
-/** Horizontal bars. Always direct-labelled, which is also the light-mode relief rule. */
+/** Bars, always direct-labelled — the number is never carried by colour alone. */
 function barList(rows: { name: string; value: number; note?: string; color: string }[], fmt: (n: number) => string) {
-  if (!rows.length) return `<div class="empty">Nothing here yet.</div>`;
+  if (!rows.length) return `<div class="empty">nothing here yet</div>`;
   const max = Math.max(...rows.map((r) => r.value), 1);
   return `<div class="bars">${rows
     .map(
       (r) => `<div class="bar">
-      <div class="bar-name" title="${esc(r.name)}">${esc(r.name)}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${Math.max((r.value / max) * 100, 1.5)}%;background:${r.color}"></div></div>
-      <div class="bar-val">${esc(fmt(r.value))}${r.note ? `<span class="bar-note">${esc(r.note)}</span>` : ""}</div>
+      <span class="bname" title="${esc(r.name)}">${esc(r.name)}</span>
+      <span class="btrack">${blockBar(r.value, max, r.color)}</span>
+      <span class="bval">${esc(fmt(r.value))}</span>
+      <span class="bnote">${r.note ? esc(r.note) : ""}</span>
     </div>`,
     )
     .join("")}</div>`;
@@ -309,140 +317,152 @@ function barList(rows: { name: string; value: number; note?: string; color: stri
 
 // ---------------------------------------------------------------- page
 
+/**
+ * The site is plain text on purpose, so the one HTML surface it has reads like
+ * a rendered markdown document in a terminal: the syntax stays visible and
+ * unselectable, links are bracketed, and nothing is a card.
+ */
 const STYLE = `
 :root{
-  color-scheme:light;
-  --bg:#f6f6f4; --surface:#fcfcfb; --surface-2:#f1f1ee; --border:#e2e2dd;
-  --text:#14131a; --text-2:#52514e; --muted:#7a7a74;
-  --accent:#5b2fd6;
-  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
-  --good:#1a7f37; --warn:#9a6700; --crit:#cf222e;
-  --shadow:0 1px 2px rgba(20,19,26,.06),0 4px 16px rgba(20,19,26,.05);
+  --bg:#0b0e14;
+  --fg:#e5e5e5; --bright:#f5f5f5; --muted:#a3a3a3; --dim:#737373;
+  --syntax:#525252; --line:#404040; --rule:#262626;
+  --blue:#58a6ff; --blue-bg:#1f6feb; --blue-fg:#bfdbfe;
+  --amber:#d29922; --green:#3fb950; --red:#f85149;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  color-scheme:dark;
-  --bg:#121016; --surface:#1a1720; --surface-2:#221d2b; --border:#2e2838;
-  --text:#f4f2f8; --text-2:#c3c0cc; --muted:#8e8a9a;
-  --accent:#a98cff;
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
-  --good:#3fb950; --warn:#d29922; --crit:#f85149;
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 20px rgba(0,0,0,.3);
-}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);
-  font:15px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+html{color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.625 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
   -webkit-font-smoothing:antialiased}
-a{color:var(--accent)}
-.wrap{max-width:1140px;margin:0 auto;padding:28px 16px 72px}
-header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px}
-.mark{width:26px;height:26px;border-radius:7px;background:var(--accent);flex:none}
-h1{font-size:17px;margin:0;font-weight:640;letter-spacing:-.01em}
-h1 span{color:var(--muted);font-weight:450}
-.sub{color:var(--muted);font-size:13px;margin:0 0 22px}
-.spacer{flex:1}
-.tabs{display:flex;gap:2px;background:var(--surface-2);padding:3px;border-radius:9px;border:1px solid var(--border)}
-.tabs a{padding:5px 13px;border-radius:7px;font-size:13px;text-decoration:none;color:var(--text-2);font-weight:500}
-.tabs a.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
-.logout{font-size:13px;color:var(--muted);text-decoration:none}
-.logout:hover{color:var(--text)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin-bottom:24px}
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:15px 16px;box-shadow:var(--shadow)}
-.kpi .k{font-size:12px;color:var(--muted);letter-spacing:.02em;margin-bottom:7px}
-.kpi .v{font-size:25px;font-weight:660;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}
-.kpi .n{font-size:12px;color:var(--text-2);margin-top:5px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:820px){.grid{grid-template-columns:1fr}}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:16px 18px 18px;box-shadow:var(--shadow);margin-bottom:16px;min-width:0}
-.card h2{font-size:13px;margin:0 0 3px;font-weight:600;letter-spacing:.01em}
-.card .cap{font-size:12px;color:var(--muted);margin:0 0 14px}
+.page{padding:64px 16px}
+.doc{max-width:896px;margin:0 auto}
+.doc>*+*{margin-top:24px}
+section>*+*{margin-top:8px}
+h1{font-size:20px;font-weight:700;color:var(--bright);margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:600;color:var(--fg);margin:0}
+p{margin:0}
+/* Markdown syntax: visible, muted, never part of a copy. */
+.syn{user-select:none;color:var(--syntax)}
+.quote{border-left:2px solid var(--rule);padding-left:12px;color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+/* The bracketed control. Hover and focus fill, exactly like a selected line. */
+.b{display:inline-flex;align-items:center;gap:6px;padding:0 6px;color:var(--blue);
+  text-decoration:none;background:none;border:0;font:inherit;cursor:pointer;
+  outline:none;transition:background-color .1s,color .1s;white-space:nowrap}
+.b:hover,.b:focus-visible{background:var(--blue-bg);color:#fff}
+.b .br{user-select:none;color:var(--syntax);transition:color .1s}
+.b:hover .br,.b:focus-visible .br{color:var(--blue-fg)}
+.b.dim{color:var(--muted)}
+.b.on{background:var(--blue-bg);color:#fff}
+.b.on .br{color:var(--blue-fg)}
+.b svg{width:15px;height:15px;flex:none}
+.note{border-left:2px solid var(--amber);padding-left:12px;color:var(--muted)}
+.note b{color:var(--fg);font-weight:600}
+/* key/value block: the digest's aligned columns, on screen */
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0 32px;margin:0}
+.kv .k{display:flex;justify-content:space-between;gap:16px;padding:1px 0}
+.kv dt{color:var(--dim)}
+.kv dd{margin:0;color:var(--bright);font-variant-numeric:tabular-nums}
+.kv .sub{color:var(--dim)}
+/* block-character bars */
+.bars{display:grid;grid-template-columns:auto auto minmax(0,9ch) 1fr;gap:2px 12px;align-items:baseline}
+/* Rows share the grid so every bar starts on the same column. */
+.bar{display:contents}
+.bname{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40ch}
+.btrack{letter-spacing:-.5px;white-space:nowrap}
+.track{color:var(--rule)}
+.bval{color:var(--bright);font-variant-numeric:tabular-nums;text-align:right}
+.bnote{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* charts */
 .chartwrap{position:relative}
-.chartwrap svg{width:100%;height:190px;display:block;overflow:visible}
-.gridline{stroke:var(--border);stroke-width:1}
-.ylab,.xlab{fill:var(--muted);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.chartwrap svg{width:100%;height:180px;display:block;overflow:visible}
+.gridline{stroke:var(--rule);stroke-width:1}
+.ylab,.xlab{fill:var(--dim);font-size:11px;font-family:inherit}
 .ylab{text-anchor:end}
-.cross{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
-.dot{stroke:var(--surface);stroke-width:2}
+.cross{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3}
+.dot{stroke:var(--bg);stroke-width:2}
 .hit{fill:transparent}
-.tip{position:absolute;pointer-events:none;background:var(--text);color:var(--bg);font-size:12px;
-  padding:6px 9px;border-radius:7px;white-space:nowrap;transform:translate(-50%,-135%);z-index:5;
-  font-variant-numeric:tabular-nums;box-shadow:var(--shadow)}
-.bars{display:flex;flex-direction:column;gap:9px}
-.bar{display:grid;grid-template-columns:minmax(72px,132px) 1fr auto;gap:11px;align-items:center}
-.bar-name{font-size:13px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bar-track{background:var(--surface-2);border-radius:4px;height:9px;overflow:hidden}
-.bar-fill{height:100%;border-radius:4px}
-.bar-val{font-size:13px;font-variant-numeric:tabular-nums;font-weight:560;text-align:right}
-.bar-note{color:var(--muted);font-weight:430;margin-left:6px;font-size:12px}
-table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
-th,td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--border)}
+.tip{position:absolute;pointer-events:none;background:#161b22;border:1px solid var(--line);
+  color:var(--fg);font-size:12px;padding:4px 8px;white-space:nowrap;
+  transform:translate(-50%,-145%);z-index:5;font-variant-numeric:tabular-nums}
+/* tables */
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:2px 10px 2px 0;white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
-th{color:var(--muted);font-weight:530;font-size:12px}
-td.lab{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;max-width:340px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-tbody tr:last-child td{border-bottom:0}
-details{margin-top:6px}
-summary{cursor:pointer;font-size:12px;color:var(--muted);padding:5px 0}
-.empty{color:var(--muted);font-size:13px;padding:22px 0;text-align:center}
-.note{background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:9px 12px;
-  font-size:12px;color:var(--text-2);margin-bottom:16px}
-.pill{display:inline-block;width:8px;height:8px;border-radius:3px;margin-right:7px;vertical-align:baseline}
-.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-2);margin-bottom:10px}
+th{color:var(--dim);font-weight:500;border-bottom:1px solid var(--rule)}
+td{color:var(--fg)}
+td.lab{max-width:38ch;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+details>summary{cursor:pointer;color:var(--muted);list-style:none;user-select:none;padding:2px 0}
+details>summary::-webkit-details-marker{display:none}
+details>summary:hover{color:var(--fg)}
+details>summary::before{content:"▸ ";color:var(--syntax)}
+details[open]>summary::before{content:"▾ ";color:var(--syntax)}
+.empty{color:var(--dim)}
 /* login */
 .login{min-height:100dvh;display:grid;place-items:center;padding:24px}
-.loginbox{background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:26px;
-  width:100%;max-width:340px;box-shadow:var(--shadow)}
-.loginbox h1{margin:14px 0 5px}
-.loginbox p{color:var(--muted);font-size:13px;margin:0 0 18px}
-label{display:block;font-size:12px;color:var(--text-2);margin-bottom:6px}
-input[type=password]{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--border);
-  background:var(--bg);color:var(--text);font-size:14px;font-family:inherit}
-input[type=password]:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
-button{width:100%;margin-top:13px;padding:10px;border-radius:9px;border:0;background:var(--accent);
-  color:#fff;font-size:14px;font-weight:580;cursor:pointer;font-family:inherit}
-button:hover{filter:brightness(1.07)}
-.err{color:var(--crit);font-size:13px;margin-top:12px}
+.loginbox{width:100%;max-width:420px}
+.loginbox>*+*{margin-top:16px}
+input[type=password]{width:100%;padding:6px 8px;background:#11161f;color:var(--fg);
+  border:1px solid var(--line);font:inherit;outline:none}
+input[type=password]:focus{border-color:var(--blue)}
+.err{color:var(--red)}
 `;
 
 function shell(title: string, body: string, extra = "") {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0b0e14">
 <title>${esc(title)}</title><style>${STYLE}</style></head>
 <body>${body}${extra}</body></html>`;
 }
+
+const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+
+/** A bracketed control, the one interactive idiom on the page. */
+const btn = (label: string, opts: { href?: string; cls?: string; icon?: string; attrs?: string } = {}) => {
+  const inner = `<span class="br">[</span>${opts.icon ?? ""}<span class="lbl">${esc(label)}</span><span class="br">]</span>`;
+  const cls = `b${opts.cls ? ` ${opts.cls}` : ""}`;
+  return opts.href
+    ? `<a class="${cls}" href="${opts.href}"${opts.attrs ?? ""}>${inner}</a>`
+    : `<button type="button" class="${cls}"${opts.attrs ?? ""}>${inner}</button>`;
+};
 
 function loginPage(error?: string) {
   return shell(
     "admin · classifier.dev",
     `<div class="login"><form class="loginbox" method="POST" action="/admin">
-      <div class="mark"></div>
-      <h1>classifier.dev <span>admin</span></h1>
-      <p>Operator dashboard. Password required.</p>
-      <label for="p">Password</label>
-      <input id="p" name="password" type="password" autocomplete="current-password" autofocus required>
-      <button type="submit">Sign in</button>
-      ${error ? `<div class="err">${esc(error)}</div>` : ""}
+      <h1><span class="syn"># </span>classifier.dev admin</h1>
+      <p class="quote">operator dashboard, password required</p>
+      <div>
+        <p><span class="syn">## </span>password</p>
+        <input id="p" name="password" type="password" autocomplete="current-password" autofocus required>
+      </div>
+      <p><button type="submit" class="b"><span class="br">[</span>sign in<span class="br">]</span></button></p>
+      ${error ? `<p class="err">${esc(error)}</p>` : ""}
     </form></div>`,
   );
 }
 
 /** What each reason code means, in the words the caller would use. */
 const REASON_TEXT: Record<string, string> = {
-  bad_json: "Body was not valid JSON",
-  no_input: "No text to classify",
-  too_many_inputs: "Over 1,000 inputs",
-  too_few_labels: "Fewer than 2 labels",
-  too_many_labels: "Over 100 labels",
-  empty_label: "A label was empty or not a string",
-  duplicate_labels: "Labels were not distinct",
-  empty_input: "An input was empty or not a string",
-  input_too_long: "An input was over 32,000 characters",
-  rate_limit_minute: "Per-minute rate limit",
-  rate_limit_day: "Daily rate limit",
-  chain_exhausted: "Every model in the chain failed",
-  batch_unavailable: "Batch too large for the LLM fallback",
-  timeout: "Upstream timed out",
-  upstream_other: "Other upstream failure",
+  bad_json: "body was not valid JSON",
+  no_input: "no text to classify",
+  too_many_inputs: "over 1,000 inputs",
+  too_few_labels: "fewer than 2 labels",
+  too_many_labels: "over 100 labels",
+  empty_label: "a label was empty or not a string",
+  duplicate_labels: "labels were not distinct",
+  empty_input: "an input was empty or not a string",
+  input_too_long: "an input was over 32,000 characters",
+  rate_limit_minute: "per-minute rate limit",
+  rate_limit_day: "daily rate limit",
+  chain_exhausted: "every model in the chain failed",
+  batch_unavailable: "batch too large for the LLM fallback",
+  timeout: "upstream timed out",
+  upstream_other: "other upstream failure",
 };
 const reasonText = (r: string) => REASON_TEXT[r] ?? (r.startsWith("typesafe_") ? `TypeSafe returned ${r.slice(9)}` : r);
 
@@ -462,131 +482,203 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
     const s = String(iso ?? "").replace(" ", "T");
     const dt = new Date(/Z|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`);
     if (Number.isNaN(dt.getTime())) return String(iso ?? "");
-    return range === "24h"
-      ? dt.toISOString().slice(11, 16) + "Z"
-      : dt.toISOString().slice(5, 10);
+    return range === "24h" ? `${dt.toISOString().slice(11, 16)}Z` : dt.toISOString().slice(5, 10);
   };
 
   const pts = d.series.map((r) => ({ t: fmtT(r.t), reqs: num(r.requests), cls: num(r.classifications), usd: num(r.usd) }));
 
-  const kpi = (k: string, v: string, n?: string) =>
-    `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>${
-      n ? `<div class="n">${esc(n)}</div>` : ""
-    }</div>`;
+  const kv = (rows: [string, string, string?][]) =>
+    `<dl class="kv">${rows
+      .map(
+        ([k, v, sub]) =>
+          `<div class="k"><dt>${esc(k)}</dt><dd>${esc(v)}${sub ? ` <span class="sub">${esc(sub)}</span>` : ""}</dd></div>`,
+      )
+      .join("")}</dl>`;
 
-  const tierColor: Record<string, string> = { fast: "var(--s1)", smart: "var(--s2)" };
-  const statusColor = (s: string) =>
-    s === "200" ? "var(--good)" : s.startsWith("4") ? "var(--warn)" : "var(--crit)";
+  const h2 = (s: string) => `<h2><span class="syn">## </span>${esc(s)}</h2>`;
+  const tierColor: Record<string, string> = { fast: "var(--blue)", smart: "var(--amber)" };
+  const statusColor = (s: string) => (s === "200" ? "var(--green)" : s.startsWith("4") ? "var(--amber)" : "var(--red)");
 
   const tabs = (["24h", "7d", "30d"] as RangeKey[])
-    .map((k) => `<a href="/admin?range=${k}"${k === range ? ' class="on"' : ""}>${k}</a>`)
+    .map((k) => btn(k, { href: `/admin?range=${k}`, cls: k === range ? "on" : "" }))
     .join("");
 
-  return shell(
-    `admin · classifier.dev`,
-    `<div class="wrap">
-  <header>
-    <div class="mark"></div>
-    <h1>classifier.dev <span>admin</span></h1>
-    <div class="spacer"></div>
-    <nav class="tabs">${tabs}</nav>
-    <a class="logout" href="/admin?logout=1">Sign out</a>
-  </header>
-  <p class="sub">${esc(RANGES[range].label)} · generated ${esc(new Date().toISOString().slice(0, 16).replace("T", " "))}Z</p>
-
-  ${
-    d.errors.length
-      ? `<div class="note"><strong>Some panels are empty.</strong> Analytics Engine returned: ${esc(
-          d.errors.join(" · ").slice(0, 300),
-        )}</div>`
-      : ""
+  // Failure causes, summed across the client/status split the table keeps.
+  const reasonTotals = new Map<string, { requests: number; status: string }>();
+  for (const r of d.byReason) {
+    const k = String(r.reason);
+    const cur = reasonTotals.get(k) ?? { requests: 0, status: String(r.status ?? "") };
+    cur.requests += num(r.requests);
+    reasonTotals.set(k, cur);
   }
+  const reasonRows = [...reasonTotals.entries()].sort((a, b) => b[1].requests - a[1].requests);
+
+  // The same numbers as plain text, for the copy control.
+  const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);
+  const report = [
+    `classifier.dev — ${RANGES[range].label} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}Z`,
+    "",
+    `  requests          ${group(requests)}`,
+    `  classifications   ${group(classifications)}`,
+    `  upstream spend    ${usd(spend)}`,
+    `  cost / 1k         ${usd(per1k)}`,
+    `  avg latency       ${ms(avgMs)}`,
+    `  error rate        ${errRate.toFixed(1)}%  (${group(failed)} of ${group(requests)})`,
+    `  unique IPs        ${group(d.visitors)}`,
+    `  label sets        ${group(d.labelSets)}`,
+    "",
+    ...(reasonRows.length
+      ? ["WHY REQUESTS FAIL", ...reasonRows.map(([r, v]) => `  ${pad(reasonText(r), 38)} ${group(v.requests)}`), ""]
+      : []),
+    ...(d.byModel.length
+      ? ["BY MODEL", ...d.byModel.map((r) => `  ${pad(String(r.model ?? "?"), 38)} ${group(num(r.requests))}  ${usd(num(r.usd))}`)]
+      : []),
+  ].join("\n");
+
+  const section = (title: string, body: string) => `<section>${h2(title)}${body}</section>`;
+
+  return shell(
+    "admin · classifier.dev",
+    `<div class="page"><article class="doc">
+  <h1><span class="syn"># </span>classifier.dev admin</h1>
+  <p class="quote">${esc(RANGES[range].label)}, generated ${esc(new Date().toISOString().slice(0, 16).replace("T", " "))}Z</p>
+
+  <p class="row">${tabs}${btn("copy report", {
+      cls: "dim",
+      icon: COPY_ICON,
+      attrs: ' id="copy" aria-label="Copy these figures to your clipboard"',
+    })}${btn("sign out", { href: "/admin?logout=1", cls: "dim" })}</p>
+
+  ${d.errors.length ? `<p class="note"><b>some panels are empty.</b> analytics engine returned: ${esc(d.errors.join(" · ").slice(0, 300))}</p>` : ""}
   ${
     spend === 0 && requests > 0
-      ? `<div class="note">Spend reads <strong>$0</strong>, and failures have no recorded cause, for traffic served before this instrumentation shipped — both are real only for requests after that deploy.</div>`
+      ? `<p class="note">spend reads <b>$0</b>, and failures have no recorded cause, for traffic served before this instrumentation shipped — both are real only after that deploy.</p>`
       : ""
   }
 
-  <div class="kpis">
-    ${kpi("Requests", group(requests))}
-    ${kpi("Classifications", group(classifications), requests ? `${(classifications / requests).toFixed(1)} per request` : undefined)}
-    ${kpi("Upstream spend", usd(spend), "provider-reported")}
-    ${kpi("Cost / 1k", usd(per1k), "per 1,000 classifications")}
-    ${kpi("Avg latency", ms(avgMs))}
-    ${kpi("Error rate", `${errRate.toFixed(1)}%`, `${group(failed)} of ${group(requests)}`)}
-    ${kpi("Unique IPs", group(d.visitors))}
-    ${kpi("Label sets", group(d.labelSets), "distinct classifiers")}
-  </div>
+  ${section(
+    "Totals",
+    kv([
+      ["requests", group(requests)],
+      ["classifications", group(classifications), requests ? `${(classifications / requests).toFixed(1)}/req` : ""],
+      ["upstream spend", usd(spend), "provider-reported"],
+      ["cost / 1k", usd(per1k)],
+      ["avg latency", ms(avgMs)],
+      ["error rate", `${errRate.toFixed(1)}%`, `${group(failed)} of ${group(requests)}`],
+      ["unique IPs", group(d.visitors)],
+      ["label sets", group(d.labelSets)],
+    ]),
+  )}
 
-  <div class="grid">
-    <div class="card">
-      <h2>Requests over time</h2>
-      <p class="cap">One point per ${esc(RANGES[range].interval.replace("'", "").toLowerCase())} bucket.</p>
-      ${areaChart("req", pts.map((p) => ({ t: p.t, v: p.reqs })), "var(--s1)", (n) => group(n))}
-    </div>
-    <div class="card">
-      <h2>Upstream spend over time</h2>
-      <p class="cap">What TypeSafe and OpenRouter charged, on its own scale.</p>
-      ${areaChart("usd", pts.map((p) => ({ t: p.t, v: p.usd })), "var(--s2)", (n) => usd(n))}
-    </div>
-  </div>
+  ${section("Requests over time", areaChart("req", pts.map((p) => ({ t: p.t, v: p.reqs })), "var(--blue)", group))}
+  ${section("Upstream spend over time", areaChart("usd", pts.map((p) => ({ t: p.t, v: p.usd })), "var(--amber)", usd))}
 
-  <div class="grid">
-    <div class="card">
-      <h2>By tier</h2>
-      <p class="cap">Requests, with spend and latency alongside.</p>
-      ${barList(
-        d.byTier.map((r) => ({
-          name: String(r.tier || "?"),
-          value: num(r.requests),
-          note: `${usd(num(r.usd))} · ${ms(num(r.avg_ms))}`,
-          color: tierColor[String(r.tier)] ?? "var(--s3)",
-        })),
-        group,
-      )}
-    </div>
-    <div class="card">
-      <h2>By model</h2>
-      <p class="cap">Which model actually answered. A surprise here is a fallback.</p>
-      ${barList(
-        d.byModel.map((r) => ({
-          name: String(r.model || "?"),
-          value: num(r.requests),
-          note: usd(num(r.usd)),
-          color: "var(--s1)",
-        })),
-        group,
-      )}
-    </div>
-  </div>
+  ${section(
+    "Why requests fail",
+    (reasonRows.length
+      ? barList(
+          reasonRows.map(([reason, v]) => ({
+            name: reasonText(reason),
+            value: v.requests,
+            color: v.status.startsWith("5") ? "var(--red)" : "var(--amber)",
+          })),
+          group,
+        )
+      : `<div class="empty">no failures recorded in this range</div>`) +
+      `<details><summary>by client and status</summary><div class="scroll"><table>
+      <thead><tr><th>cause</th><th>client</th><th>status</th><th>requests</th><th>avg inputs</th></tr></thead><tbody>
+      ${
+        d.byReason.length
+          ? d.byReason
+              .slice(0, 25)
+              .map(
+                (r) =>
+                  `<tr><td>${esc(reasonText(String(r.reason)))}</td><td>${esc(r.agent || "?")}</td><td>${esc(
+                    r.status || "?",
+                  )}</td><td>${group(num(r.requests))}</td><td>${num(r.avg_inputs).toFixed(1)}</td></tr>`,
+              )
+              .join("")
+          : `<tr><td colspan="5" class="empty">nothing yet</td></tr>`
+      }
+      </tbody></table></div></details>`,
+  )}
 
-  <div class="grid">
-    <div class="card">
-      <h2>By status</h2>
-      <p class="cap">Green is 200; amber is a client error; red is upstream.</p>
-      ${barList(
-        d.byStatus.map((r) => ({
-          name: String(r.status || "?"),
-          value: num(r.requests),
-          color: statusColor(String(r.status)),
-        })),
-        group,
-      )}
-    </div>
-    <div class="card">
-      <h2>By country</h2>
-      <p class="cap">Coarse geography from the edge; no request text is ever stored.</p>
-      ${barList(
-        d.byCountry.map((r) => ({ name: String(r.country || "??"), value: num(r.requests), color: "var(--s3)" })),
-        group,
-      )}
-    </div>
-  </div>
+  ${section(
+    "By tier",
+    barList(
+      d.byTier.map((r) => ({
+        name: String(r.tier || "?"),
+        value: num(r.requests),
+        note: `${usd(num(r.usd))} · ${ms(num(r.avg_ms))}`,
+        color: tierColor[String(r.tier)] ?? "var(--blue)",
+      })),
+      group,
+    ),
+  )}
 
-  <div class="card">
-    <h2>Public vs enterprise</h2>
-    <p class="cap">Enterprise callers carry a bearer token and skip the rate limiter.</p>
-    <table><thead><tr><th>Client</th><th>Requests</th><th>Classifications</th><th>Spend</th></tr></thead><tbody>
+  ${section(
+    "By model",
+    barList(
+      d.byModel.map((r) => ({
+        name: String(r.model || "?"),
+        value: num(r.requests),
+        note: usd(num(r.usd)),
+        color: "var(--blue)",
+      })),
+      group,
+    ),
+  )}
+
+  ${section(
+    "By status",
+    barList(
+      d.byStatus.map((r) => ({ name: String(r.status || "?"), value: num(r.requests), color: statusColor(String(r.status)) })),
+      group,
+    ),
+  )}
+
+  ${section(
+    "By client",
+    barList(
+      d.byAgent.map((r) => ({
+        name: String(r.agent || "?"),
+        value: num(r.requests),
+        note: `${group(num(r.classifications))} cls`,
+        color: "var(--blue)",
+      })),
+      group,
+    ),
+  )}
+
+  ${section(
+    "By country",
+    barList(
+      d.byCountry.map((r) => ({ name: String(r.country || "??"), value: num(r.requests), color: "var(--green)" })),
+      group,
+    ),
+  )}
+
+  ${section(
+    "Label sets that fail",
+    `<div class="scroll"><table><thead><tr><th>labels</th><th>cause</th><th>requests</th></tr></thead><tbody>
+    ${
+      d.failLabels.length
+        ? d.failLabels
+            .map(
+              (r) =>
+                `<tr><td class="lab" title="${esc(r.labels)}">${esc(r.labels)}</td><td>${esc(
+                  reasonText(String(r.reason)),
+                )}</td><td>${group(num(r.requests))}</td></tr>`,
+            )
+            .join("")
+        : `<tr><td colspan="3" class="empty">nothing yet</td></tr>`
+    }
+    </tbody></table></div>`,
+  )}
+
+  ${section(
+    "Public vs enterprise",
+    `<div class="scroll"><table><thead><tr><th>client</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
     ${
       d.byClient.length
         ? d.byClient
@@ -597,91 +689,14 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
                 )}</td><td>${esc(usd(num(r.usd)))}</td></tr>`,
             )
             .join("")
-        : `<tr><td colspan="4" class="empty">Nothing here yet.</td></tr>`
+        : `<tr><td colspan="4" class="empty">nothing yet</td></tr>`
     }
-    </tbody></table>
-  </div>
+    </tbody></table></div>`,
+  )}
 
-  <div class="card">
-    <h2>Why requests fail</h2>
-    <p class="cap">Every rejection now names its own cause. Amber is the caller's
-      side of the wire, red is ours.</p>
-    ${(() => {
-      const byReason = new Map<string, { requests: number; status: string }>();
-      for (const r of d.byReason) {
-        const k = String(r.reason);
-        const cur = byReason.get(k) ?? { requests: 0, status: String(r.status ?? "") };
-        cur.requests += num(r.requests);
-        byReason.set(k, cur);
-      }
-      const rows = [...byReason.entries()].sort((a, b) => b[1].requests - a[1].requests);
-      if (!rows.length) return `<div class="empty">No failures recorded in this range.</div>`;
-      return barList(
-        rows.map(([reason, v]) => ({
-          name: reasonText(reason),
-          value: v.requests,
-          color: v.status.startsWith("5") ? "var(--crit)" : "var(--warn)",
-        })),
-        group,
-      );
-    })()}
-    <details><summary>Break it down by client and status</summary>
-    <table><thead><tr><th>Cause</th><th>Client</th><th>Status</th><th>Requests</th><th>Avg inputs</th></tr></thead><tbody>
-    ${
-      d.byReason.length
-        ? d.byReason
-            .slice(0, 25)
-            .map(
-              (r) =>
-                `<tr><td>${esc(reasonText(String(r.reason)))}</td><td>${esc(r.agent || "?")}</td><td>${esc(
-                  r.status || "?",
-                )}</td><td>${group(num(r.requests))}</td><td>${num(r.avg_inputs).toFixed(1)}</td></tr>`,
-            )
-            .join("")
-        : `<tr><td colspan="5" class="empty">Nothing yet.</td></tr>`
-    }
-    </tbody></table></details>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <h2>By client</h2>
-      <p class="cap">Which kind of caller, from the User-Agent. One broken
-        integration shows up here.</p>
-      ${barList(
-        d.byAgent.map((r) => ({
-          name: String(r.agent || "?"),
-          value: num(r.requests),
-          note: `${group(num(r.classifications))} cls`,
-          color: "var(--s1)",
-        })),
-        group,
-      )}
-    </div>
-    <div class="card">
-      <h2>Label sets that fail</h2>
-      <p class="cap">The classifier configurations behind the rejections.</p>
-      <table><thead><tr><th>Labels</th><th>Cause</th><th>Requests</th></tr></thead><tbody>
-      ${
-        d.failLabels.length
-          ? d.failLabels
-              .map(
-                (r) =>
-                  `<tr><td class="lab" title="${esc(r.labels)}">${esc(r.labels)}</td><td>${esc(
-                    reasonText(String(r.reason)),
-                  )}</td><td>${group(num(r.requests))}</td></tr>`,
-              )
-              .join("")
-          : `<tr><td colspan="3" class="empty">Nothing yet.</td></tr>`
-      }
-      </tbody></table>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Top label sets</h2>
-    <p class="cap">The classifiers people actually built, busiest first.</p>
-    <table><thead><tr><th>Labels</th><th>Requests</th><th>Classifications</th><th>Spend</th></tr></thead><tbody>
+  ${section(
+    "Top label sets",
+    `<div class="scroll"><table><thead><tr><th>labels</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
     ${
       d.topLabels.length
         ? d.topLabels
@@ -692,55 +707,55 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
                 )}</td><td>${group(num(r.classifications))}</td><td>${esc(usd(num(r.usd)))}</td></tr>`,
             )
             .join("")
-        : `<tr><td colspan="4" class="empty">Nothing here yet.</td></tr>`
+        : `<tr><td colspan="4" class="empty">nothing yet</td></tr>`
     }
-    </tbody></table>
-  </div>
+    </tbody></table></div>`,
+  )}
 
-  <div class="card">
-    <h2>The numbers behind the charts</h2>
-    <p class="cap">Every bucket, so nothing on this page is readable only by colour.</p>
-    <details><summary>Show table (${pts.length} buckets)</summary>
-    <table><thead><tr><th>Bucket</th><th>Requests</th><th>Classifications</th><th>Spend</th></tr></thead><tbody>
+  ${section(
+    "The numbers behind the charts",
+    `<details><summary>every bucket (${pts.length})</summary><div class="scroll"><table>
+    <thead><tr><th>bucket</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
     ${pts
-      .map(
-        (p) =>
-          `<tr><td>${esc(p.t)}</td><td>${group(p.reqs)}</td><td>${group(p.cls)}</td><td>${esc(usd(p.usd))}</td></tr>`,
-      )
+      .map((p) => `<tr><td>${esc(p.t)}</td><td>${group(p.reqs)}</td><td>${group(p.cls)}</td><td>${esc(usd(p.usd))}</td></tr>`)
       .join("")}
-    </tbody></table></details>
-  </div>
-</div>`,
+    </tbody></table></div></details>`,
+  )}
+</article></div>`,
     `<script>
-// Crosshair + tooltip. The series is re-read from the table so the markup stays
-// the single source of truth for what the chart is showing.
 const DATA = ${JSON.stringify({
-      req: pts.map((p) => [p.t, group(p.reqs) + " requests"]),
-      usd: pts.map((p) => [p.t, usd(p.usd) + " spend"]),
-    })};
+      req: pts.map((p) => [p.t, `${group(p.reqs)} requests`]),
+      usd: pts.map((p) => [p.t, `${usd(p.usd)} spend`]),
+    }).replace(/</g, "\\u003c")};
+const REPORT = ${JSON.stringify(report).replace(/</g, "\\u003c")};
+const copy = document.getElementById("copy");
+if (copy) copy.addEventListener("click", async () => {
+  const label = copy.querySelector(".lbl");
+  try { await navigator.clipboard.writeText(REPORT); label.textContent = "copied"; }
+  catch { label.textContent = "press ctrl+c"; }
+  setTimeout(() => { label.textContent = "copy report"; }, 1600);
+});
 for (const wrap of document.querySelectorAll(".chartwrap")) {
   const key = wrap.dataset.chart, svg = wrap.querySelector("svg");
   if (!svg || !DATA[key]) continue;
   const cross = svg.querySelector(".cross"), dot = svg.querySelector(".dot"), tip = wrap.querySelector(".tip");
-  const line = svg.querySelector("path[stroke]");
+  const line = svg.querySelector("path[stroke]"), hits = svg.querySelectorAll(".hit");
   const show = (i, rect) => {
-    const row = DATA[key][i]; if (!row) return;
-    const hits = svg.querySelectorAll(".hit"), h = hits[i]; if (!h) return;
+    const row = DATA[key][i], h = hits[i];
+    if (!row || !h) return;
     const cx = +h.getAttribute("x") + +h.getAttribute("width") / 2;
-    const len = line.getTotalLength();
     // Walk the path to the x we want; cheap enough at these point counts.
-    let lo = 0, hi = len, pt = line.getPointAtLength(0);
+    let lo = 0, hi = line.getTotalLength(), pt = line.getPointAtLength(0);
     for (let k = 0; k < 18; k++) { const mid = (lo + hi) / 2; pt = line.getPointAtLength(mid);
       if (pt.x < cx) lo = mid; else hi = mid; }
     cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.style.display = "";
     dot.setAttribute("cx", pt.x); dot.setAttribute("cy", pt.y); dot.style.display = "";
-    tip.hidden = false; tip.textContent = row[0] + " · " + row[1];
+    tip.hidden = false; tip.textContent = row[0] + "  " + row[1];
     tip.style.left = (pt.x / 760 * rect.width) + "px";
-    tip.style.top = (pt.y / 200 * rect.height) + "px";
+    tip.style.top = (pt.y / 190 * rect.height) + "px";
   };
   svg.addEventListener("mousemove", (e) => {
     const rect = svg.getBoundingClientRect();
-    const hits = svg.querySelectorAll(".hit");
     const xr = (e.clientX - rect.left) / rect.width * 760;
     let best = 0, bd = Infinity;
     hits.forEach((h, i) => { const c = +h.getAttribute("x") + +h.getAttribute("width") / 2;
