@@ -94,7 +94,10 @@ const group = (n: number) => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\
 
 function usd(n: number) {
   if (n <= 0) return "$0";
-  if (n < 0.01) return `$${n.toFixed(4)}`;
+  // Per-request spend is fractions of a cent; a fixed 4dp rounds real numbers
+  // to $0.0000 and reads like a broken panel, so small values keep two
+  // significant figures instead.
+  if (n < 0.01) return `$${n.toPrecision(2)}`;
   if (n < 1) return `$${n.toFixed(3)}`;
   return `$${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 }
