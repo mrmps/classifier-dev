@@ -306,6 +306,12 @@ look at the rest yourself, or pass tier "smart" and answers under 0.7 are
 re-asked of a reasoning model for you. It is not a fit score: add a label such
 as "none of these" when none-of-the-above is a real outcome.
 
+## CLI
+
+    npm i -g classifier-dev
+    classify bug,feature,praise < feedback.txt        # label, confidence, text per line
+    classify a,b --review 0.7 < items.txt              # only the unsure ones
+
 ## Install as an agent skill
 
     npx skills add https://classifier.dev

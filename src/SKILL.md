@@ -54,6 +54,10 @@ Each result also names the model that answered it. At the batch level,
 `modelsUsed` lists every serving model and `model` is `mixed` when more than one
 model answered the batch.
 
+From a shell, the same thing is `npm i -g classifier-dev` then
+`classify relevant,"not relevant" < snippets.txt` — one `label\tconfidence\ttext`
+line per input; `--review 0.7` prints only the unsure ones; `--help` has the rest.
+
 ## Parameters
 
 | Field          | Notes                                                                 |

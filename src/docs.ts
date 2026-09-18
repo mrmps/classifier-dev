@@ -39,6 +39,19 @@ WHEN THIS IS WORTH A NETWORK CALL
   cost, so just decide.
 
 
+CLI
+
+  The same API from the shell, one line per input, in input order:
+
+    npm i -g classifier-dev
+    classify bug,feature,praise < feedback.txt
+    classify relevant,"not relevant" --review 0.7 < snippets.txt   # the unsure ones
+
+  Plain lines, JSON or NDJSON in; label, confidence and text out. Batches of a
+  thousand per request. classify --help has the rest. Source in cli/ at
+  https://github.com/mrmps/classifier-dev
+
+
 AGENT SKILL
 
   Install this as a skill and your agent will remember to reach for it:
