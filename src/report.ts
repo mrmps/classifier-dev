@@ -40,6 +40,7 @@ export async function dailyReport(
   let topClassifiers: Record<string, unknown>[] = [];
   let byCountry: Record<string, unknown>[] = [];
   let errors: Record<string, unknown>[] = [];
+  let reasons: Record<string, unknown>[] = [];
   let byModel: Record<string, unknown>[] = [];
   let aeError = "";
 
@@ -119,6 +120,15 @@ export async function dailyReport(
   errors = await q(
     `SELECT blob4 AS status, count() AS n FROM ${DATASET}
      WHERE timestamp > ${since} AND blob4 != '200' GROUP BY status ORDER BY n DESC`,
+    [],
+    (r) => r,
+  );
+  // A status code says a request failed; blob7 says why, which is the part
+  // that tells you whether to fix the docs, the limits, or a provider.
+  reasons = await q(
+    `SELECT blob7 AS reason, blob8 AS agent, count() AS n
+     FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != ''
+     GROUP BY reason, agent ORDER BY n DESC LIMIT 8`,
     [],
     (r) => r,
   );
@@ -228,6 +238,12 @@ export async function dailyReport(
 
   if (errors.length) {
     lines.push("NON-200  " + errors.map((r) => `${r.status}:${num(r.n)}`).join("  "));
+    if (reasons.length) {
+      lines.push("WHY");
+      for (const r of reasons) {
+        lines.push(`  ${pad(String(r.reason ?? "?"), 20)} ${pad(String(num(r.n)), 7)} ${r.agent ?? "?"}`);
+      }
+    }
     lines.push("");
   }
 
