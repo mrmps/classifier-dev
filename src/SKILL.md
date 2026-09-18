@@ -49,7 +49,7 @@ Many texts, one call — **this is the path that matters**:
 
 Returns `results` in input order, each `{label, confidence, scores}`. Up to
 1,000 texts per call; 400 news headlines measured at 650ms end to end. For
-more, fan out calls in parallel — the limit is 1,000 classifications a minute.
+more, fan out calls in parallel — the limit is 3,000 classifications a minute.
 
 ## Parameters
 
@@ -166,7 +166,7 @@ is why — it is not rate limiting, which returns `429`.
 
 ## Limits
 
-Per IP per minute: 1,000 classifications on `fast`, 200 on `smart`; per day
+Per IP per minute: 3,000 classifications on `fast`, 200 on `smart`; per day
 20,000 and 2,000. A batch of 400 counts as 400. `429` when exceeded, with
 `x-ratelimit-limit` on every response. Errors are JSON on POST and plain text
 on GET.

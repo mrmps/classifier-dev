@@ -54,7 +54,9 @@ const ESCALATE_BELOW = 0.7;
  */
 const TIERS = {
   fast: {
-    rpm: 1000,
+    // A full 1,000-input batch must not lock the caller out for the rest of
+    // the minute; the daily cap is the real ceiling.
+    rpm: 3000,
     daily: 20_000,
     // Logprob-capable, in latency order. Losing this chain's scores is a
     // visible product regression, so accuracy is traded for it deliberately.
