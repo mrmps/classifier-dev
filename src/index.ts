@@ -574,6 +574,43 @@ async function classifyMany(
   return { results: await llmClassifyMany(env, inputs, labels, tier, instructions, multi, meter), escalationFailed: 0 };
 }
 
+/**
+ * Which kind of client called, as a low-cardinality family rather than the raw
+ * User-Agent. Enough to tell one broken integration from broad traffic without
+ * turning the dataset into a fingerprint of individual callers.
+ */
+function agentFamily(ua: string) {
+  const s = ua.toLowerCase().trim();
+  if (!s) return "none";
+  if (s.startsWith("classify-cli/")) return "classify-cli";
+  if (s.startsWith("curl/")) return "curl";
+  if (s.includes("python-requests") || s.includes("httpx") || s.includes("aiohttp") || s.startsWith("python-urllib"))
+    return "python";
+  if (s.includes("undici") || s.includes("axios") || s.includes("node-fetch") || s.includes("bun/")) return "node";
+  if (s.includes("go-http-client")) return "go";
+  if (s.includes("java") || s.includes("okhttp")) return "java";
+  if (s.includes("bot") || s.includes("crawler") || s.includes("spider")) return "bot";
+  if (s.includes("mozilla") || s.includes("safari")) return "browser";
+  return "other";
+}
+
+/**
+ * Collapse an upstream failure to a stable code. The raw message carries
+ * provider ids and timings that would make every row unique; the dashboard
+ * wants to know which *kind* of failure is happening and how often.
+ */
+function upstreamReason(msg: string) {
+  const m = msg.toLowerCase();
+  if (m.includes("typesafe")) {
+    const code = m.match(/typesafe (\d{3})/);
+    return code ? `typesafe_${code[1]}` : "typesafe";
+  }
+  if (m.includes("all models failed")) return "chain_exhausted";
+  if (m.includes("batch classification is temporarily unavailable")) return "batch_unavailable";
+  if (m.includes("timeout") || m.includes("timed out")) return "timeout";
+  return "upstream_other";
+}
+
 /** Fingerprint a label set so we can count distinct classifiers without storing text. */
 function classifierId(labels: string[]) {
   return [...labels].map((l) => l.toLowerCase().trim()).sort().join("|").slice(0, 120);
@@ -600,13 +637,20 @@ function record(env: Env, ctx: ExecutionContext, d: {
   model: string;
   /** Upstream spend for this request, in USD. See cost.ts. */
   usd: number;
+  /** Why this request failed, as a stable code; "" when it succeeded. */
+  reason: string;
+  /** Client family, from the User-Agent. See agentFamily(). */
+  agent: string;
+  /** Inputs the caller sent, even when validation rejected them. */
+  attempted: number;
 }) {
   try {
     env.AE?.writeDataPoint({
-      blobs: [d.tier, classifierId(d.labels), d.country, String(d.status), d.client, d.model],
-      // double3 was added after launch: rows written before it read back as 0,
-      // so cost is only meaningful from that deploy forward.
-      doubles: [d.n, d.ms, d.usd],
+      blobs: [d.tier, classifierId(d.labels), d.country, String(d.status), d.client, d.model, d.reason, d.agent],
+      // double3 and blob7/blob8 were added after launch: rows written before
+      // that read back as 0 and "", so cost and failure reasons are only
+      // meaningful from that deploy forward.
+      doubles: [d.n, d.ms, d.usd, d.attempted],
       indexes: [d.ip.slice(0, 32)],
     });
   } catch {
@@ -655,6 +699,7 @@ export default {
     const country = (req as { cf?: { country?: string } }).cf?.country ?? "??";
     const enterprise = hasEnterpriseAccess(req, env);
     const client = enterprise ? "enterprise" : "public";
+    const agent = agentFamily(req.headers.get("user-agent") ?? "");
     // One meter per request, read once by record(). Never a module global:
     // the isolate serves concurrent requests.
     const meter = newMeter();
@@ -747,7 +792,8 @@ export default {
       try {
         body = (await req.json()) as Record<string, unknown>;
       } catch {
-        record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 400, client, model: "", usd: meter.usd });
+        record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 400, client, model: "",
+          usd: meter.usd, reason: "bad_json", agent, attempted: 0 });
         return json({ error: "Body must be JSON. See https://classifier.dev" }, 400);
       }
       inputs = Array.isArray(body.inputs)
@@ -781,19 +827,20 @@ export default {
       }
     }
 
-    const fail = (msg: string, status: number, extra: Record<string, string> = {}, ms = 0) => {
-      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "", usd: meter.usd });
+    const fail = (msg: string, status: number, reason: string, extra: Record<string, string> = {}, ms = 0) => {
+      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
+        usd: meter.usd, reason, agent, attempted: inputs.length });
       return wantJson ? json({ error: msg }, status, extra) : text(`error: ${msg}\n`, status, extra);
     };
 
-    if (!inputs.length || !inputs[0]) return fail("Provide text to classify. See https://classifier.dev", 400);
-    if (inputs.length > MAX_INPUTS) return fail(`Maximum ${MAX_INPUTS} inputs per request`, 400);
-    if (labels.length < 2) return fail("Provide at least 2 labels", 400);
-    if (labels.length > MAX_LABELS) return fail(`Maximum ${MAX_LABELS} labels`, 400);
-    if (labels.some((l) => typeof l !== "string" || !l.trim())) return fail("Labels must be non-empty strings", 400);
-    if (new Set(labels).size !== labels.length) return fail("Labels must be distinct", 400);
-    if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400);
-    if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be under ${MAX_CHARS} characters`, 400);
+    if (!inputs.length || !inputs[0]) return fail("Provide text to classify. See https://classifier.dev", 400, "no_input");
+    if (inputs.length > MAX_INPUTS) return fail(`Maximum ${MAX_INPUTS} inputs per request`, 400, "too_many_inputs");
+    if (labels.length < 2) return fail("Provide at least 2 labels", 400, "too_few_labels");
+    if (labels.length > MAX_LABELS) return fail(`Maximum ${MAX_LABELS} labels`, 400, "too_many_labels");
+    if (labels.some((l) => typeof l !== "string" || !l.trim())) return fail("Labels must be non-empty strings", 400, "empty_label");
+    if (new Set(labels).size !== labels.length) return fail("Labels must be distinct", 400, "duplicate_labels");
+    if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400, "empty_input");
+    if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be under ${MAX_CHARS} characters`, 400, "input_too_long");
 
     const rpm = TIERS[tier].rpm;
     const gate = enterprise
@@ -806,6 +853,7 @@ export default {
           ? `Daily limit reached: ${TIERS[tier].daily} ${tier} classifications per IP per day. Need more? https://cal.com/michaelsf/coffee`
           : `Rate limit: ${rpm} ${tier} classifications/minute per IP. Need more? https://cal.com/michaelsf/coffee`,
         429,
+        perDay ? "rate_limit_day" : "rate_limit_minute",
         {
           "retry-after": String(gate.resetIn ?? 60),
           "x-ratelimit-limit": perDay ? `${TIERS[tier].daily}/day` : `${rpm}/min`,
@@ -820,13 +868,15 @@ export default {
     try {
       ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter));
     } catch (e) {
-      return fail(`upstream: ${(e as Error).message}`, 502, {}, Date.now() - started);
+      const msg = (e as Error).message;
+      return fail(`upstream: ${msg}`, 502, upstreamReason(msg), {}, Date.now() - started);
     }
     const ms = Date.now() - started;
     const modelSummary = summarizeModels(results);
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
       model: modelSummary.modelsUsed.join(","), usd: meter.usd,
+      reason: "", agent, attempted: inputs.length,
     });
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a

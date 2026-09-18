@@ -123,7 +123,8 @@ async function load(env: Env, range: RangeKey) {
     }
   };
 
-  const [totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets] =
+  const [totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets,
+         byReason, byAgent, failLabels] =
     await Promise.all([
       q(
         `SELECT count() AS requests, sum(double1) AS classifications,
@@ -190,9 +191,33 @@ async function load(env: Env, range: RangeKey) {
         0,
         (x) => x.length,
       ),
+      // Why requests fail. blob7 is "" on success, so this is the failure set.
+      q(
+        `SELECT blob7 AS reason, blob4 AS status, blob8 AS agent, count() AS requests, avg(double4) AS avg_inputs
+         FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != ''
+         GROUP BY reason, status, agent ORDER BY requests DESC LIMIT 60`,
+        [] as Row[],
+        (x) => x,
+      ),
+      q(
+        `SELECT blob8 AS agent, count() AS requests, sum(double1) AS classifications
+         FROM ${DATASET} WHERE timestamp > ${since} AND blob8 != ''
+         GROUP BY agent ORDER BY requests DESC LIMIT 10`,
+        [] as Row[],
+        (x) => x,
+      ),
+      // Which classifier configurations are the failing ones.
+      q(
+        `SELECT blob2 AS labels, blob7 AS reason, count() AS requests
+         FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != '' AND blob2 != ''
+         GROUP BY labels, reason ORDER BY requests DESC LIMIT 12`,
+        [] as Row[],
+        (x) => x,
+      ),
     ]);
 
-  return { totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets, errors };
+  return { totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets,
+    byReason, byAgent, failLabels, errors };
 }
 
 // ---------------------------------------------------------------- charts
@@ -401,6 +426,26 @@ function loginPage(error?: string) {
   );
 }
 
+/** What each reason code means, in the words the caller would use. */
+const REASON_TEXT: Record<string, string> = {
+  bad_json: "Body was not valid JSON",
+  no_input: "No text to classify",
+  too_many_inputs: "Over 1,000 inputs",
+  too_few_labels: "Fewer than 2 labels",
+  too_many_labels: "Over 100 labels",
+  empty_label: "A label was empty or not a string",
+  duplicate_labels: "Labels were not distinct",
+  empty_input: "An input was empty or not a string",
+  input_too_long: "An input was over 32,000 characters",
+  rate_limit_minute: "Per-minute rate limit",
+  rate_limit_day: "Daily rate limit",
+  chain_exhausted: "Every model in the chain failed",
+  batch_unavailable: "Batch too large for the LLM fallback",
+  timeout: "Upstream timed out",
+  upstream_other: "Other upstream failure",
+};
+const reasonText = (r: string) => REASON_TEXT[r] ?? (r.startsWith("typesafe_") ? `TypeSafe returned ${r.slice(9)}` : r);
+
 function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
   const t = d.totals[0] ?? {};
   const requests = num(t.requests);
@@ -458,7 +503,7 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
   }
   ${
     spend === 0 && requests > 0
-      ? `<div class="note">Spend reads <strong>$0</strong> for traffic served before cost tracking shipped — the figure is real only for requests after that deploy.</div>`
+      ? `<div class="note">Spend reads <strong>$0</strong>, and failures have no recorded cause, for traffic served before this instrumentation shipped — both are real only for requests after that deploy.</div>`
       : ""
   }
 
@@ -555,6 +600,82 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
         : `<tr><td colspan="4" class="empty">Nothing here yet.</td></tr>`
     }
     </tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>Why requests fail</h2>
+    <p class="cap">Every rejection now names its own cause. Amber is the caller's
+      side of the wire, red is ours.</p>
+    ${(() => {
+      const byReason = new Map<string, { requests: number; status: string }>();
+      for (const r of d.byReason) {
+        const k = String(r.reason);
+        const cur = byReason.get(k) ?? { requests: 0, status: String(r.status ?? "") };
+        cur.requests += num(r.requests);
+        byReason.set(k, cur);
+      }
+      const rows = [...byReason.entries()].sort((a, b) => b[1].requests - a[1].requests);
+      if (!rows.length) return `<div class="empty">No failures recorded in this range.</div>`;
+      return barList(
+        rows.map(([reason, v]) => ({
+          name: reasonText(reason),
+          value: v.requests,
+          color: v.status.startsWith("5") ? "var(--crit)" : "var(--warn)",
+        })),
+        group,
+      );
+    })()}
+    <details><summary>Break it down by client and status</summary>
+    <table><thead><tr><th>Cause</th><th>Client</th><th>Status</th><th>Requests</th><th>Avg inputs</th></tr></thead><tbody>
+    ${
+      d.byReason.length
+        ? d.byReason
+            .slice(0, 25)
+            .map(
+              (r) =>
+                `<tr><td>${esc(reasonText(String(r.reason)))}</td><td>${esc(r.agent || "?")}</td><td>${esc(
+                  r.status || "?",
+                )}</td><td>${group(num(r.requests))}</td><td>${num(r.avg_inputs).toFixed(1)}</td></tr>`,
+            )
+            .join("")
+        : `<tr><td colspan="5" class="empty">Nothing yet.</td></tr>`
+    }
+    </tbody></table></details>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>By client</h2>
+      <p class="cap">Which kind of caller, from the User-Agent. One broken
+        integration shows up here.</p>
+      ${barList(
+        d.byAgent.map((r) => ({
+          name: String(r.agent || "?"),
+          value: num(r.requests),
+          note: `${group(num(r.classifications))} cls`,
+          color: "var(--s1)",
+        })),
+        group,
+      )}
+    </div>
+    <div class="card">
+      <h2>Label sets that fail</h2>
+      <p class="cap">The classifier configurations behind the rejections.</p>
+      <table><thead><tr><th>Labels</th><th>Cause</th><th>Requests</th></tr></thead><tbody>
+      ${
+        d.failLabels.length
+          ? d.failLabels
+              .map(
+                (r) =>
+                  `<tr><td class="lab" title="${esc(r.labels)}">${esc(r.labels)}</td><td>${esc(
+                    reasonText(String(r.reason)),
+                  )}</td><td>${group(num(r.requests))}</td></tr>`,
+              )
+              .join("")
+          : `<tr><td colspan="3" class="empty">Nothing yet.</td></tr>`
+      }
+      </tbody></table>
+    </div>
   </div>
 
   <div class="card">
