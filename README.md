@@ -1,6 +1,7 @@
 # classifier.dev
 
-Zero-shot text classification. Plain text in, a label out. No key, no signup.
+Zero-shot text classification. Plain text in, a label and a calibrated
+confidence out. No key, no signup. Up to a thousand texts per request.
 
     curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone
     spam
@@ -9,18 +10,56 @@ Single Cloudflare Worker. No database, no framework, no build step beyond esbuil
 
 ## Layout
 
-    src/index.ts    routing, validation, OpenRouter calls, analytics
+    src/index.ts    routing, validation, tiers, LLM fallback chain, analytics
+    src/jev.ts      TypeSafe's Jev: packs inputs into requests, reads probabilities
     src/limiter.ts  Durable Object: per-IP rate limiting
-    src/report.ts   daily digest — Analytics Engine SQL -> Resend
+    src/report.ts   digest — Analytics Engine SQL -> Resend, flags model fallbacks
     src/docs.ts     the site (GET / and GET /benchmark), plain text
+    eval/           benchmarks; read eval/README.md before quoting a number
     finish-dns.sh   one-shot DNS wiring, see below
 
 ## Deploy
 
     npx wrangler deploy
 
-Secrets already set: `OPENROUTER_API_KEY`, `RESEND_API_KEY`, `CF_ANALYTICS_TOKEN`, `REPORT_KEY`.
-Add one with `npx wrangler secret put NAME`.
+Secrets already set: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, `RESEND_API_KEY`,
+`CF_ANALYTICS_TOKEN`, `REPORT_KEY`. Add one with `npx wrangler secret put NAME`.
+
+## The model
+
+Both tiers answer from [TypeSafe's Jev](https://docs.typesafe.ai), a decision
+model rather than a language model: it takes a state and typed questions and
+returns a calibrated probability per option, in ~150ms. That shape is why the
+API can do three things the LLM version could not.
+
+**A thousand inputs per request.** State is an array of `{id, text}` and each
+input gets its own question, so the whole batch is one upstream call. The
+documented limit is 64k tokens per request; `jev.ts` packs to a conservative
+budget and runs the resulting requests eight at a time. Measured: 400 news
+headlines classified in 650ms end to end, and packing 100 items scored the
+same as sending them one at a time.
+
+**Confidence that means something.** On 400 six-way emotion items, answers at
+>= 0.9 confidence were right 82% of the time and answers below 0.5 were right
+29%. The previous model's logprob "confidence" put 87% of news items above 0.9
+and was right on 68% of those. So `tier: "smart"` now means: re-ask the
+single-label answers below 0.7 of a frontier model and replace them, marked
+`escalated: true`. Nothing else changes. Which model matters: on exactly the
+items Jev is unsure about, qwen3.7-flash, deepseek-v4-pro and gemini-3.8-flash
+were no better than Jev, while claude-fable-5.1 took emotion from 61.8% to
+72.3% overall and news topics from 87.5% to 90.7%, so that is the chain.
+
+**Multi-label in one pass.** One yes/no question per label, labels at >= 0.7
+returned most-likely-first with the full score map. F1 0.887 on the seven-case
+set against 0.799 for the sweep-and-verify LLM cascade it replaced, in 230ms
+instead of 1.5s. Re-judging its candidates with the reasoning model made it
+worse (and took 23s), so multi-label ignores the tier.
+
+The LLM chains in `index.ts` remain as the fallback when TypeSafe is
+unavailable, limited to twenty inputs because they are one call per input.
+The digest reports which model actually answered, with a `FALLBACK` marker,
+because the previous primary was delisted upstream and served its backup for
+weeks at F1 0.546 without anything saying so.
 
 ## Analytics
 
@@ -40,45 +79,21 @@ no `SELECT DISTINCT`, and a bare `SELECT col ... GROUP BY col` is rejected.
 Distinct counts therefore use `SELECT col, count() ... GROUP BY col` and count
 the returned rows. Each query is isolated so one failure cannot blank the report.
 
-## Multi-label
+## Eval
 
-`multi: true` returns every label that applies, up to 100 of them, and switches
-on by itself past 26 — a single-label answer rides on one letter token, which is
-exactly why 26 was ever the cap.
+    npm run bench                 # multi-label, 7 cases: jev vs any OpenRouter model
+    npm run single -- --dataset emotion --backend jev
+    npm run single -- --dataset ag_news --backend openrouter:qwen/qwen3.7-flash
+    python3 eval/escalate.py --dataset emotion     # what the smart tier buys
 
-Asked to pick from fifty categories at once, the small model returns the ten most
-*salient* rather than every one that *applies*: it dropped topics the text named
-outright while inventing one it never mentioned. So the label set is swept in
-groups of twelve, concurrently, and the survivors are re-judged in a single pass
-with all of them finally in view.
-
-Each stage fixes what the other breaks. The sweep alone reaches recall 0.90 but
-precision 0.71, because no group can see what the others found. The second pass
-pulls precision to 0.90. Measured on a seven-task set:
-
-| configuration                | P    | R    | F1    | latency |
-| ---------------------------- | ---- | ---- | ----- | ------- |
-| single call, all 50 labels   | 0.79 | 0.62 | 0.686 | 0.7s    |
-| sweep only, no second pass   | 0.71 | 0.90 | 0.761 | 0.7s    |
-| sweep + second pass (fast)   | 0.90 | 0.69 | 0.777 | 1.4s    |
-| sweep + second pass (smart)  | 0.87 | 0.89 | 0.868 | 12s     |
-
-Two approaches were tried and rejected. Judging each survivor alone as a yes/no
-question scored 0.612 — isolating a label throws away the comparison that makes
-the call, even though it is the textbook one-vs-rest method. And a deliberately
-strict pruning prompt scored 0.556, dropping topics the text stated plainly.
-
-`tier: "smart"` runs only the second pass on the smart model; the sweep stays
-cheap. That measured the same as running smart throughout (0.868 vs 0.879) in
-a little over half the time, so the split is strictly better.
-
-Reasoning models need their full token budget in this mode. Capping them to the
-tight multi-label allowance spends it on reasoning before any answer is emitted,
-and the response comes back empty — which is exactly how it failed the first time.
+`single.py` downloads AG News and dair-ai/emotion test rows on first use and
+caches raw results under `eval/data/results/` so `escalate.py` can combine
+backends without re-spending. `eval/README.md` lists the caveats.
 
 ## Rate limiting
 
-Per IP, per minute, in a Durable Object: 60 fast, 10 smart.
+Per IP in a Durable Object, counted in classifications: 1,000/min and
+20,000/day on fast, 200/min and 2,000/day on smart.
 
 Two other approaches were tried and rejected:
 - Cloudflare's native `ratelimit` binding registers fine but never decremented
@@ -87,7 +102,7 @@ Two other approaches were tried and rejected:
   is invisible to the next read — every request saw `remaining: 59`.
 
 A Durable Object is single-threaded and strongly consistent, which is what a
-counter needs. Verified: 75 requests -> 60 × 200, 15 × 429.
+counter needs. Verified at the original 60/min: 75 requests -> 60 × 200, 15 × 429.
 
 ## DNS
 

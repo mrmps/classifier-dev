@@ -25,16 +25,22 @@ async function sql(env: Env, query: string) {
 const num = (v: unknown) => Number(v ?? 0);
 const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);
 
-export async function dailyReport(env: Env, opts: { send?: boolean } = { send: true }) {
+export async function dailyReport(
+  env: Env,
+  opts: { send?: boolean; primaries?: string[] } = { send: true },
+) {
   const lines: string[] = [];
   const today = new Date().toISOString().slice(0, 10);
   lines.push(`classifier.dev — last ${WINDOW_HOURS}h — ${today}`, "");
 
   let totals: Record<string, unknown>[] = [];
   let byTier: Record<string, unknown>[] = [];
+  let byClient: Record<string, unknown>[] = [];
+  let enterpriseClassifiers: Record<string, unknown>[] = [];
   let topClassifiers: Record<string, unknown>[] = [];
   let byCountry: Record<string, unknown>[] = [];
   let errors: Record<string, unknown>[] = [];
+  let byModel: Record<string, unknown>[] = [];
   let aeError = "";
 
   let visitors = 0;
@@ -75,6 +81,22 @@ export async function dailyReport(env: Env, opts: { send?: boolean } = { send: t
     [],
     (r) => r,
   );
+  byClient = await q(
+    `SELECT blob5 AS client, blob4 AS status, count() AS requests,
+            sum(double1) AS classifications, avg(double2) AS avg_ms
+     FROM ${DATASET} WHERE timestamp > ${since}
+     GROUP BY client, status ORDER BY client, status`,
+    [],
+    (r) => r,
+  );
+  enterpriseClassifiers = await q(
+    `SELECT blob2 AS labels, blob1 AS tier, count() AS requests
+     FROM ${DATASET}
+     WHERE timestamp > ${since} AND blob5 = 'enterprise' AND blob2 != ''
+     GROUP BY labels, tier ORDER BY requests DESC LIMIT 12`,
+    [],
+    (r) => r,
+  );
   topClassifiers = await q(
     `SELECT blob2 AS labels, count() AS requests
      FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY labels ORDER BY requests DESC LIMIT 12`,
@@ -84,6 +106,13 @@ export async function dailyReport(env: Env, opts: { send?: boolean } = { send: t
   byCountry = await q(
     `SELECT blob3 AS country, count() AS requests FROM ${DATASET}
      WHERE timestamp > ${since} GROUP BY country ORDER BY requests DESC LIMIT 8`,
+    [],
+    (r) => r,
+  );
+  byModel = await q(
+    `SELECT blob6 AS model, blob1 AS tier, count() AS requests, avg(double2) AS avg_ms
+     FROM ${DATASET} WHERE timestamp > ${since} AND blob6 != ''
+     GROUP BY model, tier ORDER BY requests DESC LIMIT 10`,
     [],
     (r) => r,
   );
@@ -119,6 +148,50 @@ export async function dailyReport(env: Env, opts: { send?: boolean } = { send: t
     lines.push("");
   }
 
+  if (byClient.length) {
+    const clients = new Map<
+      string,
+      { requests: number; classifications: number; ok: number; failed: number; latency: number; statuses: string[] }
+    >();
+    for (const r of byClient) {
+      const client = String(r.client || "public");
+      const requests = num(r.requests);
+      const status = String(r.status ?? "?");
+      const current = clients.get(client) ?? {
+        requests: 0,
+        classifications: 0,
+        ok: 0,
+        failed: 0,
+        latency: 0,
+        statuses: [],
+      };
+      current.requests += requests;
+      current.classifications += num(r.classifications);
+      current.latency += num(r.avg_ms) * requests;
+      if (status === "200") current.ok += requests;
+      else current.failed += requests;
+      current.statuses.push(`${status}:${requests}`);
+      clients.set(client, current);
+    }
+
+    lines.push("BY CLIENT");
+    for (const [client, r] of clients) {
+      lines.push(
+        `  ${pad(client, 12)} ${r.requests} req  ${r.classifications} cls  ${r.ok} ok  ${r.failed} failed  ` +
+          `${Math.round(r.latency / Math.max(1, r.requests))}ms  [${r.statuses.join(" ")}]`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (enterpriseClassifiers.length) {
+    lines.push("ENTERPRISE LABEL SETS");
+    for (const r of enterpriseClassifiers) {
+      lines.push(`  ${pad(String(num(r.requests)), 6)} ${pad(String(r.tier ?? "?"), 8)} ${String(r.labels)}`);
+    }
+    lines.push("");
+  }
+
   if (topClassifiers.length) {
     lines.push("TOP CLASSIFIERS  (label sets people actually use)");
     for (const r of topClassifiers) {
@@ -129,6 +202,22 @@ export async function dailyReport(env: Env, opts: { send?: boolean } = { send: t
 
   if (byCountry.length) {
     lines.push("COUNTRIES  " + byCountry.map((r) => `${r.country}:${num(r.requests)}`).join("  "));
+    lines.push("");
+  }
+
+  // Which model actually answered. A chain that has quietly fallen through to
+  // its backup looks healthy in every other number in this report.
+  if (byModel.length) {
+    const primaries = opts.primaries ?? [];
+    lines.push("BY MODEL");
+    for (const r of byModel) {
+      const model = String(r.model ?? "?");
+      const fallback = primaries.length && !primaries.includes(model);
+      lines.push(
+        `  ${pad(String(num(r.requests)), 6)} ${pad(String(r.tier ?? "?"), 6)} ${pad(model, 34)} ` +
+          `${Math.round(num(r.avg_ms))}ms${fallback ? "  <- FALLBACK, primary is not answering" : ""}`,
+      );
+    }
     lines.push("");
   }
 

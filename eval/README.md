@@ -1,9 +1,60 @@
-# Multi-label eval
+# Eval
+
+Three harnesses. `single.py` runs public single-label test sets (AG News,
+dair-ai/emotion) through Jev or any OpenRouter model, prints accuracy, latency,
+cost and a calibration table, and caches raw results; `escalate.py` reads two
+caches and reports what replacing low-confidence answers with a second model
+buys. Both are documented in their docstrings. The rest of this file is about
+the multi-label set.
+
+## Multi-label
+
+Two harnesses over the same seven cases.
+
+`npm run eval` measures the **deployed worker**, end to end:
 
     npm run eval                    # fast tier, 2 runs per case
     npm run eval -- --tier both     # fast and smart
     npm run eval -- --cases         # per-case F1
     npm run eval -- --max-labels 10
+
+`npm run bench` measures **one model at a time**, running the same pipeline
+offline against OpenRouter, so a candidate can be scored before it ships:
+
+    export OPENROUTER_API_KEY=sk-or-...
+    npm run bench                                    # today's primary vs the challenger
+    npm run bench -- --models a,b,c --runs 3 --cases
+
+It transcribes `classifyOne()` — same prompt, same 12-label chunking, same
+second pass over the survivors — so if that changes, change `bench.py` too.
+It reports cost per 1,000 classifications from OpenRouter's own accounting.
+
+## Why bench.py exists
+
+`run.py` can only see whatever model the tier resolves to, and a tier is a
+fallback chain. `inclusionai/ling-2.6-flash` was delisted upstream; every fast
+request 404'd against it and was answered by the next model in the chain, which
+scored **0.546** against the 0.800 the docs advertised. Nothing in the deployed
+numbers said so. Measured 2026-09-17, 7 cases x 3 runs:
+
+    model                            P     R     F1      ms    $/1k
+    inclusionai/ling-3.0-flash    0.90  0.74  0.799    1538   0.008
+    inception/mercury-2.5         0.92  0.72  0.797     945   0.038
+    mistralai/mistral-nemo        0.90  0.63  0.729    2098   0.016
+    ibm-granite/granite-4.2-8b    0.76  0.69  0.704    1008   0.036
+    ibm-granite/granite-4.0-h-micro 0.71 0.46 0.546    1575   0.017   <- was serving
+
+Only `granite-4.0-h-micro` and `deepseek-v4-flash` return logprobs, so the fast
+tier now names two chains: those two lead the single-label chain, which is the
+only one that can carry a confidence score, and `ling-3.0-flash` leads the
+multi-label chain, where there is no score to lose and it is both the most
+accurate and the cheapest thing measured.
+
+Then TypeSafe's Jev was measured (2026-09-17) and replaced the LLM chains for
+both modes: F1 0.887 multi-label in 232ms, and on single-label public sets
+87.7% on AG News / 60.5% on emotion against 82.0% / 57.0% for ling-3.0-flash.
+The LLM chains stay as the fallback. `npm run single` is the single-label
+evidence that was missing above.
 
 Macro precision, recall and F1 over `cases.py`, plus median latency. Every task
 is weighted equally regardless of label count, so the 50-tag case cannot

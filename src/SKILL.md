@@ -1,13 +1,14 @@
 ---
 name: bulk-classify
-description: Sort many texts into your own categories without reading them, using a keyless HTTP API. Use when triaging, filtering, routing or bucketing more items than are worth putting in context — search results before you read them, log lines, tickets, files, diffs. Triggers on "filter these", "which of these are relevant", "triage", "bucket", "route", "categorise", or any loop that would otherwise read N items to keep a few.
+description: Sort many texts into your own categories without reading them, using a keyless HTTP API that returns a calibrated confidence per answer. Use when triaging, filtering, routing or bucketing more items than are worth putting in context — search results before you read them, log lines, tickets, files, diffs, past conversations. Triggers on "filter these", "which of these are relevant", "triage", "bucket", "route", "categorise", or any loop that would otherwise read N items to keep a few.
 license: MIT
 ---
 
 # Classify at scale without reading
 
-`classifier.dev` assigns text to one of your categories. No key, no signup, no
-SDK — one HTTP call.
+`classifier.dev` assigns text to your categories. No key, no signup, no SDK —
+one HTTP call, up to a thousand texts at a time, back in about a second, each
+with a confidence you can act on.
 
 ## When this is worth a network call
 
@@ -19,12 +20,12 @@ Reach for this when reading the input is the expensive part:
 
 - **Filtering before reading.** You have 40 search snippets and want the 6 worth
   opening. Classifying them yourself means pulling all 40 into context first,
-  which is the cost you were trying to avoid. One batch call returns 40 labels
-  and you read only the survivors.
+  which is the cost you were trying to avoid. One call returns 40 labels and
+  you read only the survivors.
 - **Cascade pre-filter.** Cheaply drop the obvious no's, then spend real
   reasoning on what is left.
 - **Streams you would never read line by line.** Log lines, error buckets,
-  inbound tickets, changed files in a large diff.
+  inbound tickets, changed files in a large diff, ten thousand URLs' titles.
 - **Deterministic routing.** A pipeline branch that must take the same path for
   the same input on every run, rather than drifting with your reasoning.
 
@@ -46,22 +47,47 @@ Many texts, one call — **this is the path that matters**:
       "inputs": ["first snippet", "second snippet", "third snippet"]
     }'
 
-Returns `results` in input order. Up to 20 texts per call, ~1.3s for 20.
-Fan out several calls in parallel for more.
+Returns `results` in input order, each `{label, confidence, scores}`. Up to
+1,000 texts per call; 400 news headlines measured at 650ms end to end. For
+more, fan out calls in parallel — the limit is 1,000 classifications a minute.
 
 ## Parameters
 
-| Field          | Notes                                                          |
-| -------------- | -------------------------------------------------------------- |
-| `labels`       | 2–26 categories. Required.                                       |
-| `input`        | One text. Up to ~8,000 tokens.                                   |
-| `inputs`       | Up to 20 texts in one call.                                      |
-| `tier`         | `fast` (default, ~450ms) or `smart` (~2.4s, better on nuance).   |
-| `instructions` | Extra criteria — "judge only the service, ignore the food".      |
-| `verbose=1`    | On GET, returns JSON instead of a bare label.                    |
+| Field          | Notes                                                                 |
+| -------------- | --------------------------------------------------------------------- |
+| `labels`       | 2–100 categories. Required.                                           |
+| `input`        | One text, up to 32,000 characters.                                    |
+| `inputs`       | Up to 1,000 texts in one call.                                        |
+| `tier`         | `fast` (default) or `smart`: re-asks low-confidence answers of a reasoning model. |
+| `instructions` | Extra criteria — "judge only the service, ignore the food".           |
+| `multi`        | Return every label that applies, with a score per label.              |
+| `max_labels`   | Cap on how many multi-label answers come back.                        |
+| `verbose=1`    | On GET, returns JSON instead of a bare label.                         |
 
 Labels are read semantically, so name them in words: `urgent bug` classifies
 better than `p0`.
+
+## Confidence you can act on
+
+The model is a decision model, not an LLM prompted to classify: it returns a
+calibrated probability for every label. Measured on 400 six-way emotion items,
+answers at confidence ≥ 0.9 were right 82% of the time; answers below 0.5 were
+right 29% of the time. So:
+
+```python
+for text, r in zip(texts, results):
+    if r["confidence"] >= 0.8:
+        act(r["label"])
+    else:
+        look_yourself(text)      # or send it through tier "smart"
+```
+
+`tier: "smart"` does that routing server-side: every single-label answer under
+0.7 confidence is re-asked of a frontier reasoning model and replaced, marked
+`escalated: true`, with `usage.escalated` telling you how many. Measured:
+six-way emotion 61.8% → 72.3% by re-asking 30% of items. It costs a few
+seconds per escalated item, so a batch on smart is slower in proportion to how
+uncertain it is.
 
 ## Many labels at once
 
@@ -75,35 +101,27 @@ subsystem it touches — ask for every label that applies:
       "max_labels": 10
     }'
 
-Results carry `labels` (an array) instead of `label`. On GET, add `?multi=1` and
-they come back one per line. Passing more than 26 labels switches this on by
-itself, so you do not have to remember the flag.
-
-**Use `tier: "smart"` when you care about the answer.** It matters far more here
-than for single labels — measured F1 0.87 against 0.78 on a seven-task set — at
-roughly 12s instead of 1.5s. For tagging, that trade is usually right.
-
-`max_labels` is worth setting when you want the *best* N rather than everything
-plausible: on the fifty-tag article it took precision to 1.00.
-
-Multi-label answers carry no confidence — a score describes a single token, and
-a list of labels is not a single token.
+Results carry `labels` (an array, most likely first) plus `scores`, one
+probability per label. Labels at or above 0.7 are returned; use `scores` to
+pick your own threshold. On GET, add `?multi=1` and they come back one per
+line. Measured F1 0.887 on a seven-task set with recall 0.99, in ~200ms — the
+tier makes no difference here, so leave it on `fast`.
 
 ## Two things that will bite you
 
 **1. Every call returns one of your labels, always.** There is no "none of the
 above" unless you supply one. Text that fits nothing still gets confidently
-sorted into your best-matching category. If "none of these" is a real outcome,
-**add it as a label** — `["bug", "feature request", "neither"]`. This works, and
-it is the only reliable escape hatch.
+sorted into your best-matching category — "the weather is nice today" against
+`bug / feature / praise` is `praise` at 0.97. If "none of these" is a real
+outcome, **add it as a label**: the same text against those three plus
+`none of these` picks `none of these` at 0.78. This works, and it is the only
+reliable escape hatch.
 
-**2. `confidence` is not a fit score.** It measures how sure the model is of the
-token it emitted, not whether your text belongs to any label. A well-formed
-sentence matching none of your categories can still score 1.0 — measured:
-`"can I get a SOC2 report?"` returned `pricing question` at **0.998** with
-`security concern` available. Do not gate on a confidence threshold; use an
-explicit escape-hatch label instead. When the input is not natural language at
-all, the score is withheld and an `unscored` field explains why.
+**2. Confidence predicts accuracy, not fit.** It tells you how likely the chosen
+label is right *among your labels*, which is exactly what you want for routing.
+It does not tell you whether the text belongs to any of them; see point 1. When
+the input is not natural language at all, confidence and scores come back null
+with an `unscored` field explaining why.
 
 ## Recipe: filter search results before reading them
 
@@ -113,11 +131,10 @@ import json, urllib.request
 def keep_relevant(question, snippets):
     body = json.dumps({
         "labels": ["relevant", "not relevant"],
-        "inputs": snippets[:20],
+        "inputs": snippets,                      # up to 1,000
         "instructions": (
             f"Relevant means it helps answer: {question}. "
-            "Include background and contrasting alternatives. "
-            "When in doubt, keep it."
+            "Include background and contrasting alternatives."
         ),
     }).encode()
     req = urllib.request.Request(
@@ -131,17 +148,16 @@ def keep_relevant(question, snippets):
         },
     )
     results = json.load(urllib.request.urlopen(req))["results"]
-    return [s for s, r in zip(snippets, results) if r["label"] == "relevant"]
+    # A dropped item is invisible, so keep anything the model was unsure about.
+    return [s for s, r in zip(snippets, results)
+            if r["label"] == "relevant" or r["confidence"] < 0.8]
 ```
 
 Then read only what comes back. The snippets you dropped never enter context.
 
-**Bias a filter toward keeping.** A dropped item is invisible — you never learn
-what you lost — so recall matters more than precision here. Adding "When in
-doubt, keep it" to the instructions is measurably worth it: on a ten-snippet
-research filter it took signal kept from 4/6 to 6/6 while still dropping all
-4 pieces of noise. Adding a third "possibly relevant" label did *not* help;
-the plain instruction did.
+**Bias a filter toward keeping.** You never learn what you lost, so recall
+matters more than precision here. The confidence gate above does that
+directly; "When in doubt, keep it" in the instructions also measurably helps.
 
 **Always set a `User-Agent`.** Most clients (curl, node, bun, requests, Go, axios)
 send a usable one already, but Python's `urllib` default is blocked at the edge
@@ -150,12 +166,13 @@ is why — it is not rate limiting, which returns `429`.
 
 ## Limits
 
-Per IP per minute: 60 classifications on `fast`, 10 on `smart`. A batch of 20
-counts as 20. `429` when exceeded, with `x-ratelimit-limit` on every response.
-Errors are JSON on POST and plain text on GET.
+Per IP per minute: 1,000 classifications on `fast`, 200 on `smart`; per day
+20,000 and 2,000. A batch of 400 counts as 400. `429` when exceeded, with
+`x-ratelimit-limit` on every response. Errors are JSON on POST and plain text
+on GET.
 
 ## Reference
 
 - `GET /` — full docs, plain text
 - `GET /openapi.json` — OpenAPI 3.1
-- `GET /benchmark` — measured accuracy, cost and latency
+- `GET /benchmark` — measured accuracy, calibration, cost and latency

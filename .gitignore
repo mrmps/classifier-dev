@@ -1,3 +1,6 @@
 node_modules
 .wrangler
 .secrets.env
+.dev.vars
+__pycache__/
+eval/data/
