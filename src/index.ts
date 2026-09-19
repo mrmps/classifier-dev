@@ -9,7 +9,7 @@ import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, toMarkdown } f
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
 import {
-  AUTH_MD, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, agentCard, apiCatalog, ardCatalog, docsServerCard, oauthProtectedResource,
+  AUTH_MD, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, agentCard, apiCatalog, ardCatalog, docsServerCard, oauthProtectedResource, securityTxt,
   robotsTxt, serverCard, sitemapXml,
 } from "./wellknown";
 import { dailyReport } from "./report";
@@ -1002,6 +1002,9 @@ const worker = {
       return new Response(sitemapXml(origin), { headers: { "content-type": "application/xml; charset=utf-8", ...CORS, ...CACHE_HOUR } });
     }
     if (path === ".well-known/mcp-registry-auth") return text(MCP_REGISTRY_AUTH + "\n", 200, CACHE_HOUR);
+    if (path === ".well-known/security.txt" || path === "security.txt") {
+      return text(securityTxt(origin), 200, CACHE_HOUR);
+    }
     if (req.method === "GET" && (path === "v1/health" || path === "health")) {
       const base = { ok: true, service: "classifier.dev", version: API_VERSION, time: new Date().toISOString(), docs: `${origin}/developers` };
       const verbose = url.searchParams.get("verbose") === "true" || url.searchParams.get("verbose") === "1";
@@ -1283,6 +1286,18 @@ const worker = {
           ...CORS,
         },
       });
+    }
+
+    // Namespaces this service owns. Every route inside one is handled above,
+    // so anything still here is a typo, and a typo deserves a 404 rather than
+    // being read as a classification: GET /v1/classifyy is a misspelled
+    // endpoint, not the label "v1" against the text "classifyy". RFC 8615
+    // reserves /.well-known/ outright, which is why a scanner asking for
+    // security.txt used to get "Provide at least 2 labels". A real label list
+    // keeps its commas, so GET /v1,v2/some+text still classifies.
+    const RESERVED = new Set(["v1", "api", "mcp", "admin", ".well-known"]);
+    if (path.includes("/") && RESERVED.has(path.slice(0, path.indexOf("/")))) {
+      return notFound(req, origin);
     }
 
     // ---- gather params from either shape -----------------------------------

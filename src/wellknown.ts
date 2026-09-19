@@ -78,6 +78,29 @@ export function robotsTxt(origin: string) {
   ].join("\n");
 }
 
+/**
+ * RFC 9116. Researchers and scanners look here before they look at a contact
+ * page, so the address the contact page gives for security has to be readable
+ * from the one path the standard reserves for it.
+ *
+ * Expires is required by the RFC and must be in the future; six months from
+ * the request keeps it valid without anyone remembering to edit a date.
+ */
+export function securityTxt(origin: string, now = new Date()) {
+  const expires = new Date(now.getTime() + 183 * 24 * 60 * 60 * 1000);
+  return [
+    `Contact: mailto:${SITE.email}`,
+    `Contact: ${origin}/contact`,
+    `Expires: ${expires.toISOString().replace(/\.\d{3}Z$/, "Z")}`,
+    "Preferred-Languages: en",
+    `Canonical: ${origin}/.well-known/security.txt`,
+    "",
+    "# There is no bug bounty. Reports are read by a person and answered,",
+    "# and a fix ships the same way everything else here does.",
+    "",
+  ].join("\n");
+}
+
 // ---------------------------------------------------------------- MCP server card
 
 /** /.well-known/mcp/server-card.json — what an agent can know before connecting. */

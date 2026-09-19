@@ -39,3 +39,6 @@ new_sqlite_classes = ["RateLimiter"]
 [[rules]]
 type = "Text"
 globs = ["**/*.md"]
+# Without this the rule replaces wrangler's default text rule rather than
+# adding to it, and every deploy warns that .txt/.html/.sql will be ignored.
+fallthrough = true
