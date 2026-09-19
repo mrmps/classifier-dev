@@ -22,6 +22,7 @@ export const BASE_CSS = `
   /* One accent: the brand mark's lavender, and the ink it prints in. Interactive
      things are lavender; a lavender fill carries ink. Nothing else is coloured. */
   --accent:#a98cff; --accent-hover:#b9a4ff; --ink:#190727;
+  --code-string:#c4b4ff;
   /* The one status colour the page can show: something went wrong. */
   --bad:#f87171;
   /* Corners follow the mark, which is a rounded square holding pills: 8px on
@@ -142,6 +143,79 @@ export function btn(
     ? `<a class="${cls}" href="${opts.href}"${opts.attrs ?? ""}>${inner}</a>`
     : `<button type="${opts.type ?? "button"}" class="${cls}"${opts.attrs ?? ""}>${inner}</button>`;
 }
+
+/**
+ * Which language a code block is in, read off the block itself rather than
+ * from a marker in the text, so the plain text stays plain. A block whose
+ * first line is a command is shell, however many result lines follow it. A
+ * table or a list of endpoints is no language, and is left unhighlighted.
+ */
+export function codeLang(lines: string[]): string | undefined {
+  const rows = lines.map((l) => l.trim()).filter(Boolean);
+  const first = rows[0] ?? "";
+  const text = rows.join("\n");
+  if (/^(curl|npm|npx|pip|go get|classify|claude|codex)(?![:\w])|^\$ /.test(first)) return "bash";
+  if (/:=|^(func|package) /m.test(text)) return "go";
+  if (/^(from \S+ import |import [a-zA-Z_][\w.]*$|def |print\()/m.test(text)) return "python";
+  if (/^(const|let|var|await|import|export|function)\b|=>/m.test(text)) return "javascript";
+  if (/^[{[]/.test(first) && /[}\]]$/.test(rows[rows.length - 1])) return "json";
+  return undefined;
+}
+
+/**
+ * Syntax colour comes from highlight.js on cdnjs — one immutable file, a year
+ * of cache, on the same edge as this site. Pinned by version and by hash, so
+ * what runs is what was reviewed. The page reads fine without it: the blocks
+ * are plain <pre><code> until it arrives, and the copy control reads text.
+ */
+export const HL_VERSION = "11.11.1";
+export const HL_SRC = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/${HL_VERSION}/highlight.min.js`;
+export const HL_INTEGRITY = "sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU";
+/** Where a page's Content-Security-Policy lets scripts come from besides itself. */
+export const HL_ORIGIN = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/${HL_VERSION}/`;
+export const HL_HEAD = `<script defer src="${HL_SRC}" integrity="${HL_INTEGRITY}" crossorigin="anonymous"></script>`;
+export const HL_SCRIPT = `<script>
+// Colour the code once highlight.js has arrived (deferred scripts run before
+// DOMContentLoaded). It re-serialises each block from its text, which drops
+// the links the server put on URLs, so they are put back on the text nodes.
+addEventListener("DOMContentLoaded", () => {
+  if (!window.hljs) return;
+  hljs.configure({ ignoreUnescapedHTML: true });
+  for (const code of document.querySelectorAll("pre>code[class*=language-]")) {
+    hljs.highlightElement(code);
+    const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const n of nodes) {
+      if (!/https?:\\/\\//.test(n.data) || n.parentElement.closest("a")) continue;
+      const frag = document.createDocumentFragment();
+      let at = 0;
+      for (const m of n.data.matchAll(/https?:\\/\\/[^\\s<>()"']+/g)) {
+        const trail = m[0].match(/[.,;:]+$/)?.[0] ?? "";
+        const href = m[0].slice(0, m[0].length - trail.length);
+        frag.append(n.data.slice(at, m.index));
+        const a = document.createElement("a");
+        a.className = "inline"; a.href = href; a.textContent = href;
+        frag.append(a);
+        at = m.index + href.length;
+      }
+      frag.append(n.data.slice(at));
+      n.replaceWith(frag);
+    }
+  }
+});
+</script>`;
+
+/* The theme: the site's greys and its one accent, nothing else. Names and
+   keywords step up to bright; strings carry a wash of the accent; comments
+   step down to dim. Everything else keeps the body colour. */
+export const HL_CSS = `
+pre>code{font:inherit;color:inherit;background:none;padding:0}
+.hljs-keyword,.hljs-built_in,.hljs-type,.hljs-title,.hljs-literal,.hljs-number{color:var(--bright);font-weight:600}
+.hljs-string,.hljs-attr,.hljs-meta{color:var(--code-string)}
+.hljs-comment,.hljs-doctag{color:var(--dim)}
+.hljs-variable,.hljs-params,.hljs-punctuation,.hljs-operator,.hljs-property{color:inherit}
+`;
 
 export function page(o: { title: string; head?: string; css?: string; body: string; script?: string }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">

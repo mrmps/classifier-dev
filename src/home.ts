@@ -7,13 +7,13 @@
  * page cannot drift from what `curl classifier.dev` prints.
  */
 
-import { esc, btn, page, COPY_ICON } from "./ui";
+import { esc, btn, page, codeLang, COPY_ICON, HL_HEAD, HL_SCRIPT, HL_CSS } from "./ui";
 import { DOCS, BENCHMARK } from "./docs";
 import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor } from "./vsjev";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
 
-const HOME_CSS = `
+const HOME_CSS = `${HL_CSS}
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
@@ -210,13 +210,21 @@ function vsJevSection() {
   </section>`;
 }
 
-/** Bare URLs become links; trailing sentence punctuation stays outside. */
-function linkify(escaped: string) {
-  return escaped.replace(/https?:\/\/[^\s<>()"]+/g, (u) => {
-    const trail = u.match(/[.,;:]+$/)?.[0] ?? "";
-    const href = u.slice(0, u.length - trail.length);
-    return `<a class="inline" href="${href}">${href}</a>${trail}`;
-  });
+/**
+ * Bare URLs become links; trailing sentence punctuation stays outside. Works
+ * on the raw text and escapes each piece itself, so a URL that sits inside a
+ * quote is not read up to the semicolon of the quote's entity.
+ */
+function linkify(text: string) {
+  return text
+    .split(/(https?:\/\/[^\s<>()"']+)/)
+    .map((part, i) => {
+      if (i % 2 === 0) return esc(part);
+      const trail = part.match(/[.,;:]+$/)?.[0] ?? "";
+      const href = part.slice(0, part.length - trail.length);
+      return `<a class="inline" href="${esc(href)}">${esc(href)}</a>${esc(trail)}`;
+    })
+    .join("");
 }
 
 const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(l) && l.trim() === l;
@@ -227,9 +235,11 @@ const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(l) && l.trim(
  * reader's width instead of the terminal's 80.
  */
 const isPre = (lines: string[]) =>
-  lines.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|GET|POST|\{|\/)/.test(l) || /^\s{4,}\S/.test(l));
+  lines.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|GET|POST|\{|\/)(?!:)/.test(l) || /^\s{4,}\S/.test(l));
 
-const isCommand = (lines: string[]) => lines.some((l) => /^\s*(curl|npm|npx|classify)\b/.test(l));
+// A line that is only a command's name and a colon ("curl:") is the caption
+// of the block under it, not a command.
+const isCommand = (lines: string[]) => lines.some((l) => /^\s*(curl|npm|npx|classify)\b(?!:)/.test(l));
 
 function renderBlocks(body: string[]): string {
   const out: string[] = [];
@@ -244,9 +254,11 @@ function renderBlocks(body: string[]): string {
       const copy = isCommand(lines)
         ? `<p class="row">${btn("copy", { cls: "dim", icon: COPY_ICON, attrs: ' data-copy="1"' })}</p>`
         : "";
-      out.push(`<div class="block"><pre>${linkify(esc(text))}</pre>${copy}</div>`);
+      const lang = isCommand(lines) ? "bash" : codeLang(lines);
+      const code = lang ? `<code class="language-${lang}">${linkify(text)}</code>` : linkify(text);
+      out.push(`<div class="block"><pre>${code}</pre>${copy}</div>`);
     } else {
-      out.push(`<p>${linkify(esc(lines.map((l) => l.trim()).join(" ")))}</p>`);
+      out.push(`<p>${linkify(lines.map((l) => l.trim()).join(" "))}</p>`);
     }
   };
   for (const line of body) {
@@ -621,7 +633,7 @@ export function homeHtml(): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";
   return page({
     title: "classifier.dev",
-    head: META("classifier.dev", desc) + JSON_LD(),
+    head: META("classifier.dev", desc) + JSON_LD() + HL_HEAD,
     css: HOME_CSS,
     body: `<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev</h1></header>
@@ -656,7 +668,7 @@ export function homeHtml(): string {
 
   <section>
     <h2><span class="syn">## </span>Try it</h2>
-    <div class="block"><pre>curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone
+    <div class="block"><pre><code class="language-bash">curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone</code>
 <span class="out">spam</span></pre>
     <p class="row">${btn("copy", {
       cls: "dim",
@@ -667,7 +679,7 @@ export function homeHtml(): string {
 
   <section>
     <h2><span class="syn">## </span>Install the CLI</h2>
-    <div class="block"><pre>npm i -g classifier-dev</pre>
+    <div class="block"><pre><code class="language-bash">npm i -g classifier-dev</code></pre>
     <p class="row">${btn("copy", {
       cls: "dim",
       icon: COPY_ICON,
@@ -675,8 +687,8 @@ export function homeHtml(): string {
     })}</p></div>
     <p>Then sort a file, one <span class="k">label &#8677; confidence &#8677; text</span> line per
       input, in input order — a thousand lines a request, and rows appear as they land:</p>
-    <div class="block"><pre>classify bug,feature,praise &lt; feedback.txt
-classify relevant,"not relevant" --review 0.7 &lt; snippets.txt   <span class="out"># only the unsure ones</span></pre>
+    <div class="block"><pre><code class="language-bash">classify bug,feature,praise &lt; feedback.txt
+classify relevant,"not relevant" --review 0.7 &lt; snippets.txt</code>   <span class="out"># only the unsure ones</span></pre>
     <p class="row">${btn("copy", {
       cls: "dim",
       icon: COPY_ICON,
@@ -689,7 +701,7 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt   <span class="o
   ${FOOT}
 </article></main></div>
 ${subscribeDock()}`,
-    script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT,
+    script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT + HL_SCRIPT,
   });
 }
 
@@ -697,7 +709,7 @@ ${subscribeDock()}`,
 export function docHtml(o: { title: string; desc: string; doc: string; path: string; here: string }): string {
   return page({
     title: `${o.title} · classifier.dev`,
-    head: META(o.title, o.desc, o.path),
+    head: META(o.title, o.desc, o.path) + HL_HEAD,
     css: HOME_CSS,
     body: `<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>${esc(o.doc.split("\n")[0].trim())}</h1></header>
@@ -706,7 +718,7 @@ export function docHtml(o: { title: string; desc: string; doc: string; path: str
   ${renderDoc(o.doc, true)}
   ${FOOT}
 </article></main></div>`,
-    script: COPY_SCRIPT,
+    script: COPY_SCRIPT + HL_SCRIPT,
   });
 }
 
@@ -714,7 +726,7 @@ export function benchmarkHtml(): string {
   const desc = "Measured accuracy, calibration, cost and latency for every model considered.";
   return page({
     title: "benchmark · classifier.dev",
-    head: META("classifier.dev benchmark", desc, "/benchmark"),
+    head: META("classifier.dev benchmark", desc, "/benchmark") + HL_HEAD,
     css: HOME_CSS,
     body: `<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev benchmark</h1></header>
@@ -723,6 +735,6 @@ export function benchmarkHtml(): string {
   ${renderDoc(BENCHMARK, true)}
   ${FOOT}
 </article></main></div>`,
-    script: COPY_SCRIPT,
+    script: COPY_SCRIPT + HL_SCRIPT,
   });
 }

@@ -9,6 +9,7 @@
  */
 
 import { SITE, SITE_UPDATED } from "./wellknown";
+import { codeLang } from "./ui";
 
 export const MCP_SETUP = `classifier.dev MCP
 
@@ -530,10 +531,10 @@ export function toMarkdown(doc: string, meta: { title: string; canonical: string
   let block: string[] = [];
   const flush = () => {
     if (!block.length) return;
-    const pre = block.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|claude|codex|GET|POST|\{|\[|\/)/.test(l) || /^\s{4,}\S/.test(l));
+    const pre = block.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|claude|codex|GET|POST|\{|\[|\/)(?!:)/.test(l) || /^\s{4,}\S/.test(l));
     const indent = Math.min(...block.filter((l) => l.trim()).map((l) => l.match(/^ */)![0].length));
     const body = block.map((l) => l.slice(indent));
-    if (pre) out.push("```", ...body, "```", "");
+    if (pre) out.push("```" + (codeLang(body) ?? ""), ...body, "```", "");
     else out.push(body.map((l) => l.trim()).join(" "), "");
     block = [];
   };
