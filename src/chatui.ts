@@ -174,7 +174,7 @@ if (panel) {
   const assistant = () => { const a = el("div", "chat-a"); msgs.append(a); return a; };
   const summarize = (args) => {
     if (typeof args.query === "string") return args.query;
-    if (typeof args.url === "string") return args.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    if (typeof args.url === "string") { const u = args.url.replace("https://", "").replace("http://", ""); return u.endsWith("/") ? u.slice(0, -1) : u; }
     const n = Array.isArray(args.inputs) ? args.inputs.length : 0;
     const labels = Array.isArray(args.labels) ? args.labels.join(", ") : "";
     return [n ? n + (n === 1 ? " text" : " texts") : "", labels].filter(Boolean).join(" · ");

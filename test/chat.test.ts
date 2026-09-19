@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import worker, { type Env } from "../src/index";
 import { parseMessages, toolsFor, WEB_TOOLS, MAX_MESSAGES } from "../src/chat";
 import { productServer, type ClassifyFn } from "../src/mcp";
+import { homeHtml, docHtml, benchmarkHtml } from "../src/home";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -57,6 +58,17 @@ describe("the chat's tools", () => {
     const tools = toolsFor(server);
     expect(tools.map((t) => t.function.name)).toEqual(server.tools.map((t) => t.name));
     expect(tools[0].function.parameters).toBe(server.tools[0].inputSchema);
+  });
+});
+
+describe("the page's scripts", () => {
+  it("all parse: a backslash lost in a template literal once shipped a chat that could not send", () => {
+    const pages = [homeHtml({ chat: true }), docHtml({ title: "t", desc: "d", doc: "T\n\nbody", path: "/t", here: "t" }), benchmarkHtml()];
+    for (const html of pages) {
+      const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+      expect(scripts.length).toBeGreaterThan(0);
+      for (const src of scripts) expect(() => new Function(src)).not.toThrow();
+    }
   });
 });
 
