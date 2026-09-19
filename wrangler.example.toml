@@ -1,3 +1,9 @@
+# Copy this to wrangler.toml and fill in your own values; wrangler.toml is
+# gitignored so real account identifiers never land in the repository.
+#
+#   cp wrangler.example.toml wrangler.toml
+#   npx wrangler kv namespace create STATS   # gives you the STATS id
+#
 name = "classifier-dev"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
@@ -19,7 +25,7 @@ dataset = "classifier_events"
 
 [vars]
 CLOUDFLARE_ACCOUNT_ID = "YOUR_CLOUDFLARE_ACCOUNT_ID"
-REPORT_TO = "miryaboy@gmail.com"
+REPORT_TO = "you@example.com"
 
 [[durable_objects.bindings]]
 name = "LIMITER"

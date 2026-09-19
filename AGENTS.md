@@ -9,6 +9,9 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
 
 - `npm test` — worker unit tests (bun). `cd cli && node --test` — CLI tests.
 - `npx tsc --noEmit` — typecheck. `npx wrangler deploy` — deploy (secrets live in Wrangler).
+- `wrangler.toml` is gitignored: copy `wrangler.example.toml` once and fill in
+  your `account_id` and `STATS` KV id. Edit the example when the deployment
+  shape changes — crons, bindings, migrations — never put real ids in it.
 - `npm run vs-jev` — re-measure the service against Jev; writes `src/vs-jev.json`, which the site imports.
 
 ## Conventions

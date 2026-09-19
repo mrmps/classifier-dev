@@ -1,7 +1,7 @@
 {
   "name": "classifier-dev",
   "version": "1.0.0",
-  "description": "",
+  "description": "Zero-shot text classification over plain HTTP, on Cloudflare Workers.",
   "main": "index.js",
   "scripts": {
     "test": "bun test",
@@ -11,8 +11,8 @@
     "vs-jev": "cd eval && python3 vs_jev.py"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Michael Ryaboy",
+  "license": "MIT",
   "type": "commonjs",
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260813.1",

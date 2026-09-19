@@ -39,6 +39,7 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
     cli/            the `classify` command, published to npm as classifier-dev
     eval/           benchmarks; read eval/README.md before quoting a number
     finish-dns.sh   one-shot DNS wiring, see below
+    wrangler.example.toml  the Worker config, minus the account-specific ids
 
 ## The site
 
@@ -74,11 +75,19 @@ are broken, so it must work when they do not.
 
 ## Deploy
 
+    cp wrangler.example.toml wrangler.toml     # once, then fill in your own ids
     npx wrangler deploy
 
-Secrets already set: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, `RESEND_API_KEY`,
-`CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `ADMIN_PASSWORD`, `ADMIN_SIGNING_KEY`.
-Add one with `npx wrangler secret put NAME`.
+`wrangler.toml` is gitignored and holds the two values that are specific to one
+Cloudflare account: `account_id`, and the `STATS` KV namespace id that
+`npx wrangler kv namespace create STATS` hands back. The tracked
+`wrangler.example.toml` carries everything else — crons, bindings, migrations —
+so the deployment shape is in the repository and only the identifiers are not.
+
+Secrets the Worker reads: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`,
+`RESEND_API_KEY`, `CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `ADMIN_PASSWORD`,
+`ADMIN_SIGNING_KEY`. Add one with `npx wrangler secret put NAME`; none of them
+are ever read from the repository.
 
 Secrets are compared with `secretEquals` (src/secrets.ts), never `===`: a
 plain comparison returns on the first wrong byte and tells a caller how much
