@@ -985,11 +985,12 @@ const worker = {
     }
 
     // ---- the pages: text for curl, HTML for browsers, Markdown when asked ----
-    const pageKey = (path === "docs" ? "developers" : path).replace(/\.md$/, "");
+    const pageBase = path.replace(/\.md$/, "");
+    const pageKey = pageBase === "docs" ? "developers" : pageBase;
     // A page is a page: anything that is not a shell tool, an HTTP library or an
     // agent gets the HTML even with Accept: */*. curl and friends keep the text.
     const uaLower = (req.headers.get("user-agent") ?? "").toLowerCase();
-    const shellish = !uaLower || /curl|wget|httpie|python|node|undici|axios|go-http|java|okhttp|bun\/|deno|mcp\/|classify-cli/i.test(uaLower);
+    const shellish = /curl|wget|httpie|python|node|undici|axios|go-http|java|okhttp|bun\/|deno|mcp\/|classify-cli/i.test(uaLower);
     const pageWantsHtml = wantsHtml || (req.method === "GET" && !wantsMarkdown && !shellish && url.searchParams.get("format") !== "text");
     if (req.method === "GET" && PAGE_DOCS[pageKey]) {
       const pg = PAGE_DOCS[pageKey];
