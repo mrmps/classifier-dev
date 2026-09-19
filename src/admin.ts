@@ -13,6 +13,7 @@
 
 import type { Env } from "./index";
 import { sql } from "./report";
+import { secretEquals, deriveSigningKey, hmacHex } from "./secrets";
 
 const DATASET = "classifier_events";
 const COOKIE = "cd_admin";
@@ -29,35 +30,36 @@ const RANGES: Record<RangeKey, { hours: number; interval: string; label: string;
 
 // ---------------------------------------------------------------- auth
 
-const enc = new TextEncoder();
-
-async function hmac(secret: string, msg: string) {
-  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(msg));
-  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+/**
+ * The cookie is signed with a key of its own, not with the password. Signing
+ * with the password meant a leaked cookie carried an offline oracle for it —
+ * the holder knows `exp` and the digest, so they could grind guesses until the
+ * HMAC matched. ADMIN_SIGNING_KEY should be a random secret; if it is not set
+ * the password is stretched instead, which makes each guess expensive rather
+ * than free.
+ *
+ * Rotating the password still has to end live sessions, so a keyed fingerprint
+ * of it is part of what gets signed.
+ */
+async function sessionSig(env: Env, password: string, exp: string) {
+  const key = await deriveSigningKey(env.ADMIN_SIGNING_KEY || password);
+  const fingerprint = await hmacHex(key, `pw:${password}`);
+  return hmacHex(key, `${exp}:${fingerprint}`);
 }
 
-/** Comparison that does not leak how far it got. */
-function safeEqual(a: string, b: string) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-async function mint(secret: string) {
+async function mint(env: Env, password: string) {
   const exp = String(Date.now() + SESSION_HOURS * 3_600_000);
-  return `${exp}.${await hmac(secret, exp)}`;
+  return `${exp}.${await sessionSig(env, password, exp)}`;
 }
 
-async function valid(secret: string, token: string | undefined) {
+async function valid(env: Env, password: string, token: string | undefined) {
   if (!token) return false;
   const dot = token.lastIndexOf(".");
   if (dot < 1) return false;
   const exp = token.slice(0, dot);
   const sig = token.slice(dot + 1);
   if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
-  return safeEqual(sig, await hmac(secret, exp));
+  return secretEquals(sig, await sessionSig(env, password, exp));
 }
 
 function readCookie(req: Request, name: string) {
@@ -809,20 +811,20 @@ export async function adminResponse(req: Request, env: Env, path: string, ip: st
     }
     const form = await req.formData().catch(() => null);
     const given = String(form?.get("password") ?? "");
-    if (!safeEqual(await hmac(secret, given), await hmac(secret, secret))) {
+    if (!(await secretEquals(given, secret))) {
       return new Response(loginPage("Wrong password."), { status: 401, headers: HTML });
     }
     return new Response(null, {
       status: 302,
       headers: {
         location: "/admin",
-        "set-cookie": `${COOKIE}=${await mint(secret)}; Path=/admin; Max-Age=${SESSION_HOURS * 3600}; HttpOnly; Secure; SameSite=Strict`,
+        "set-cookie": `${COOKIE}=${await mint(env, secret)}; Path=/admin; Max-Age=${SESSION_HOURS * 3600}; HttpOnly; Secure; SameSite=Strict`,
         ...HTML,
       },
     });
   }
 
-  if (!(await valid(secret, readCookie(req, COOKIE)))) {
+  if (!(await valid(env, secret, readCookie(req, COOKIE)))) {
     return new Response(loginPage(), { status: 401, headers: HTML });
   }
 
