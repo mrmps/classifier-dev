@@ -2,8 +2,10 @@
  * The shared look: a markdown document rendered in a terminal.
  *
  * The syntax stays visible and unselectable, controls are bracketed and fill
- * on hover, and nothing is a card. Both the public site and /admin are built
- * from these tokens so the two cannot drift apart.
+ * on hover, and nothing is a card. One accent, the lavender of the mark;
+ * two greys for chrome, a rule and a line; square corners everywhere. Both
+ * the public site and /admin are built from these tokens so the two cannot
+ * drift apart.
  */
 
 export const esc = (s: unknown) =>
@@ -11,16 +13,24 @@ export const esc = (s: unknown) =>
 
 export const BASE_CSS = `
 :root{
-  --bg:#0b0e14;
-  --fg:#e5e5e5; --bright:#f5f5f5; --muted:#a3a3a3; --dim:#858585;
-  --syntax:#525252; --line:#404040; --rule:#262626;
-  --blue:#58a6ff; --blue-bg:#1f6feb; --blue-fg:#bfdbfe;
-  --amber:#d29922; --green:#3fb950; --red:#f85149;
-  /* One radius step. Nested surfaces derive theirs from it and their own inset. */
-  --r:6px;
+  /* One neutral ramp, named by job. Text steps down in four, the chrome in three. */
+  --bg:#0b0e14; --surface:#10141c;
+  --bright:#f5f5f5; --fg:#e5e5e5; --muted:#a3a3a3; --dim:#858585; --syntax:#525252;
+  --rule:#20252e; --line:#323947;
+  /* A field has to be found by its edge alone, so its edge clears 3:1 on the surface it sits in. */
+  --line-strong:#5c6473;
+  /* One accent: the brand mark's lavender, and the ink it prints in. Interactive
+     things are lavender; a lavender fill carries ink. Nothing else is coloured. */
+  --accent:#a98cff; --accent-hover:#b9a4ff; --ink:#190727;
+  /* The one status colour the page can show: something went wrong. */
+  --bad:#f87171;
+  /* Corners are square. The bracket is the site's idiom and it has none. */
+  --r:0;
   /* The documents wrap at 78 columns; the page holds them to the same measure. */
   --measure:80ch;
 }
+@media (color-gamut:p3){:root{--accent:color(display-p3 .66 .49 1);--accent-hover:color(display-p3 .72 .60 1);
+  --ink:color(display-p3 .075 .018 .13)}}
 *{box-sizing:border-box}
 html{color-scheme:dark}
 body{margin:0;background:var(--bg);color:var(--fg);
@@ -36,40 +46,57 @@ h2{font-size:14px;font-weight:600;color:var(--fg);margin:0;text-wrap:balance}
 p{margin:0;text-wrap:pretty}
 /* Markdown syntax: visible, muted, never part of a copy. */
 .syn{user-select:none;color:var(--syntax)}
-.quote{border-left:2px solid var(--rule);padding-left:12px;color:var(--muted)}
-.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
-/* The bracketed control. Hover and focus fill, exactly like a selected line.
+.quote{border-inline-start:2px solid var(--line);padding-inline-start:12px;color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+/* A bare bracket is the control's visible edge, so it sits on the text column
+   and its 6px of padding hangs into the gap; the gap is 6px wider to hold it.
+   A wrapped row then starts on the column too. */
+.row>.b:not(.cta){margin-inline-start:-6px}
+/* One focus ring for everything that can take focus: the accent, held off the
+   edge so it reads on a filled control as well as a bare one. */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* The bracketed control. Hover fills it, exactly like a selected line.
    min-height is the WCAG 2.5.8 target; the brackets alone are shorter than that. */
-.b{display:inline-flex;align-items:center;gap:6px;padding:0 6px;min-height:24px;color:var(--blue);
-  text-decoration:none;background:none;border:0;font:inherit;cursor:pointer;
+.b{display:inline-flex;align-items:center;gap:6px;padding:0 6px;min-height:24px;color:var(--accent);
+  text-decoration:none;background:none;border:0;border-radius:var(--r);font:inherit;cursor:pointer;
   -webkit-appearance:none;appearance:none;
-  transition:background-color .1s,color .1s;white-space:nowrap}
-.b:focus-visible{background:var(--blue-bg);color:#fff;
-  outline:2px solid var(--blue-fg);outline-offset:2px}
-.b:focus-visible .br{color:var(--blue-fg)}
+  transition-property:background-color,color;transition-duration:.1s;white-space:nowrap}
 .b .br{user-select:none;color:var(--syntax);transition:color .1s}
 .b.dim{color:var(--muted)}
-.b.on{background:var(--blue-bg);color:#fff}
-.b.on .br{color:var(--blue-fg)}
+/* The page you are on: bright, with its brackets lit, and no fill — the fill is
+   for the one action on the page. */
+.b.on{color:var(--bright)}
+.b.on .br{color:var(--muted)}
 .b svg{width:15px;height:15px;flex:none}
 /* A bare URL is longer than a phone is wide; let it break rather than widen the page. */
-a.inline{color:var(--blue);text-decoration:none;padding:0 2px;transition:background-color .1s,color .1s;
-  overflow-wrap:anywhere}
-a.inline:focus-visible{background:var(--blue-bg);color:#fff;
-  outline:2px solid var(--blue-fg);outline-offset:2px}
+a.inline{color:var(--accent);text-decoration:none;padding:0 2px;
+  transition-property:background-color,color;transition-duration:.1s;overflow-wrap:anywhere}
 /* Hover only where a pointer can actually hover, so a tap does not stick. */
 @media (hover:hover){
-  .b:hover{background:var(--blue-bg);color:#fff}
-  .b:hover .br{color:var(--blue-fg)}
-  a.inline:hover{background:var(--blue-bg);color:#fff}
+  .b:hover,a.inline:hover{background:var(--accent);color:var(--ink)}
+  .b:hover .br{color:var(--ink);opacity:.55}
   details>summary:hover{color:var(--fg)}
 }
-.note{border-left:2px solid var(--amber);padding-left:12px;color:var(--muted)}
+.note{border-inline-start:2px solid var(--fg);padding-inline-start:12px;color:var(--muted)}
 .note b{color:var(--fg);font-weight:600}
-pre{margin:0;padding:10px 12px;background:#11161f;border:1px solid var(--rule);
-  overflow-x:auto;color:var(--fg);font:inherit;line-height:1.55}
+pre{margin:0;padding:10px 12px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);overflow-x:auto;color:var(--fg);font:inherit;line-height:1.55}
 pre .out{color:var(--dim)}
 .scroll{overflow-x:auto}
+/* A wide block on a narrow screen: a faint lit edge where there is more, and
+   nothing at all once the end is in view. Two background layers scroll with
+   the content and cover two that do not, so the cue is drawn by the overflow
+   itself rather than by a script. */
+pre,.scroll{--edge:rgba(255,255,255,.09);
+  background-image:linear-gradient(to right,var(--surface) 24px,transparent),
+    linear-gradient(to left,var(--surface) 24px,transparent),
+    linear-gradient(to right,var(--edge),transparent),
+    linear-gradient(to left,var(--edge),transparent);
+  background-position:left,right,left,right;background-repeat:no-repeat;
+  background-size:32px 100%,32px 100%,16px 100%,16px 100%;
+  background-attachment:local,local,scroll,scroll;
+  background-color:var(--surface)}
+.scroll{--surface:var(--bg);background-color:transparent}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
 th,td{text-align:right;padding:2px 10px 2px 0;white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
@@ -92,7 +119,7 @@ details[open]>summary::before{content:"▾ ";color:var(--syntax)}
 `;
 
 
-export const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+export const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 
 /** A bracketed control — the one interactive idiom on either page. */
 export function btn(
