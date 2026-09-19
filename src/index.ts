@@ -158,13 +158,66 @@ const CORS = {
   "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, x-api-version, Idempotency-Key",
 };
 
+/**
+ * On every answer, whatever its content type. None of it is negotiable by a
+ * caller and none of it costs anything: HTTPS only from here on, no sniffing a
+ * content type we already stated, and a path in the Referer header is nobody
+ * else's business. `preload` is deliberately not on the HSTS line — that is a
+ * commitment to a browser list that is slow and awkward to walk back.
+ */
+const SECURITY = {
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+};
+
+/**
+ * What a page of ours may do, which is talk to this origin and nothing else.
+ *
+ * The scripts are named by hash rather than by nonce. These pages are public
+ * and the edge caches them for five minutes, and a nonce on a response handed
+ * to everyone for five minutes is a nonce an attacker can read off the page and
+ * paste into their own injection. A hash stays true however long the page is
+ * cached, and every script here is ours and fixed, so there is nothing to
+ * thread through the builders and nothing to forget.
+ */
+const SCRIPT = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
+const policies = new Map<string, string>();
+
+async function pagePolicy(body: string): Promise<string> {
+  const scripts = [...body.matchAll(SCRIPT)].map((m) => m[1]);
+  const cached = policies.get(scripts.join("\u0000"));
+  if (cached) return cached;
+  const hashes = await Promise.all(
+    scripts.map(async (src) => {
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(src));
+      return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
+    }),
+  );
+  const policy = [
+    "default-src 'none'",
+    `script-src ${hashes.join(" ") || "'none'"}`,
+    // Inline `style=` attributes are how the pages draw; none of them is
+    // caller-controlled, and no page here loads a stylesheet from anywhere.
+    "style-src 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'self' https://classifier.dev",
+    "form-action 'self'",
+    "base-uri 'none'",
+    "frame-ancestors 'self'",
+  ].join("; ");
+  // Bounded by the number of distinct pages, which is a handful.
+  if (policies.size < 64) policies.set(scripts.join("\u0000"), policy);
+  return policy;
+}
+
 const API_VERSION = "v1";
 
 /** Markdown for agents that ask for it: same document, one content type over. */
 const markdown = (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
     status,
-    headers: { "content-type": "text/markdown; charset=utf-8", vary: "accept", ...CORS, ...extra },
+    headers: { "content-type": "text/markdown; charset=utf-8", vary: "accept", ...CORS, ...SECURITY, ...extra },
   });
 
 /** RFC 8288 Link headers on the pages agents land on, so discovery needs no parsing. */
@@ -281,11 +334,11 @@ const CACHE_HOUR = { "cache-control": "public, max-age=3600" };
 const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
     status,
-    headers: { "content-type": "text/plain; charset=utf-8", ...CORS, ...extra },
+    headers: { "content-type": "text/plain; charset=utf-8", ...CORS, ...SECURITY, ...extra },
   });
 
 /** The rendered site. Same document as text(), for clients that asked for HTML. */
-const html = (body: string, status = 200, extra: Record<string, string> = {}) =>
+const html = async (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
     status,
     headers: {
@@ -293,7 +346,9 @@ const html = (body: string, status = 200, extra: Record<string, string> = {}) =>
       "cache-control": "public, max-age=300",
       // The plain text and the page differ by Accept, so caches must vary on it.
       vary: "accept",
+      "content-security-policy": await pagePolicy(body),
       ...CORS,
+      ...SECURITY,
       ...extra,
     },
   });
@@ -301,7 +356,7 @@ const html = (body: string, status = 200, extra: Record<string, string> = {}) =>
 const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(body, null, 2), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", ...CORS, ...extra },
+    headers: { "content-type": "application/json; charset=utf-8", ...CORS, ...SECURITY, ...extra },
   });
 
 function buildMultiPrompt(
@@ -1132,9 +1187,7 @@ const worker = {
         return markdown(toMarkdown(DOCS, { title: "classifier.dev", canonical: `${origin}/`, description: "Zero-shot text classification over plain HTTP. No API key, no account." }), 200, link);
       }
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
-        return new Response(unfurlHtml(), {
-          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600", ...CORS, ...link },
-        });
+        return html(unfurlHtml(), 200, { "cache-control": "public, max-age=3600", ...link });
       }
       if (wantsHtml) return html(homeHtml(), 200, link);
       return text(DOCS, 200, { vary: "accept", ...link });
@@ -1174,8 +1227,7 @@ const worker = {
     }
     // Preview the alert check on demand, without waiting a quarter hour.
     if (req.method === "GET" && path === "alerts") {
-      const bearer = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
-      const given = bearer || url.searchParams.get("key") || "";
+      const given = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
       if (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY))) {
         return text("not found\n", 404);
       }
@@ -1193,10 +1245,10 @@ const worker = {
 
     // Preview the daily digest on demand (also proves the cron path works).
     if (req.method === "GET" && path === "report") {
-      // A query string is copied into logs, history and Referer headers, so
-      // the header is the documented way in; ?key= stays for compatibility.
-      const bearer = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
-      const given = bearer || url.searchParams.get("key") || "";
+      // The key goes in the header and nowhere else. A query string is copied
+      // into access logs, into browser history and into the Referer header of
+      // whatever the page links to next, so ?key= is not a way in any more.
+      const given = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
       if (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY))) {
         // 404, not 401: there is no reason to confirm the endpoint exists.
         return text("not found\n", 404);
