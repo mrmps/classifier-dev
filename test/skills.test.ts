@@ -301,6 +301,27 @@ describe("submitting a skill", () => {
   });
 });
 
+describe("the review budget", () => {
+  /** A limiter that refuses everything. */
+  const shut = { idFromName: (n: string) => n, get: () => ({ fetch: async () => Response.json({ limited: true }) }) };
+
+  test("stops an anonymous caller with a 429 that says when to retry", async () => {
+    fakeModels();
+    const env = { TYPESAFE_API_KEY: "t", OPENROUTER_API_KEY: "o", STATS: fakeKv(), LIMITER: shut } as unknown as Env;
+    const res = await post(env, { skill: BENIGN });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBeTruthy();
+    expect(((await res.json()) as { code: string }).code).toBe("rate_limit_day");
+  });
+
+  test("does not apply to a partner key, which lifts the classifier's limits too", async () => {
+    fakeModels();
+    const env = { TYPESAFE_API_KEY: "t", OPENROUTER_API_KEY: "o", STATS: fakeKv(), LIMITER: shut, ENTERPRISE_API_KEY: "partner" } as unknown as Env;
+    const res = await post(env, { skill: BENIGN }, { authorization: "Bearer partner" });
+    expect(res.status).toBe(201);
+  });
+});
+
 describe("taking a skill down", () => {
   test("needs the operator key, and then removes it everywhere", async () => {
     const kv = fakeKv();
