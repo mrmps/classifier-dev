@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "bun run test/unintelligible.test.ts",
+    "test": "bun test",
     "eval": "cd eval && python3 run.py",
     "bench": "cd eval && python3 bench.py",
     "single": "cd eval && python3 single.py"

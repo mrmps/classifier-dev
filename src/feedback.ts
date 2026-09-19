@@ -112,18 +112,32 @@ function confidence(v: unknown): number | null {
 
 export class Invalid extends Error {}
 
-/** Hourly budget per IP, counted in KV so the receipt can report what is left. */
+/**
+ * Hourly budget per IP, in the Durable Object rather than KV.
+ *
+ * KV was the obvious place and the wrong one: its reads are edge-cached and
+ * eventually consistent, so a counter written this second is invisible to the
+ * next request — see the note at the top of limiter.ts. That is survivable for
+ * a statistic and not for the thing standing between a looping agent and an
+ * inbox. Naming the instance per hour makes the DO's own counter an exact
+ * rolling-hour window with no changes to it.
+ */
 async function budget(env: Env, ip: string) {
-  const bucket = new Date().toISOString().slice(0, 13); // yyyy-mm-ddThh
-  const key = `fbrate:${ip}:${bucket}`;
-  let used = 0;
+  const hour = Math.floor(Date.now() / 3_600_000);
   try {
-    used = Number((await env.STATS.get(key)) ?? "0") || 0;
-    await env.STATS.put(key, String(used + 1), { expirationTtl: 60 * 60 * 2 });
+    const id = env.LIMITER.idFromName(`feedback:${ip}:${hour}`);
+    const res = await env.LIMITER.get(id).fetch(
+      `https://limiter/?limit=${RATE_LIMIT_PER_HOUR}&daily=${RATE_LIMIT_PER_HOUR}&cost=1`,
+    );
+    const j = (await res.json()) as { limited?: boolean; remaining?: number; dailyRemaining?: number };
+    return {
+      over: j.limited === true,
+      remaining: Math.max(0, Math.min(j.remaining ?? 0, j.dailyRemaining ?? RATE_LIMIT_PER_HOUR)),
+    };
   } catch {
-    /* never fail a submission because the counter is unavailable */
+    // A limiter wobble must not swallow a bug report.
+    return { over: false, remaining: RATE_LIMIT_PER_HOUR };
   }
-  return { used: used + 1, remaining: Math.max(0, RATE_LIMIT_PER_HOUR - used - 1), over: used >= RATE_LIMIT_PER_HOUR };
 }
 
 /**
@@ -379,7 +393,9 @@ export async function submitObservation(env: Env, ctx: ExecutionContext, body: R
   return { receipt: { id: receiptId, observation_id: observationId, status: "accepted", budget_remaining: b.remaining } };
 }
 
-export async function addAttachments(env: Env, feedbackId: string, body: Record<string, unknown>) {
+export async function addAttachments(env: Env, feedbackId: string, body: Record<string, unknown>, ip: string) {
+  const b = await budget(env, ip);
+  if (b.over) throw new Invalid(`rate limit: ${RATE_LIMIT_PER_HOUR} submissions per hour`);
   const raw = await env.STATS.get(`fb:${feedbackId}`);
   if (!raw) throw new Invalid("no such feedback report");
   const record = JSON.parse(raw) as { evidence: Evidence[] };

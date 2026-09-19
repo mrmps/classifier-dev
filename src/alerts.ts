@@ -195,7 +195,7 @@ type State = { since: string; lastSent: string };
  * Fire on the way in, once more every six hours while it lasts, and once on
  * the way out. Without this the same outage would send ninety-six emails a day.
  */
-async function reconcile(env: Env, firing: Alert[], persist: boolean) {
+async function plan(env: Env, firing: Alert[]) {
   const now = Date.now();
   const open = new Map<string, State>();
   try {
@@ -211,28 +211,37 @@ async function reconcile(env: Env, firing: Alert[], persist: boolean) {
   const toSend: { alert: Alert; kind: "new" | "still" }[] = [];
   for (const a of firing) {
     const prev = open.get(a.id);
-    if (!prev) {
-      toSend.push({ alert: a, kind: "new" });
-    } else if (now - Date.parse(prev.lastSent) > RENOTIFY_HOURS * 3_600_000) {
-      toSend.push({ alert: a, kind: "still" });
-    }
-    const sending = toSend.some((t) => t.alert.id === a.id);
-    const stamp = new Date(now).toISOString();
-    const since = prev?.since ?? stamp;
-    const lastSent = sending ? stamp : prev?.lastSent ?? stamp;
-    // A preview must not mark an alert as sent, or it would silence the real one.
-    if (persist) await env.STATS.put(`alert:${a.id}`, JSON.stringify({ since, lastSent } satisfies State));
+    if (!prev) toSend.push({ alert: a, kind: "new" });
+    else if (now - Date.parse(prev.lastSent) > RENOTIFY_HOURS * 3_600_000) toSend.push({ alert: a, kind: "still" });
   }
 
   const firingIds = new Set(firing.map((a) => a.id));
   const recovered: { id: string; since: string }[] = [];
-  for (const [id, st] of open) {
-    if (!firingIds.has(id)) {
-      recovered.push({ id, since: st.since });
-      if (persist) await env.STATS.delete(`alert:${id}`);
-    }
+  for (const [id, st] of open) if (!firingIds.has(id)) recovered.push({ id, since: st.since });
+
+  return { toSend, recovered, open, now };
+}
+
+/**
+ * Record what was said — and only ever after it was actually said. Writing
+ * this before delivery meant a Resend failure marked the alert sent and then
+ * lost it for six hours, which is the exact silence this module exists to
+ * break.
+ */
+async function commit(
+  env: Env,
+  firing: Alert[],
+  p: Awaited<ReturnType<typeof plan>>,
+) {
+  const stamp = new Date(p.now).toISOString();
+  const sent = new Set(p.toSend.map((t) => t.alert.id));
+  for (const a of firing) {
+    const prev = p.open.get(a.id);
+    const since = prev?.since ?? stamp;
+    const lastSent = sent.has(a.id) ? stamp : prev?.lastSent ?? stamp;
+    await env.STATS.put(`alert:${a.id}`, JSON.stringify({ since, lastSent } satisfies State));
   }
-  return { toSend, recovered };
+  for (const r of p.recovered) await env.STATS.delete(`alert:${r.id}`);
 }
 
 // ---------------------------------------------------------------- run
@@ -287,15 +296,21 @@ export async function runAlerts(env: Env, opts: { send?: boolean; demo?: boolean
   }
 
   const { alerts, checked } = await evaluate(env);
-  const { toSend, recovered } = await reconcile(env, alerts, opts.send !== false);
+  const p = await plan(env, alerts);
 
-  if (!toSend.length && !recovered.length) {
+  if (!p.toSend.length && !p.recovered.length) {
+    // Still record state, so a condition that started and is merely waiting out
+    // its renotify window keeps its original `since`.
+    if (opts.send !== false) await commit(env, alerts, p);
     return `no alerts${checked ? "" : " (analytics unavailable)"} — ${alerts.length} firing, nothing new to say`;
   }
 
-  const { subject, body } = compose(toSend, recovered);
+  const { subject, body } = compose(p.toSend, p.recovered);
+  // A preview neither sends nor records: it must not silence the real alert.
   if (opts.send === false) return `SUBJECT: ${subject}\n\n${body}\n\n(preview only — not emailed)`;
+
   await deliver(env, subject, body);
+  await commit(env, alerts, p);
   return `sent: ${subject}`;
 }
 
