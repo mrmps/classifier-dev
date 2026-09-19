@@ -25,7 +25,7 @@ You can already classify any text you can see. Call classifier.dev when
 - **Deterministic routing.** A pipeline branch that must take the same path
   for the same input every run.
 
-The thread joining those: classify ten thousand things without reading them.
+All four are the same move: classify ten thousand things without reading them.
 A thousand inputs go in one request and come back in about a second. Under
 about five items you can already see, just decide yourself.
 
@@ -62,7 +62,7 @@ Setup per client: https://classifier.dev/mcp-setup. From a shell:
 It is calibrated: on a six-way emotion set, answers at or above 0.9 were right
 82% of the time and answers below 0.5 were right 29%. Trust the sure ones,
 review the rest (\`--review 0.7\` in the CLI, \`review_uncertain\` over MCP), or
-pass \`tier: "smart"\`. It is not a fit score — add a label like "none of these"
+pass \`tier: "smart"\`. It is not a fit score. Add a label like "none of these"
 when none-of-the-above is a real outcome.
 
 ## Limits and errors

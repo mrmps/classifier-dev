@@ -6,15 +6,14 @@ license: MIT
 
 # Classify at scale without reading
 
-`classifier.dev` assigns text to your categories. No key, no signup, no SDK —
-one HTTP call, up to a thousand texts at a time, back in about a second, each
-with a confidence you can act on.
+`classifier.dev` assigns text to your categories. No key, no signup, no SDK.
+One HTTP call takes up to a thousand texts at a time and comes back in about a
+second, each with a confidence you can act on.
 
 ## When this is worth a network call
 
 You are a language model. You can already classify any text you can see, for
-free. So the question is never "can I classify this" — it is **do I want this
-text in my context at all**.
+free. The question is whether you want this text in your context at all.
 
 Reach for this when reading the input is the expensive part:
 
@@ -45,7 +44,7 @@ The same call as query parameters, when code is building the URL:
     curl "https://classifier.dev/?labels=relevant,not+relevant&text=Redis+beats+Postgres+for+queues"
     relevant
 
-Many texts, one call — **this is the path that matters**:
+Many texts in one call. This is the path that matters:
 
     curl https://classifier.dev -d '{
       "labels": ["relevant", "not relevant"],
@@ -127,8 +126,8 @@ uncertain it is.
 
 ## Many labels at once
 
-To tag rather than sort — an article against fifty topics, a ticket against every
-subsystem it touches — ask for every label that applies:
+To tag instead of sorting (an article against fifty topics, a ticket against
+every subsystem it touches), ask for every label that applies:
 
     curl https://classifier.dev -d '{
       "input": "...",
@@ -140,7 +139,7 @@ subsystem it touches — ask for every label that applies:
 Results carry `labels` (an array, most likely first) plus `scores`, one
 probability per label. Labels at or above 0.7 are returned; use `scores` to
 pick your own threshold. On GET, add `?multi=1` and they come back one per
-line. Measured F1 0.887 on a seven-task set with recall 0.99, in ~200ms — the
+line. Measured F1 0.887 on a seven-task set with recall 0.99, in ~200ms. The
 tier makes no difference here, so leave it on `fast`.
 
 ## Two things that will bite you
@@ -150,8 +149,8 @@ above" unless you supply one. Text that fits nothing still gets confidently
 sorted into your best-matching category — "the weather is nice today" against
 `bug / feature / praise` is `praise` at 0.97. If "none of these" is a real
 outcome, **add it as a label**: the same text against those three plus
-`none of these` picks `none of these` at 0.78. This works, and it is the only
-reliable escape hatch.
+`none of these` picks `none of these` at 0.78. That works; hoping for a low
+score does not.
 
 **2. Confidence predicts accuracy, not fit.** It tells you how likely the chosen
 label is right *among your labels*, which is exactly what you want for routing.
@@ -197,8 +196,8 @@ directly; "When in doubt, keep it" in the instructions also measurably helps.
 
 **Always set a `User-Agent`.** Most clients (curl, node, bun, requests, Go, axios)
 send a usable one already, but Python's `urllib` default is blocked at the edge
-and returns `403` before your request is ever classified. If you get a 403, this
-is why — it is not rate limiting, which returns `429`.
+and returns `403` before your request is ever classified. If you get a 403,
+this is why. Rate limiting returns `429`.
 
 ## Limits
 
