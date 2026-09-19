@@ -14,6 +14,7 @@
  */
 
 import type { Env } from "./index";
+import { jevAttemptsQuery } from "./jev-observability";
 import { sql } from "./report";
 
 const DATASET = "classifier_events";
@@ -242,7 +243,7 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
   const byGateway = answered
     .filter((r) => String(r.model).toLowerCase().includes("jev@vercel"))
     .reduce((a, r) => a + num(r.requests), 0);
-  if (env.AI_GATEWAY_API_KEY && byJev >= T.gatewayMinJev && byGateway === 0) {
+  if (env.AI_GATEWAY_API_KEY && env.AI_GATEWAY_DISABLED !== "true" && byJev >= T.gatewayMinJev && byGateway === 0) {
     alerts.push({
       id: "gateway_refused",
       severity: "warning",
@@ -299,6 +300,28 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
         `The trailing day averages ${perHour.toFixed(0)} requests/hour, so silence is unexpected. ` +
         `Check DNS, the route, and that the worker is deployed.`,
     });
+  }
+
+  if (env.JEV_AE) {
+    try {
+      const attempts = await sql(env, jevAttemptsQuery(WINDOW_MIN));
+      for (const provider of ["gateway", "typesafe"]) {
+        // Disabled gateway failures are historical, not an active incident.
+        if (provider === "gateway" && env.AI_GATEWAY_DISABLED === "true") continue;
+        const rows = attempts.filter((r) => r.provider === provider && r.outcome !== "skipped");
+        const total = rows.reduce((n, r) => n + num(r.attempts), 0);
+        const failures = rows.filter((r) => r.outcome === "failure");
+        const failed = failures.reduce((n, r) => n + num(r.attempts), 0);
+        if (failed >= 3 && failed / total > 0.05) alerts.push({
+          id: `${provider}_attempt_failures`, severity: "warning",
+          title: `${provider} is failing ${pct(failed / total)} of Jev attempts`,
+          detail: `${failed} of ${total} attempts in the last ${WINDOW_MIN}m failed, including failures recovered by fallback or retry. ` +
+            failures.map((r) => `${r.reason} (HTTP ${r.status}: ${num(r.attempts)})`).join(", "),
+        });
+      }
+    } catch {
+      alerts.push({ id: "jev_analytics", severity: "warning", title: "cannot read Jev attempt analytics", detail: "Provider failures may be hidden by successful fallback. Check the JEV_AE binding and Analytics Engine query access." });
+    }
   }
 
   return { alerts, checked: true, note };
@@ -414,6 +437,12 @@ export async function runAlerts(env: Env, opts: { send?: boolean; demo?: boolean
 
   const { alerts, checked } = await evaluate(env);
   const p = await plan(env, alerts);
+  // An operator preview describes the current incident, even after its email
+  // has been sent. Notification deduplication only governs delivery.
+  if (opts.send === false && alerts.length) {
+    const { subject, body } = compose(alerts.map((alert) => ({ alert, kind: p.open.has(alert.id) ? "still" : "new" })), p.recovered);
+    return `SUBJECT: ${subject}\n\n${body}\n\n(preview only — not emailed)`;
+  }
 
   if (!p.toSend.length && !p.recovered.length) {
     // Still record state, so a condition that started and is merely waiting out

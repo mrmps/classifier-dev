@@ -387,6 +387,55 @@ describe("Jev through the AI Gateway", () => {
     expect(r.model).toBe("jev@vercel");
   });
 
+  test("rollback bypasses the gateway while retaining TypeSafe and telemetry", async () => {
+    const points: any[] = [];
+    const analytics = { writeDataPoint: (p: unknown) => points.push(p) } as unknown as AnalyticsEngineDataset;
+    const keys = jevKeys({ TYPESAFE_API_KEY: "ts", AI_GATEWAY_API_KEY: "vck", AI_GATEWAY_DISABLED: "true", JEV_AE: analytics })!;
+    const calls = doors(() => gatewayAnswer("0"));
+    await jevClassify(keys, ["private input"], labels, undefined, false);
+    expect(calls.map((c) => c.door)).toEqual(["typesafe"]);
+    expect(points[0].blobs).toEqual(["typesafe", "success", ""]);
+    expect(JSON.stringify(points)).not.toContain("private input");
+    expect(jevKeys({ AI_GATEWAY_API_KEY: "vck", AI_GATEWAY_DISABLED: "true" })).toBeNull();
+  });
+
+  test("a recovered gateway failure and a later cooldown skip remain distinct events", async () => {
+    const points: any[] = [];
+    const analytics = { writeDataPoint: (p: unknown) => points.push(p) } as unknown as AnalyticsEngineDataset;
+    doors(() => Response.json({ error: { type: "private_customer_text", message: "private input" } }, { status: 429 }));
+    const keys = { ...both, analytics };
+    await jevClassify(keys, ["private input"], labels, undefined, false);
+    await jevClassify(keys, ["private input"], labels, undefined, false);
+    expect(points.map((p) => p.blobs)).toEqual([
+      ["gateway", "failure", "rate_limit"], ["typesafe", "success", ""],
+      ["gateway", "skipped", "cooldown"], ["typesafe", "success", ""],
+    ]);
+    expect(points[0].doubles[0]).toBe(429);
+    expect(points[0].doubles.slice(2)).toEqual([1, 1]);
+    expect(JSON.stringify(points)).not.toContain("private");
+  });
+
+  test("TypeSafe retries record failures even when the final attempt succeeds", async () => {
+    const points: any[] = [];
+    const analytics = { writeDataPoint: (p: unknown) => points.push(p) } as unknown as AnalyticsEngineDataset;
+    let attempt = 0;
+    doors(() => gatewayAnswer("0"), () => ++attempt === 1 ? new Response("bad", { status: 503 }) : typesafeAnswer());
+    await jevClassify({ typesafe: "ts", analytics }, ["one"], labels, undefined, false);
+    expect(points.map((p) => p.blobs)).toEqual([["typesafe", "failure", "upstream_error"], ["typesafe", "success", ""]]);
+    expect(points.map((p) => p.doubles[3])).toEqual([1, 2]);
+  });
+
+  test("telemetry failure cannot break a successful classification", async () => {
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      doors(() => gatewayAnswer("0"));
+      const analytics = { writeDataPoint: () => { throw new Error("unavailable"); } } as unknown as AnalyticsEngineDataset;
+      const [result] = await jevClassify({ ...both, analytics }, ["one"], labels, undefined, false);
+      expect(result.model).toBe("jev@vercel");
+      expect(warning).toHaveBeenCalledWith("jev_analytics_write_failed");
+    } finally { warning.mockRestore(); }
+  });
+
   test("the keys come from the environment, and neither means no Jev", () => {
     expect(jevKeys({})).toBeNull();
     expect(jevKeys({ TYPESAFE_API_KEY: "t" })).toEqual({ typesafe: "t", gateway: undefined });

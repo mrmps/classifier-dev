@@ -4,7 +4,7 @@
 // alert as sent when it was not. That silences the next six hours, which is the
 // exact silence the module exists to break.
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { runAlerts } from "../src/alerts";
+import { evaluate, runAlerts } from "../src/alerts";
 
 /** A KV stand-in. The real one is eventually consistent; this is not, which is
  *  fine — the ordering bug under test is about when we write, not where. */
@@ -198,5 +198,52 @@ describe("the gateway refusal alert", () => {
 
     await runAlerts(env(kv, "tskey", "vck"), { send: true });
     expect([...kv.store.keys()]).not.toContain("alert:gateway_refused");
+  });
+});
+
+
+describe("provider attempt observability", () => {
+  const healthy = [{ model: "jev@vercel", status: "200", requests: 100, ms_sum: 10000 }];
+  function setup(disabled = false, broken = false) {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    mockFetch(true, sent, 200, "{}", healthy);
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: any, init: any) => {
+      if (String(init?.body).includes("classifier_jev_attempts")) {
+        if (broken) return new Response("unavailable", { status: 500 });
+        return Response.json({ data: [
+          { provider: "gateway", outcome: "failure", reason: "rate_limit", status: 429, attempts: 10 },
+          { provider: "gateway", outcome: "success", reason: "", status: 200, attempts: 90 },
+          { provider: "gateway", outcome: "skipped", reason: "cooldown", status: 0, attempts: 10000 },
+          { provider: "typesafe", outcome: "success", reason: "", status: 200, attempts: 100 },
+        ] });
+      }
+      return original(url, init);
+    }) as typeof fetch;
+    return { kv, sent, config: { ...env(kv, "ts", "vck") as any, JEV_AE: {}, AI_GATEWAY_DISABLED: disabled ? "true" : "false" } };
+  }
+  it("alerts on recovered failures even when some gateway answers succeed; skips do not dilute the rate", async () => {
+    const { config } = setup();
+    const { alerts } = await evaluate(config);
+    expect(alerts.find(a => a.id === "gateway_attempt_failures")?.title).toContain("10.0%");
+    expect(alerts.find(a => a.id === "gateway_attempt_failures")?.detail).toContain("rate_limit (HTTP 429: 10)");
+  });
+  it("does not alert on intentionally disabled gateway routing", async () => {
+    const { config } = setup(true);
+    expect((await evaluate(config)).alerts.filter(a => a.id.startsWith("gateway"))).toEqual([]);
+  });
+  it("reports missing telemetry instead of pretending the provider is healthy", async () => {
+    const { config } = setup(false, true);
+    expect((await evaluate(config)).alerts.some(a => a.id === "jev_analytics")).toBe(true);
+  });
+  it("operator preview shows ongoing incidents without sending or altering notification state", async () => {
+    const { config, kv, sent } = setup();
+    const stamp = new Date().toISOString();
+    kv.store.set("alert:gateway_attempt_failures", JSON.stringify({ since: stamp, lastSent: stamp }));
+    const before = [...kv.store];
+    expect(await runAlerts(config, { send: false })).toContain("rate_limit (HTTP 429: 10)");
+    expect(sent).toEqual([]);
+    expect([...kv.store]).toEqual(before);
   });
 });

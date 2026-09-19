@@ -1,3 +1,4 @@
+import { jevAttemptsQuery } from "./jev-observability";
 import type { Env } from "./index";
 
 const DATASET = "classifier_events";
@@ -262,6 +263,17 @@ export async function dailyReport(
     lines.push(`(analytics unavailable: ${aeError})`, "");
   }
 
+  lines.push("JEV ROUTING", `  gateway: ${env.AI_GATEWAY_DISABLED === "true" ? "disabled (TypeSafe direct)" : env.AI_GATEWAY_API_KEY ? "enabled" : "not configured"}`);
+  if (env.JEV_AE) {
+    try {
+      const attempts = await sql(env, jevAttemptsQuery(WINDOW_HOURS * 60));
+      if (!attempts.length) lines.push("  No provider attempts recorded in this window.");
+      for (const r of attempts) lines.push(`  ${r.provider}  ${r.outcome}  ${r.reason || "ok"}  HTTP ${r.status}  ${num(r.attempts)} attempts  ${Math.round(num(r.avg_ms))}ms`);
+    } catch {
+      lines.push("  Provider attempt analytics unavailable; routing health is unknown.");
+    }
+  } else lines.push("  Provider attempt analytics not configured.");
+  lines.push("");
   lines.push("https://classifier.dev  ·  https://classifier.dev/benchmark");
 
   // Compare against the previous window so the subject can show direction.

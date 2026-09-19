@@ -34,7 +34,7 @@ describe(`real multidimensional API at ${base.origin}`, { concurrency: false, ti
     const data = await post({ items, dimensions });
     assertMatrix(data, size, dimensions);
     assert.equal(data.usage.fallback, 0);
-    assert.ok(data.modelsUsed.every(model => model.startsWith("jev-")));
+    assert.ok(data.modelsUsed.every(model => /^jev(?:-|@)/.test(model)));
     data.results.forEach((row, i) => {
       // These accesses are typechecked against the actual dimension names and label unions.
       assert.deepEqual([row.dimensions.team.label, row.dimensions.urgency.label, row.dimensions.kind.label], fixtures[i % fixtures.length]!.labels, `item ${i}`);
@@ -57,7 +57,7 @@ describe(`real multidimensional API at ${base.origin}`, { concurrency: false, ti
     assert.equal(data.usage.escalation_failed, undefined, "reasoning provider must be reachable");
     assert.ok(data.usage.escalated > 0, "fixtures must exercise real escalation; confidence drift must not silently skip this check");
     for (const row of data.results) for (const field of Object.values(row.dimensions)) {
-      if (field.escalated) assert.ok(!field.model.startsWith("jev-"));
+      if (field.escalated) assert.ok(!/^jev(?:-|@)/.test(field.model));
     }
     t.diagnostic(JSON.stringify({ models: data.modelsUsed, ...data.usage }));
   });

@@ -259,6 +259,20 @@ Preview the digest any time without sending it:
 
     curl -H "authorization: Bearer $REPORT_KEY" https://classifier.dev/report
 
+Jev provider attempts are stored separately in `classifier_jev_attempts` through
+`JEV_AE`, including recovered failures, retries and gateway cooldown skips.
+The report includes status, reason, count and mean latency for each provider;
+`/alerts` shows current incidents even when their notification is suppressed.
+The existing 15-minute alert check warns when at least three attempts fail and
+failures exceed 5% for either provider. Counts account for Analytics Engine
+sampling. No input text, labels, caller identifiers or upstream messages are stored.
+
+`AI_GATEWAY_DISABLED = "true"` in `wrangler.example.toml` keeps production on
+TypeSafe directly after the gateway repeatedly returned 429 on September 19.
+The gateway key is retained. To restore gateway-first routing, verify gateway
+capacity, change this variable to `"false"` in the example and local config,
+and deploy. Check provider attempts and the live API tests after re-enabling.
+
 The header is the only way in. A query string lands in access logs, in browser
 history and in the Referer header of whatever gets clicked next, so `?key=` is
 gone. Append `?send=1` to actually email it.

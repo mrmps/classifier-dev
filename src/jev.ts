@@ -22,6 +22,7 @@
  * a conservative budget and run concurrently.
  */
 
+import { recordJevAttempt } from "./jev-observability";
 import { addJevCost, addUsd, type Meter } from "./cost";
 
 const API = "https://api.typesafe.ai/v1/systemone";
@@ -72,10 +73,22 @@ export function resetGatewayPause() {
 }
 
 /** Where Jev can be asked. Either key alone works; with both, the gateway goes first and TypeSafe catches what it drops. */
-export type JevKeys = { typesafe?: string; gateway?: string };
+export type JevKeys = { typesafe?: string; gateway?: string; analytics?: AnalyticsEngineDataset };
 
-export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string }): JevKeys | null =>
-  env.TYPESAFE_API_KEY || env.AI_GATEWAY_API_KEY ? { typesafe: env.TYPESAFE_API_KEY, gateway: env.AI_GATEWAY_API_KEY } : null;
+export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string; AI_GATEWAY_DISABLED?: string; JEV_AE?: AnalyticsEngineDataset }): JevKeys | null => {
+  const gateway = env.AI_GATEWAY_DISABLED === "true" ? undefined : env.AI_GATEWAY_API_KEY;
+  return env.TYPESAFE_API_KEY || gateway
+    ? { typesafe: env.TYPESAFE_API_KEY, gateway, ...(env.JEV_AE ? { analytics: env.JEV_AE } : {}) }
+    : null;
+};
+
+// Only fixed categories are recorded; upstream error strings can contain inputs.
+function failureReason(status: number, errorType: string) {
+  if (["timeout", "network", "malformed_response", "max_tokens_exceeded"].includes(errorType)) return errorType;
+  if (status === 429) return "rate_limit";
+  if ([401, 402, 403].includes(status)) return "credentials_or_credit";
+  return "upstream_error";
+}
 
 // Tokens per request, kept well under the documented 64k because the count
 // here is an estimate. Per-item overhead was fitted from real usage figures.
@@ -274,7 +287,9 @@ function pauseGateway(kind: keyof typeof GATEWAY_PAUSE_MS, retryAfter?: string |
 }
 
 /** One attempt through the gateway. It is never retried here: TypeSafe is the retry. */
-async function postGateway(key: string, body: JevBody, meter?: Meter): Promise<JevPayload> {
+async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset): Promise<JevPayload> {
+  const started = Date.now();
+  const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "gateway", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: 1 });
   const questions = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, gatewayQuestion(q)]));
   let res: Response;
   try {
@@ -294,6 +309,7 @@ async function postGateway(key: string, body: JevBody, meter?: Meter): Promise<J
   } catch (e) {
     const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
     pauseGateway("failed");
+    observe(timeout ? 504 : 0, timeout ? "timeout" : "network");
     throw new JevError(`gateway ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
   }
   const raw = await res.json().catch(() => null);
@@ -304,13 +320,16 @@ async function postGateway(key: string, body: JevBody, meter?: Meter): Promise<J
       // is the honest guess; addUsd ignores the zero it reports today.
       if (payload.cost !== undefined) addUsd(meter, payload.cost);
       else addJevCost(meter, payload.usage?.input_tokens);
+      observe(res.status);
       return payload;
     }
+    observe(res.status, "malformed_response");
     pauseGateway("failed");
     throw new JevError("gateway 200: malformed response", 200, "malformed_response");
   }
   const err = isRecord(raw) && isRecord(raw.error) ? raw.error : {};
   const errorType = gatewayErrorType(err);
+  observe(res.status, failureReason(res.status, errorType));
   if (res.status === 429) pauseGateway("limited", res.headers.get("retry-after"));
   else if (res.status === 401 || res.status === 402 || res.status === 403) pauseGateway("refused");
   else if (res.status >= 500) pauseGateway("failed");
@@ -321,24 +340,29 @@ async function postGateway(key: string, body: JevBody, meter?: Meter): Promise<J
 /** The gateway when it is configured and not paused, TypeSafe otherwise; and TypeSafe again when the gateway drops a request. */
 async function post(keys: JevKeys, body: JevBody, meter?: Meter): Promise<JevPayload> {
   // Without a TypeSafe key there is nothing to pause towards, so the gateway is always tried.
-  if (keys.gateway && (!keys.typesafe || Date.now() >= gatewayPausedUntil)) {
+  const tryGateway = keys.gateway && (!keys.typesafe || Date.now() >= gatewayPausedUntil);
+  if (keys.gateway && tryGateway) {
     try {
-      return await postGateway(keys.gateway, body, meter);
+      return await postGateway(keys.gateway, body, meter, keys.analytics);
     } catch (e) {
       if (!keys.typesafe) throw e;
       // Too big for Jev is too big through either door: let the caller halve it
       // rather than pay TypeSafe a round trip for the same refusal.
       if (e instanceof JevError && e.errorType === "max_tokens_exceeded") throw e;
-      console.warn(`jev via gateway failed, asking typesafe directly: ${(e as Error).message}`);
     }
   }
+  if (keys.gateway && !tryGateway) {
+    recordJevAttempt(keys.analytics, { provider: "gateway", outcome: "skipped", reason: "cooldown", status: 0, ms: 0, items: body.state.length, attempt: 0 });
+  }
   if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
-  return postTypesafe(keys.typesafe, body, meter);
+  return postTypesafe(keys.typesafe, body, meter, keys.analytics);
 }
 
-async function postTypesafe(key: string, body: JevBody, meter?: Meter): Promise<JevPayload> {
+async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset): Promise<JevPayload> {
   let last: Error = new Error("typesafe: no attempt made");
   for (let attempt = 0; attempt < 3; attempt++) {
+    const started = Date.now();
+    const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "typesafe", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
     let res: Response;
     try {
       res = await fetch(API, {
@@ -349,6 +373,7 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter): Promise<
       });
     } catch (e) {
       const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+      observe(timeout ? 504 : 0, timeout ? "timeout" : "network");
       last = new JevError(`typesafe ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
       if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
       continue;
@@ -358,9 +383,11 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter): Promise<
     if (res.ok && !payload.error && validPayload(payload, body)) {
       // Only a call that answered is billed; a retried 429 is not.
       addJevCost(meter, payload.usage?.input_tokens);
+      observe(res.status);
       return payload;
     }
     const errorType = res.ok ? "malformed_response" : safeErrorType(payload.error_type);
+    observe(res.status, failureReason(res.status, errorType));
     last = new JevError(
       `typesafe ${res.status}: ${res.ok ? "malformed response" : errorType || "upstream failure"}`,
       res.status,
