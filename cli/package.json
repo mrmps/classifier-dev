@@ -1,6 +1,6 @@
 {
   "name": "classifier-dev",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Classify text from the command line with classifier.dev: up to 1,000 lines per request, calibrated confidence, no API key.",
   "keywords": [
     "classify",

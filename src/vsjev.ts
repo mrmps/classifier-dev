@@ -36,7 +36,11 @@ const RUNS: { key: string; name: string }[] = [
   { key: "smart", name: "classifier.dev smart" },
 ];
 
-const pct = (x: number | null | undefined) => (x == null ? "-" : `${(x * 100).toFixed(1)}%`);
+/** An accuracy as the site prints it, so every surface rounds the same way. */
+export const pct = (x: number | null | undefined) => (x == null ? "-" : `${(x * 100).toFixed(1)}%`);
+
+/** One measured accuracy, by set and run, for prose that must quote the table rather than retype it. */
+export const accuracy = (set: string, run: string) => VS_JEV.summary[set]?.rows[run]?.acc;
 
 /** Word-wrap prose to the 78 columns the plain-text docs keep. */
 function wrap(text: string, width = 78): string[] {

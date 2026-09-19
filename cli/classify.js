@@ -12,7 +12,8 @@ import { fileURLToPath } from "node:url";
 
 const PKG = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 const ENDPOINT = process.env.CLASSIFY_ENDPOINT || process.env.CLASSIFIER_ENDPOINT || "https://classifier.dev";
-const BATCH = Number(process.env.CLASSIFY_BATCH) || 1000; // the API's per-request ceiling
+const MAX_BATCH = 1000;
+const SMART_BATCH = 200; // the public smart-tier per-minute ceiling
 const CONCURRENCY = 4;
 // A request that never answers should not hang the pipeline forever. Generous,
 // because a thousand inputs on the smart tier is legitimately slow.
@@ -72,7 +73,8 @@ CONFIDENCE
   none-of-the-above is a real outcome.
 
 No API key or account. Limits per IP: 3,000 classifications/min on fast, 200 on smart.
-Env: CLASSIFY_TIMEOUT (seconds, default 180), CLASSIFY_NO_PROGRESS, CLASSIFY_NO_UPDATE_CHECK.
+Env: CLASSIFY_BATCH (1-1,000; public smart is capped at 200), CLASSIFY_TIMEOUT (seconds, default 180),
+CLASSIFY_NO_PROGRESS, CLASSIFY_NO_UPDATE_CHECK.
 Docs: https://classifier.dev   Agent skill: npx skills add https://classifier.dev
 `;
 
@@ -140,7 +142,7 @@ export function parseInput(raw, field = "text", idField = null) {
   };
   if (trimmed[0] === "[") return JSON.parse(trimmed).map(fromObj);
   const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.every((l) => l[0] === "{")) {
+  if (lines[0][0] === "{") {
     // NDJSON if the first line parses; then every later line has to. A file of
     // plain sentences that happen to open with a brace is still plain text.
     let first;
@@ -195,6 +197,9 @@ async function post(o, inputs) {
     const payload = await res.json().catch(() => ({}));
     if (res.ok) return checkResults(o, payload, inputs.length);
     last = payload.error || `HTTP ${res.status}`;
+    // A daily quota cannot recover during a normal CLI run. Keep the API's
+    // explanation instead of parking the user's pipeline for 24 hours.
+    if (payload.code === "rate_limit_day") break;
     if (res.status === 429) {
       // The API says exactly how long; a batch that trips the minute window
       // resumes on its own rather than dying at item 7,400.
@@ -210,8 +215,23 @@ async function post(o, inputs) {
 const ATTEMPTS = 5;
 
 async function retry(why, seconds, attempt) {
-  if (attempt + 1 < ATTEMPTS) process.stderr.write(`classify: ${why}, retrying in ${seconds}s (${attempt + 2}/${ATTEMPTS})\n`);
+  if (attempt + 1 >= ATTEMPTS) return;
+  process.stderr.write(`classify: ${why}, retrying in ${seconds}s (${attempt + 2}/${ATTEMPTS})\n`);
   await sleep(seconds * 1000);
+}
+
+function configuredBatch() {
+  const raw = process.env.CLASSIFY_BATCH;
+  if (raw === undefined || raw.trim() === "") return MAX_BATCH;
+  const value = Number(raw.trim());
+  if (!/^\d+$/.test(raw.trim()) || !Number.isInteger(value) || value < 1 || value > MAX_BATCH) {
+    throw new Error("CLASSIFY_BATCH must be a whole number between 1 and 1,000");
+  }
+  return value;
+}
+
+function batchSize(o) {
+  return Math.min(configuredBatch(), o.smart && !o.apiKey ? SMART_BATCH : MAX_BATCH);
 }
 
 /**
@@ -244,7 +264,8 @@ export async function classifyAll(o, items, onReady, onProgress) {
   const out = new Array(items.length);
   const done = new Array(items.length).fill(false);
   const batches = [];
-  for (let i = 0; i < items.length; i += BATCH) batches.push(i);
+  const batch = batchSize(o);
+  for (let i = 0; i < items.length; i += batch) batches.push(i);
   let next = 0;
   let flushed = 0;
   let completed = 0;
@@ -256,11 +277,15 @@ export async function classifyAll(o, items, onReady, onProgress) {
     }
   };
 
+  // Public smart traffic is limited to 200 classifications/minute. One
+  // worker keeps concurrent batches from spending that whole window at once;
+  // partner keys can use the normal four workers.
+  const concurrency = o.smart && !o.apiKey ? 1 : CONCURRENCY;
   await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
+    Array.from({ length: Math.min(concurrency, batches.length) }, async () => {
       while (next < batches.length) {
         const start = batches[next++];
-        const slice = items.slice(start, start + BATCH);
+        const slice = items.slice(start, start + batch);
         const results = await post(o, slice.map((it) => it.text));
         results.forEach((r, k) => { out[start + k] = r; done[start + k] = true; });
         completed += results.length;
@@ -396,15 +421,20 @@ export async function main(argv) {
   if (!o.labels) { process.stdout.write(HELP); return 2; }
   if (o.labels.length < 2) fail("give at least two labels, comma-separated: classify spam,\"not spam\" ...");
   if (o.labels.length > 100) fail("at most 100 labels");
+  try { batchSize(o); } catch (e) { fail(e.message); }
 
   const hint = updateHint();
 
   let items;
   if (o.text !== null) items = [{ text: o.text }];
   else {
+    // Labels, no text, and a terminal on stdin: a person who wants the help.
+    if (process.stdin.isTTY) { process.stdout.write(HELP); return 2; }
     try { items = parseInput(await readStdin(), o.field, o.id); }
     catch (e) { fail(`could not read input: ${e.message}`); }
-    if (!items.length) { process.stdout.write(HELP); return 2; }
+    // An empty pipe is an empty answer, not a page of help in the middle of a
+    // pipeline: `grep ... | classify a,b | sort` has to stay empty.
+    if (!items.length) return 0;
   }
 
   if (o.smart && o.multi) {

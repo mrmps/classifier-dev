@@ -44,6 +44,16 @@ describe("label fingerprints", () => {
     expect(await labelFingerprint(env, ["spam", "ham"])).not.toBe(await labelFingerprint(env, ["spam", "eggs"]));
   });
 
+  test("label separators and escapes cannot collapse distinct sets", async () => {
+    expect(await labelFingerprint(env, ["a|b", "c"])).not.toBe(await labelFingerprint(env, ["a", "b|c"]));
+    expect(await labelFingerprint(env, ["a\\|b", "c"])).not.toBe(await labelFingerprint(env, ["a\\", "b", "c"]));
+  });
+
+  test("malformed label values cannot break background recording", async () => {
+    const invalid = [null, { toString: null }, "valid"] as unknown as string[];
+    expect(await labelFingerprint(env, invalid)).toBe(await labelFingerprint(env, ["valid"]));
+  });
+
   test("are empty for no labels, so nothing is registered for them", async () => {
     expect(await labelFingerprint(env, [])).toBe("");
     expect(await labelFingerprint(env, ["  "])).toBe("");

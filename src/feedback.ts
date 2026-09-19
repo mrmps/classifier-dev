@@ -63,14 +63,12 @@ export function discovery() {
     spec_url: "/openapi.json",
     policy_url: "/api/v1/policy",
     // Stated honestly: anonymous submission is what this host actually
-    // implements. An optional bearer token is echoed back on the receipt so a
-    // caller can correlate its own submissions; it is not verified identity,
-    // and Ed25519 request signing is not implemented.
+    // implements. Bearer credentials are not verified or retained.
+    // Ed25519 request signing is not implemented.
     auth: {
       type: "none",
       description:
-        "Anonymous submission. An optional `Authorization: Bearer <token>` is recorded with the report " +
-        "so an agent can correlate its own submissions. It is not verified.",
+        "Anonymous submission. Authorization headers are not verified, stored or included in email.",
       required: false,
     },
     endpoints: {
@@ -116,8 +114,8 @@ const oneOf = <T extends readonly string[]>(v: unknown, set: T): T[number] | "" 
   typeof v === "string" && (set as readonly string[]).includes(v) ? (v as T[number]) : "";
 
 function confidence(v: unknown): number | null {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return null;
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  const n = v;
   return Math.min(LIMITS.confidence_range.max, Math.max(LIMITS.confidence_range.min, n));
 }
 
@@ -199,7 +197,7 @@ function parseEvidence(raw: unknown): Evidence[] {
     const type = oneOf(o.type, EVIDENCE_TYPES);
     if (!type) throw new Invalid(`evidence.type must be one of: ${EVIDENCE_TYPES.join(", ")}`);
     const content = typeof o.content === "string" ? o.content : JSON.stringify(o.content ?? null);
-    if (content.length > LIMITS.max_evidence_content_bytes) throw new Invalid("evidence.content is too large");
+    if (new TextEncoder().encode(content).byteLength > LIMITS.max_evidence_content_bytes) throw new Invalid("evidence.content is too large");
     return { id: id("ev"), type, content };
   });
 }
@@ -240,7 +238,7 @@ export function parseFeedback(body: Record<string, unknown>): Feedback {
 
 // ---------------------------------------------------------------- email
 
-function render(f: Feedback, meta: { receipt: string; feedbackId: string; score: number; token: string }) {
+function render(f: Feedback, meta: { receipt: string; feedbackId: string; score: number }) {
   const r = f.reporter;
   const who = [r.agent_vendor, r.agent_product, r.agent_version].filter(Boolean).join(" / ") || "anonymous agent";
   const lines = [
@@ -259,7 +257,6 @@ function render(f: Feedback, meta: { receipt: string; feedbackId: string; score:
   lines.push(`quality       ${meta.score}`);
   lines.push(`feedback id   ${meta.feedbackId}`);
   lines.push(`receipt       ${meta.receipt}`);
-  if (meta.token) lines.push(`bearer        ${meta.token.slice(0, 8)}… (unverified)`);
   if (f.evidence.length) {
     lines.push("", `EVIDENCE (${f.evidence.length})`);
     for (const e of f.evidence) {
@@ -289,7 +286,7 @@ async function email(env: Env, subject: string, body: string) {
 
 const ttl = { expirationTtl: 60 * 60 * 24 * RETENTION_DAYS };
 
-export async function submitFeedback(env: Env, ctx: ExecutionContext, body: Record<string, unknown>, ip: string, token: string) {
+export async function submitFeedback(env: Env, ctx: ExecutionContext, body: Record<string, unknown>, ip: string) {
   const f = parseFeedback(body);
   const b = await budget(env, ip);
   if (b.over) throw new Invalid(`rate limit: ${RATE_LIMIT_PER_HOUR} submissions per hour`);
@@ -310,7 +307,7 @@ export async function submitFeedback(env: Env, ctx: ExecutionContext, body: Reco
   }
 
   const status = duplicateOf ? "duplicate" : "accepted";
-  const record = { id: feedbackId, receipt: receiptId, received: new Date().toISOString(), status, quality_score: score, duplicate_of: duplicateOf, caller: await callerId(env, ip), token: token ? `${token.slice(0, 8)}…` : "", ...f };
+  const record = { id: feedbackId, receipt: receiptId, received: new Date().toISOString(), status, quality_score: score, duplicate_of: duplicateOf, caller: await callerId(env, ip), ...f };
   try {
     await env.STATS.put(`fb:${feedbackId}`, JSON.stringify(record), ttl);
     await env.STATS.put(
@@ -327,7 +324,7 @@ export async function submitFeedback(env: Env, ctx: ExecutionContext, body: Reco
       email(
         env,
         `[classifier.dev] ${f.signal.severity} ${f.signal.category}: ${f.content.title}`.slice(0, 180),
-        render(f, { receipt: receiptId, feedbackId, score, token }),
+        render(f, { receipt: receiptId, feedbackId, score }),
       ).catch((e) => console.error(`feedback email failed: ${(e as Error).message}`)),
     );
   }

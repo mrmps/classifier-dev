@@ -14,8 +14,9 @@ export class RateLimiter implements DurableObject {
     const limit = Number(url.searchParams.get("limit") ?? "60");
     const daily = Number(url.searchParams.get("daily") ?? "5000");
     const cost = Number(url.searchParams.get("cost") ?? "1");
-    const minute = Math.floor(Date.now() / 60_000);
-    const day = Math.floor(Date.now() / 86_400_000);
+    const now = Date.now();
+    const minute = Math.floor(now / 60_000);
+    const day = Math.floor(now / 86_400_000);
 
     let b = (await this.state.storage.get<{ m: number; n: number }>("b")) ?? { m: minute, n: 0 };
     if (b.m !== minute) b = { m: minute, n: 0 };
@@ -23,21 +24,20 @@ export class RateLimiter implements DurableObject {
     let d = (await this.state.storage.get<{ d: number; n: number }>("d")) ?? { d: day, n: 0 };
     if (d.d !== day) d = { d: day, n: 0 };
 
-    if (d.n >= daily) {
-      return Response.json({ limited: true, scope: "day", remaining: 0, resetIn: 86_400 });
+    if (d.n + cost > daily) {
+      return Response.json({ limited: true, scope: "day", remaining: 0, resetIn: Math.ceil(((day + 1) * 86_400_000 - now) / 1000) });
     }
-    if (b.n >= limit) {
+    if (b.n + cost > limit) {
       return Response.json({
         limited: true,
         scope: "minute",
         remaining: 0,
-        resetIn: 60 - (Math.floor(Date.now() / 1000) % 60),
+        resetIn: Math.ceil(((minute + 1) * 60_000 - now) / 1000),
       });
     }
     b.n += cost;
     d.n += cost;
-    await this.state.storage.put("b", b);
-    await this.state.storage.put("d", d);
+    await this.state.storage.put({ b, d });
     return Response.json({
       limited: false,
       remaining: Math.max(0, limit - b.n),

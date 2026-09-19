@@ -9,9 +9,10 @@
 
 import { esc, btn, page, codeLang, COPY_ICON, HL_HEAD, HL_SCRIPT, HL_CSS } from "./ui";
 import { DOCS, BENCHMARK } from "./docs";
-import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor } from "./vsjev";
+import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor, pct, accuracy } from "./vsjev";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
+import { headingTitle, isCommandBlock, isHeading, isPreBlock } from "./pages";
 import { chatPanel, CHAT_CSS, CHAT_SCRIPT } from "./chatui";
 
 const HOME_CSS = `${HL_CSS}${CHAT_CSS}
@@ -214,33 +215,29 @@ function vsJevSection() {
 /**
  * Bare URLs become links; trailing sentence punctuation stays outside. Works
  * on the raw text and escapes each piece itself, so a URL that sits inside a
- * quote is not read up to the semicolon of the quote's entity.
+ * quote is not read up to the semicolon of the quote's entity. A URL with a
+ * template hole in it, like /{labels}/{text}, is shown and not linked.
  */
 function linkify(text: string) {
   return text
-    .split(/(https?:\/\/[^\s<>()"']+)/)
+    .split(/(https?:\/\/[^\s<>()"'`]+)/)
     .map((part, i) => {
       if (i % 2 === 0) return esc(part);
       const trail = part.match(/[.,;:]+$/)?.[0] ?? "";
       const href = part.slice(0, part.length - trail.length);
+      if (/[{}]/.test(href)) return esc(part);
       return `<a class="inline" href="${esc(href)}">${esc(href)}</a>${esc(trail)}`;
     })
     .join("");
 }
 
-const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(l) && l.trim() === l;
-
 /**
- * A block keeps its own spacing when it is a command, a table, or anything
- * else whose columns carry meaning. Prose is re-flowed so it wraps to the
- * reader's width instead of the terminal's 80.
+ * Escape a run of text and turn its bare URLs into links, in one pass. The
+ * URL is found in the raw text, so a quote after it ends it: done the other
+ * way round, `"https://classifier.dev/mcp"` in a JSON example linked to
+ * `https://classifier.dev/mcp&quot;`, a 404. Trailing sentence punctuation
+ * stays outside the link, and a template such as /{labels}/{text} is text.
  */
-const isPre = (lines: string[]) =>
-  lines.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|GET|POST|\{|\/)(?!:)/.test(l) || /^\s{4,}\S/.test(l));
-
-// A line that is only a command's name and a colon ("curl:") is the caption
-// of the block under it, not a command.
-const isCommand = (lines: string[]) => lines.some((l) => /^\s*(curl|npm|npx|classify)\b(?!:)/.test(l));
 
 function renderBlocks(body: string[]): string {
   const out: string[] = [];
@@ -249,13 +246,13 @@ function renderBlocks(body: string[]): string {
     if (!buf.length) return;
     const lines = buf;
     buf = [];
-    if (isPre(lines)) {
+    if (isPreBlock(lines)) {
       const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.match(/^ */)![0].length));
       const text = lines.map((l) => l.slice(indent)).join("\n");
-      const copy = isCommand(lines)
+      const copy = isCommandBlock(lines)
         ? `<p class="row">${btn("copy", { cls: "dim", icon: COPY_ICON, attrs: ' data-copy="1"' })}</p>`
         : "";
-      const lang = isCommand(lines) ? "bash" : codeLang(lines);
+      const lang = isCommandBlock(lines) ? "bash" : codeLang(lines);
       const code = lang ? `<code class="language-${lang}">${linkify(text)}</code>` : linkify(text);
       out.push(`<div class="block"><pre>${code}</pre>${copy}</div>`);
     } else {
@@ -306,11 +303,8 @@ function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string>
       out.push(swap[title]);
       continue;
     }
-    const name = (title.charAt(0) + title.slice(1).toLowerCase())
-      .replace(/\b(cli|api|mcp|json|ndjson|url|http|rfc|chatgpt)\b/gi, (m) => (m.toLowerCase() === "chatgpt" ? "ChatGPT" : m.toUpperCase()))
-      .replace(/\bClaude code\b/, "Claude Code");
     out.push(
-      `<section><h2><span class="syn">## </span>${esc(name)}</h2>${renderBlocks(body)}</section>`,
+      `<section><h2><span class="syn">## </span>${esc(headingTitle(title))}</h2>${renderBlocks(body)}</section>`,
     );
   }
   return out.join("");
@@ -368,7 +362,7 @@ const JSON_LD = () => {
       featureList: ["Zero-shot classification into your own labels", "Calibrated confidence per answer", "1,000 texts per request", "Multi-label mode", "MCP server", "CLI", "No API key"],
       author: { "@id": "https://classifier.dev/#author" },
       publisher: { "@id": "https://classifier.dev/#org" },
-      sameAs: [SITE.repo, SITE.author.x, "https://www.npmjs.com/package/classifier-dev", "https://pypi.org/project/classifier-dev/", "https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go", "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier"],
+      sameAs: [SITE.repo, SITE.author.x, "https://www.npmjs.com/package/classifier-dev", "https://github.com/mrmps/classifier-dev/tree/python-v0.1.0/sdk/python", "https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go", "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier"],
       softwareHelp: { "@type": "CreativeWork", url: "https://classifier.dev/developers" },
       installUrl: "https://classifier.dev/mcp-setup",
       license: "https://github.com/mrmps/classifier-dev/blob/main/LICENSE",
@@ -451,7 +445,9 @@ const JSON_LD = () => {
         {
           "@type": "Question",
           name: "How accurate is it, and what does the confidence mean?",
-          acceptedAnswer: { "@type": "Answer", text: "On public test sets the fast tier scores 87.5% on four-way AG News and 61.8% on six-way emotion; the smart tier 90.0% and 62.7%. The confidence is calibrated: answers at or above 0.9 were right 82-92% of the time, answers under 0.5 about 30-60%. Details at classifier.dev/benchmark." },
+          // The accuracies are the measured ones the table above carries, not a
+          // transcription that the next `npm run vs-jev` would leave behind.
+          acceptedAnswer: { "@type": "Answer", text: `On public test sets the fast tier scores ${pct(accuracy("ag_news", "jev"))} on four-way AG News and ${pct(accuracy("emotion", "jev"))} on six-way emotion; the smart tier ${pct(accuracy("ag_news", "smart"))} and ${pct(accuracy("emotion", "smart"))}. The confidence is calibrated: answers at or above 0.9 were right 82-92% of the time, answers under 0.5 about 30-60%. Details at classifier.dev/benchmark.` },
         },
         {
           "@type": "Question",

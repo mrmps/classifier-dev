@@ -97,7 +97,7 @@ describe("every discovery document", () => {
     const failures: string[] = [];
     for (const [p, from] of seen) {
       let status: number;
-      if (p === "/v1/classify") {
+      if (p === "/v1/classify" || p === "/subscribe") {
         const res = await worker.fetch(
           new Request(`${ORIGIN}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ inputs: ["x"], labels: ["only"] }) }),
           env,

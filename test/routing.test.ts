@@ -23,6 +23,7 @@ describe("a path inside a namespace this service owns", () => {
     "/api/nope",
     "/mcp/nope",
     "/admin/nope",
+    "/wp-admin",
     "/.well-known/nope",
     "/.well-known/dnt-policy.txt",
   ];

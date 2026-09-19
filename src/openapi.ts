@@ -106,6 +106,40 @@ export const OPENAPI = {
   ],
   servers: [{ url: "https://classifier.dev" }],
   paths: {
+    "/subscribe": {
+      post: {
+        operationId: "subscribeToUpdates",
+        summary: "Subscribe a human or agent inbox to product updates",
+        description: "Use your own email address, or one whose owner explicitly requested updates. No API key, browser, or email confirmation is required. Addresses are trimmed and lowercased. Repeated submissions keep one subscriber and return the same response. One email when a roadmap item ships; reply to unsubscribe. Limited to 5 requests/minute and 50/day per IP.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: {
+            type: "object", required: ["email"],
+            properties: { email: { type: "string", maxLength: 254, description: "An email address for an inbox you control or have explicit permission to subscribe.", example: "agent@example.com" } },
+          } } },
+        },
+        responses: {
+          "202": {
+            description: "Address subscribed, including repeat submissions. No confirmation step.",
+            content: { "application/json": { schema: {
+              type: "object", required: ["ok", "subscribed"],
+              properties: { ok: { const: true }, subscribed: { type: "string", description: "The normalized email address." } },
+              example: { ok: true, subscribed: "agent@example.com" },
+            } } },
+          },
+          ...Object.fromEntries([
+            ["400", "Missing or invalid email address."],
+            ["429", "Too many signups; wait Retry-After seconds before retrying."],
+            ["503", "Subscription storage unavailable; retry shortly."],
+          ].map(([status, description]) => [status, {
+            description,
+            ...(status === "429" ? { headers: { "Retry-After": { schema: { type: "integer" } } } } : {}),
+            content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } },
+          }])),
+        },
+      },
+    },
     "/v1/health": {
       get: {
         operationId: "getHealth",
@@ -485,7 +519,7 @@ export const OPENAPI = {
                   },
                 },
                 batch: {
-                  summary: "Up to 1,000 inputs, smart tier",
+                  summary: "Smart batch (up to 200 inputs without a partner key)",
                   value: {
                     inputs: ["refund never came", "love this app"],
                     labels: ["billing", "praise"],
@@ -647,6 +681,10 @@ export const OPENAPI = {
           content: {
             type: "object",
             description: "`title` or `summary` is required. A missing title is taken from the summary.",
+            anyOf: [
+              { required: ["title"], properties: { title: { type: "string", pattern: "\\S" } } },
+              { required: ["summary"], properties: { summary: { type: "string", pattern: "\\S" } } },
+            ],
             properties: {
               title: { type: "string", maxLength: LIMITS.max_title_length },
               summary: { type: "string", maxLength: LIMITS.max_summary_length },
@@ -685,7 +723,7 @@ export const OPENAPI = {
         required: ["category", "summary"],
         properties: {
           category: { type: "string", enum: [...CATEGORIES] },
-          summary: { type: "string", maxLength: LIMITS.max_summary_length },
+          summary: { type: "string", pattern: "\\S", maxLength: LIMITS.max_summary_length },
           severity: { type: "string", enum: [...SEVERITIES], default: "medium" },
           confidence: { type: "number", minimum: LIMITS.confidence_range.min, maximum: LIMITS.confidence_range.max },
           surface: { type: "string", maxLength: 256 },
@@ -708,7 +746,7 @@ export const OPENAPI = {
             type: "array",
             items: { type: "string" },
             maxItems: 1000,
-            description: "Up to 1,000 texts classified in one call, results in the same order.",
+            description: "Up to 1,000 texts classified in one call, results in the same order. Public smart requests accept at most 200 so the batch fits its per-minute quota.",
           },
           labels: {
             type: "array",
@@ -941,7 +979,7 @@ in the official MCP registry.
 
 ## SDKs
 
-- Python: \`pip install classifier-dev\` — \`from classifier_dev import classify\` ([PyPI](https://pypi.org/project/classifier-dev/))
+- Python: \`pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"\` — \`from classifier_dev import classify\` ([tagged source](https://github.com/mrmps/classifier-dev/tree/python-v0.1.0/sdk/python); Git required to install)
 - Go: \`go get github.com/mrmps/classifier-dev/sdk/go\` ([pkg.go.dev](https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go))
 - JavaScript: no SDK needed. POST JSON to https://classifier.dev/v1/classify with fetch(); the npm package \`classifier-dev\` is the CLI.
 

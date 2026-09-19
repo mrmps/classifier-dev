@@ -41,13 +41,14 @@ function mockApi() {
   return new Promise((resolve) => server.listen(0, () => resolve({ server, requests, url: `http://127.0.0.1:${server.address().port}` })));
 }
 
-function run(args, stdin = "", env = {}) {
+function run(args, stdin = "", env = {}, timeoutMs = 0) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [BIN, ...args], { env: { ...process.env, CLASSIFY_NO_UPDATE_CHECK: "1", ...env } });
+    const timer = timeoutMs ? setTimeout(() => p.kill(), timeoutMs) : null;
     let out = "", err = "";
     p.stdout.on("data", (c) => (out += c));
     p.stderr.on("data", (c) => (err += c));
-    p.on("close", (code) => resolve({ code, out, err }));
+    p.on("close", (code) => { clearTimeout(timer); resolve({ code, out, err }); });
     p.stdin.end(stdin);
   });
 }
@@ -117,9 +118,30 @@ test("end to end against a mock API: single text, stdin, batching, count, 429 re
     assert.equal(r.code, 0);
     assert.equal(r.out, "ham\n");
     assert.match(r.err, /rate limited, retrying in 1s/);
+
+    const smartMany = Array.from({ length: 401 }, (_, i) => `smart ${i}`).join("\n");
+    const smartBefore = requests.length;
+    r = await run(["--endpoint", url, "a,b", "--smart", "-q"], smartMany);
+    assert.equal(r.code, 0, r.err);
+    assert.ok(requests.slice(smartBefore).every((request) => request.inputs.length <= 200), "public smart batches stay within 200 classifications");
   } finally {
     server.close();
   }
+});
+
+test("an empty pipe is an empty answer, not the help text", async () => {
+  // stdin here is a pipe that closes at once: a filter upstream matched nothing.
+  const r = await run(["spam,ham"], "");
+  assert.equal(r.out, "", "nothing on stdout for a downstream tool to choke on");
+  assert.equal(r.err, "");
+  assert.equal(r.code, 0);
+  const blank = await run(["spam,ham", "--count"], "\n\n");
+  assert.equal(blank.out, "");
+  assert.equal(blank.code, 0);
+  // No labels at all is a person who has not read the usage yet.
+  const none = await run([], "");
+  assert.match(none.out, /USAGE/);
+  assert.equal(none.code, 2);
 });
 
 test("--help and --version", async () => {
@@ -320,5 +342,75 @@ test("retries are announced on stderr, and a 5xx is retried", async () => {
     assert.equal(r.code, 0, r.err);
     assert.match(r.err, /upstream down, retrying in 0\.5s \(2\/5\)/);
     assert.equal(calls, 2);
+  } finally { server.close(); }
+});
+
+test("malformed NDJSON fails before sending any input to the API", async () => {
+  const { server, requests, url } = await mockApi();
+  try {
+    for (const tail of ["broken json", "42", "null"]) {
+      const r = await run(["bug,praise", "--endpoint", url, "--field", "title", "--id", "id"],
+        '{"title":"The app crashes","id":7}\n' + tail);
+      assert.equal(r.code, 1, `accepted malformed NDJSON: ${tail}`);
+      assert.equal(r.out, "");
+      assert.match(r.err, /could not read input/);
+    }
+    assert.equal(requests.length, 0, "invalid input never reaches the classifier");
+  } finally { server.close(); }
+});
+
+test("daily quota exhaustion exits immediately instead of sleeping for a day", async () => {
+  let calls = 0;
+  const server = createServer((req, res) => {
+    calls++;
+    req.resume();
+    res.writeHead(429, { "content-type": "application/json", "retry-after": "86400" });
+    res.end(JSON.stringify({ code: "rate_limit_day", error: "Daily limit reached: 20000 fast classifications per IP per day." }));
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const r = await run(["bug,praise", "The app crashes", "--endpoint", `http://127.0.0.1:${server.address().port}`], "", {}, 1500);
+    assert.equal(r.code, 1, r.err);
+    assert.equal(r.out, "");
+    assert.match(r.err, /Daily limit reached/);
+    assert.doesNotMatch(r.err, /retrying/);
+    assert.equal(calls, 1);
+  } finally { server.close(); }
+});
+
+test("exhausted retries exit without sleeping after the final response", async () => {
+  let calls = 0;
+  const server = createServer((req, res) => {
+    calls++;
+    req.resume();
+    res.writeHead(429, { "content-type": "application/json", "retry-after": calls === 5 ? "60" : "0.001" });
+    res.end(JSON.stringify({ code: "rate_limit_minute", error: "Minute limit reached" }));
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const r = await run(["bug,praise", "The app crashes", "--endpoint", `http://127.0.0.1:${server.address().port}`], "", {}, 1500);
+    assert.equal(r.code, 1, r.err);
+    assert.equal(calls, 5);
+    assert.equal((r.err.match(/retrying/g) || []).length, 4);
+    assert.match(r.err, /Minute limit reached/);
+    assert.equal(r.out, "");
+  } finally { server.close(); }
+});
+
+test("CLASSIFY_BATCH rejects invalid values and caps smart batches", async () => {
+  const { server, requests, url } = await mockApi();
+  try {
+    for (const bad of ["0", "-1", "1.5", "NaN", "Infinity", "1001"]) {
+      const r = await run(["a,b", "--endpoint", url], "x\n", { CLASSIFY_BATCH: bad });
+      assert.equal(r.code, 1, bad);
+      assert.match(r.err, /CLASSIFY_BATCH must be a whole number/);
+    }
+    const r = await run(["a,b", "--smart", "--endpoint", url], "x\n", { CLASSIFY_BATCH: "500" });
+    assert.equal(r.code, 0, r.err);
+    const keyedMany = Array.from({ length: 401 }, () => "x").join("\n");
+    const before = requests.length;
+    const keyed = await run(["a,b", "--smart", "--api-key", "partner", "--endpoint", url], keyedMany, { CLASSIFY_BATCH: "500" });
+    assert.equal(keyed.code, 0, keyed.err);
+    assert.deepEqual(requests.slice(before).map((request) => request.inputs.length), [401], "partner-key smart calls keep their configured batch size");
   } finally { server.close(); }
 });

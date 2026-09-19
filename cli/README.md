@@ -1,8 +1,9 @@
 # classify
 
 The [classifier.dev](https://classifier.dev) CLI. Sort text into your own labels
-from the shell — up to a thousand lines per request, a calibrated confidence on
-every answer, no API key.
+from the shell — up to a thousand fast-tier lines per request (smart batches are
+capped at 200 for the public quota), a calibrated confidence on every answer,
+and no API key.
 
     npm i -g classifier-dev        # installs `classify`
     npx classifier-dev --help      # or run it without installing
@@ -38,8 +39,10 @@ field and `--id` carries an id through:
 
     cat issues.jsonl | classify bug,question,feature --field title --id number --json
 
-10,000 lines are batched 1,000 per request, four at a time, and a rate limit
-pauses and resumes rather than failing. Errors go to stderr with exit code 1.
+10,000 fast-tier lines are batched 1,000 per request, four at a time. Smart
+requests without a partner key use batches of at most 200 and one worker,
+so the 200/minute quota is not spent by concurrent requests. A minute rate limit pauses and
+resumes; a daily quota stops immediately. Errors go to stderr with exit code 1.
 
 ## Options
 
@@ -56,9 +59,10 @@ pauses and resumes rather than failing. Errors go to stderr with exit code 1.
         --endpoint <url>       API base (env CLASSIFY_ENDPOINT)
         --api-key <key>        bearer token for higher limits (env CLASSIFY_API_KEY)
 
-`classify --help` has examples. Environment: `CLASSIFY_TIMEOUT` (seconds per
-request, default 180), `CLASSIFY_NO_PROGRESS`, and `CLASSIFY_NO_UPDATE_CHECK=1`
-to skip the once-a-day version check.
+`classify --help` has examples. Environment: `CLASSIFY_BATCH` (a whole number
+from 1 to 1,000; public smart is capped at 200), `CLASSIFY_TIMEOUT` (seconds per
+request, default 180), `CLASSIFY_NO_PROGRESS`, and
+`CLASSIFY_NO_UPDATE_CHECK=1` to skip the once-a-day version check.
 
 ## What it refuses to do quietly
 
