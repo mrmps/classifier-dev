@@ -286,7 +286,7 @@ sections below say what exists and what deliberately does not.
 ## Discover
 
 - The API: \`POST https://classifier.dev\` with \`{"inputs": [...], "labels": [...]}\`, or
-  \`GET https://classifier.dev/{labels}/{text}\`. OpenAPI at https://classifier.dev/openapi.json.
+  \`GET https://classifier.dev/{labels}/{text}\` (or \`GET https://classifier.dev/?labels=a,b&text=...\`). OpenAPI at https://classifier.dev/openapi.json.
 - MCP: https://classifier.dev/mcp (tools) and https://classifier.dev/mcp/docs (documentation),
   Streamable HTTP, no auth. Server card at https://classifier.dev/.well-known/mcp/server-card.json.
 - Protected-resource metadata (RFC 9728) at https://classifier.dev/.well-known/oauth-protected-resource

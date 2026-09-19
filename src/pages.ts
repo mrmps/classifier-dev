@@ -139,6 +139,7 @@ QUICKSTART
 SURFACES
 
   REST API        POST https://classifier.dev  or  GET https://classifier.dev/{labels}/{text}
+                  Query form: GET https://classifier.dev/?labels={a,b}&text={text}
                   Versioned alias: POST https://classifier.dev/v1/classify (same body, same answer)
   OpenAPI 3.1     https://classifier.dev/openapi.json
   MCP             https://classifier.dev/mcp (tools) and https://classifier.dev/mcp/docs (documentation)
@@ -158,6 +159,7 @@ ENDPOINTS
   POST    /                         Alias of /v1/classify, tracks the current major
   POST    /v1/classify/batch        Alias, for callers that look for a batch endpoint by name
   GET     /{labels}/{text}          One text in the URL: /spam,not+spam/Win+a+free+iPhone -> "spam"
+  GET     /?labels=&text=           The same as query parameters: /?labels=spam,not+spam&text=Win+a+free+iPhone
   GET     /v1/health                {ok, version, time}
   GET     /api                      Machine-readable index of everything here (also GET /?mode=agent)
   GET     /openapi.json             The OpenAPI 3.1 specification
