@@ -115,8 +115,8 @@ at 0.94.
 - **0.9 and above** — route to the extractor for that type.
 - **0.5 to 0.9** — extract, but queue for review, or re-ask with
   `"tier": "smart"`, which re-runs answers under 0.7 on a reasoning model.
-- **below 0.5**, or `confidence: null` (an `unscored` page has no language) —
-  do not extract; send the page to a person.
+- **below 0.5**, or `confidence: null` (no comparable score is available) — do
+  not extract; send the page to a person.
 
 ## A worked run
 

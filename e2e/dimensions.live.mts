@@ -62,10 +62,18 @@ describe(`real multidimensional API at ${base.origin}`, { concurrency: false, ti
     t.diagnostic(JSON.stringify({ models: data.modelsUsed, ...data.usage }));
   });
 
-  test("unreadable input withholds uncertainty for every field", async () => {
-    const data = await post({ items: ["asdkjfhaskdjfh"], dimensions });
-    assertMatrix(data, 1, dimensions);
-    for (const field of Object.values(data.results[0]!.dimensions)) assert.equal(field.confidence, null);
+  test("identifier and acronym inputs keep provider uncertainty for every field", async () => {
+    const items = ["HTTP", "d41d8cd98f00b204e9800998ecf8427e"];
+    const dims = {
+      kind: ["technology", "identifier", "other"],
+      shape: ["acronym", "hash", "other"],
+    } as const;
+    const data = await post({ items, dimensions: dims });
+    assertMatrix(data, items.length, dims);
+    for (const row of data.results) for (const field of Object.values(row.dimensions)) {
+      assert.notEqual(field.confidence, null);
+      assert.notEqual(field.scores, null);
+    }
   });
 
   test("input aliases and label-array shorthand use the same contract", async () => {

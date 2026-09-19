@@ -112,8 +112,9 @@ re-tune the thresholds next week without re-running anything.
   in `instructions` or tone will dominate.
 - **Read the unsure pile weekly.** Every ticket under 0.5 is either a label you
   have not written yet or a genuine edge case.
-- **Not language, no score.** A ticket that is only a stack trace comes back with
-  `confidence: null` and an `unscored` reason. Treat null as review.
+- **Null means review.** A provider may return no score, and smart replacement
+  has no comparable score. Scores do not validate the input, so include a label
+  for stack traces or other machine-generated tickets when they are possible.
 
 ## Limits
 

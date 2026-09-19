@@ -116,7 +116,7 @@ the log, use 0.9.
 - **Binary bytes make noise.** The script blanks an extract under 80% printable
   and falls back to the filename; a raw `.dmg` header would otherwise classify
   as confident nonsense.
-- **Null confidence.** Input that is not language comes back with
-  `confidence: null` and an `unscored` reason; the script treats null as 0.0.
+- **Null confidence.** A provider may return no score, and smart replacement
+  has no comparable score. The script treats either null as 0.0.
 - Limits per IP: 3,000 classifications a minute, 20,000 a day. 1,000 files is
   one call; a 429 carries `Retry-After`.

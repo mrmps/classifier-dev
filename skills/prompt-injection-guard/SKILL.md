@@ -122,8 +122,9 @@ page is quarantined, say so and ask how to proceed rather than reading it.
   real hit at 0.68 is missing from it. Threshold on `scores`.
 - **Screening is not sanitising.** A clean score means no pattern was
   recognised, not that the text is safe.
-- **Non-language chunks are unsure.** Minified bundles and hashes came back
-  under 0.4 either way; label them by a header line, or skip them.
+- **Scores do not validate chunks.** Minified bundles and hashes may still get
+  confident labels. Give them a descriptive header, add a label that covers
+  them, or skip them before classification.
 
 ## When not to use this
 

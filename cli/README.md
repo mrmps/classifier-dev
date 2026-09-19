@@ -2,8 +2,8 @@
 
 The [classifier.dev](https://classifier.dev) CLI. Sort text into your own labels
 from the shell — up to a thousand fast-tier lines per request (smart batches are
-capped at 200 for the public quota), a calibrated confidence on every answer,
-and no API key.
+capped at 200 for the public quota), calibrated confidence when available, and
+no API key. Multi-label answers carry a score per label instead.
 
     npm i -g classifier-dev        # installs `classify`
     npx classifier-dev --help      # or run it without installing

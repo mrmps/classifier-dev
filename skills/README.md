@@ -59,8 +59,9 @@ Response, in input order:
   re-asks answers under 0.7 of a reasoning model (single-label only, slower).
 - It is not out-of-distribution detection. If none-of-the-above is a real
   outcome, add a label such as `none of these`.
-- Input that is not language (hashes, minified code) comes back with the
-  label but `confidence: null` and an `unscored` reason.
+- Scores express the model's choice among your labels; they do not validate the
+  input or guarantee correctness. Confidence and scores can be null when the
+  provider returns none or the smart tier replaces the scored answer.
 - One text: `GET https://classifier.dev/{labels}/{text}` answers the bare
   label; `?verbose=1` gives the JSON. `GET /?labels=a,b&text=...` is the same.
 - A rubric score is a choice over ordered labels: labels `1 low` ... `5 high`

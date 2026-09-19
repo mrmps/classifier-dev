@@ -34,8 +34,8 @@ about five items you can already see, just decide yourself.
 
 - Fewer than about five items already in your context.
 - Anything needing a free-text answer rather than one of a fixed set of labels.
-- Text that is not natural language (hashes, minified code): the confidence is
-  withheld (\`unscored\`) and the label is unreliable.
+- Inputs that your labels do not meaningfully cover. Scores only compare the
+  labels you supplied; they do not validate the input.
 
 ## How to call it
 
@@ -69,10 +69,12 @@ review the rest (\`--review 0.7\` in the CLI, \`review_uncertain\` over MCP), or
 pass \`tier: "smart"\`. It is not a fit score. Add a label like "none of these"
 when none-of-the-above is a real outcome.
 
-Check for \`confidence === null\` before comparing a threshold. Unreadable
-inputs and smart-escalated answers have null confidence and scores; \`unscored\`
-explains why. Route them to review. Smart answers never inherit the first
-model's probabilities.
+Check for \`confidence === null\` before comparing a threshold. Provider scores
+can be unavailable, and smart-escalated answers have null confidence and scores
+because the replacement model does not return comparable probabilities. Route
+nulls to review. Smart answers never inherit the first model's probabilities.
+Scores express the model's choice among your labels; they do not validate the
+input or guarantee that the choice is correct.
 
 ## Limits and errors
 

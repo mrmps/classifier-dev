@@ -113,9 +113,9 @@ is why the gate goes on the buffer rather than on each emission.
 - **Every call returns one of your four labels.** Music, a television and a
   one-sided phone call all land somewhere. If those are common in the room, add
   a fifth label such as `background audio or someone else's phone call`.
-- **Non-speech input comes back unscored.** An ASR line that is punctuation or
-  noise markers returns `confidence: null` with an `unscored` reason. Treat
-  null as "do not wake", never as zero.
+- **Scores do not validate ASR input.** Include labels for punctuation, noise
+  markers and other expected artifacts. Treat any unavailable score as "do not
+  wake", never as zero.
 - **Batch the offline pass.** Up to 1,000 utterances per call and 3,000
   classifications a minute per IP; a whole day of transcript is a few calls.
 

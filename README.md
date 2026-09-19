@@ -435,7 +435,8 @@ up; it is optional. The suite uses inference and counts toward normal quotas.
 
 The tests check exact decisions and ordering for a 300-decision batch, every
 field's allowed labels and probability distribution, real smart escalation,
-unreadable input, aliases, validation errors, MCP, OpenAPI, and legacy calls.
+provider score preservation, aliases, validation errors, MCP, OpenAPI, and
+legacy calls.
 Responses start as `unknown` and are validated before becoming typed matrices.
 Smart tests require an actual escalation; model drift that makes every fixture
 confident fails the test instead of silently skipping the reasoning provider.

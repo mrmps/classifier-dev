@@ -107,6 +107,18 @@ test("malformed logprobs do not invalidate an otherwise valid answer", async () 
   expect(models).toEqual(["ibm-granite/granite-4.0-h-micro"]);
 });
 
+test("fallback preserves valid logprob scores for nonword input", async () => {
+  globalThis.fetch = (async () => single("A")) as typeof fetch;
+
+  const response = await classify({ input: "npm", labels: ["package manager", "other"] });
+  const body = await response.json() as { results: { label: string; confidence: number | null; scores: Record<string, number> | null; unscored?: string }[] };
+  expect(response.status).toBe(200);
+  expect(body.results[0].label).toBe("package manager");
+  expect(body.results[0].confidence).toBe(0.7311);
+  expect(body.results[0].scores).toEqual({ "package manager": 0.7311, other: 0.2689 });
+  expect(body.results[0].unscored).toBeUndefined();
+});
+
 test("a verifier's explicit none result clears the multi-label shortlist", async () => {
   const labels = Array.from({ length: 13 }, (_, i) => `label-${i}`);
   let calls = 0;

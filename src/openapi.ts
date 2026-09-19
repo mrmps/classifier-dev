@@ -878,12 +878,12 @@ export const OPENAPI = {
           confidence: {
             type: ["number", "null"],
             description:
-              "0 to 1, calibrated: how likely the chosen label is right among your labels. Measured on six-way emotion, answers >= 0.9 were right 82% of the time and answers < 0.5 were right 29%. It is not a fit score \u2014 text matching none of your categories still gets one; add a label such as 'none of these' for that. Null only when withheld; see unscored.",
+              "0 to 1, calibrated: how likely the chosen label is right among your labels. Measured on six-way emotion, answers >= 0.9 were right 82% of the time and answers < 0.5 were right 29%. It is not a fit score \u2014 text matching none of your categories still gets one; add a label such as 'none of these' for that. Null when the provider returns no score or the smart tier replaces the scored answer.",
           },
           scores: {
             type: ["object", "null"],
             additionalProperties: { type: "number" },
-            description: "Probability per label. Sums to 1 for single-label; independent per label for multi-label.",
+            description: "Model preference per supplied label. Sums to 1 for single-label; independent per label for multi-label. Does not validate the input or guarantee correctness.",
           },
           escalated: {
             type: "boolean",
@@ -892,7 +892,7 @@ export const OPENAPI = {
           unscored: {
             type: "string",
             description:
-              "Explains withheld confidence and scores: unreadable input or smart escalation without comparable probabilities. Route to review when a numeric confidence is required.",
+              "Explains why confidence and scores are unavailable, such as smart escalation without comparable probabilities. Route to review when a numeric confidence is required.",
           },
           labels: {
             type: "array",
@@ -908,8 +908,8 @@ export const OPENAPI = {
         type: "object", required: ["label", "confidence", "scores", "model", "ms"],
         properties: {
           label: { type: "string" },
-          confidence: { type: ["number", "null"], minimum: 0, maximum: 1, description: "Jev's distribution-derived confidence. Null for unreadable inputs or after smart escalation; not a literal probability of correctness." },
-          scores: { type: ["object", "null"], additionalProperties: { type: "number", minimum: 0, maximum: 1 } },
+          confidence: { type: ["number", "null"], minimum: 0, maximum: 1, description: "Jev's distribution-derived confidence. Null when the provider returns no score or after smart escalation; not a literal probability of correctness." },
+          scores: { type: ["object", "null"], additionalProperties: { type: "number", minimum: 0, maximum: 1 }, description: "Model preference per supplied label; does not validate the input or guarantee correctness." },
           model: { type: "string" }, ms: { type: "integer" },
           escalated: { type: "boolean" }, unscored: { type: "string" },
         },
@@ -1136,9 +1136,12 @@ look at the rest yourself, or pass tier "smart" and answers under 0.7 are
 re-asked of a reasoning model for you. It is not a fit score: add a label such
 as "none of these" when none-of-the-above is a real outcome.
 
-Check for null before comparing thresholds. Unreadable inputs and smart-escalated
-answers have null confidence and scores, with an unscored explanation. Route
-these answers to review. Neither tier guarantees identical answers across calls.
+Check for null before comparing thresholds. Provider scores can be unavailable,
+and smart-escalated answers have null confidence and scores because the
+replacement model does not return comparable probabilities. Route nulls to
+review. Scores express the model's choice among your labels; they do not validate
+the input or guarantee that the choice is correct. Neither tier guarantees
+identical answers across calls.
 POST multi-label results have labels (an array) and scores; they omit the singular
 label and confidence keys.
 
