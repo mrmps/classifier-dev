@@ -525,9 +525,36 @@ CHANGES AND CONTACT
   to ${SITE.email}. Last updated ${SITE_UPDATED}.
 `;
 
-// ---------------------------------------------------------------- markdown
+// ---------------------------------------------------------------- the plain-text convention
+//
+// One reading of the convention, shared by the HTML renderer in home.ts and
+// the Markdown one below. Each used to carry its own copy of these rules and
+// the copies drifted: the HTML page said "vs code" where the Markdown said "VS
+// code", and a block the Markdown fenced could have re-flowed as prose in HTML.
 
-const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(l) && l.trim() === l;
+/** A section heading: an UPPERCASE line, flush left. */
+export const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(l) && l.trim() === l;
+
+/** The heading in sentence case, keeping the acronyms and product names the docs use. */
+export function headingTitle(line: string): string {
+  return (line.charAt(0) + line.slice(1).toLowerCase())
+    .replace(/\b(cli|api|mcp|json|ndjson|url|http|rfc|vs|chatgpt|a2a|ard)\b/gi, (m) => (m.toLowerCase() === "chatgpt" ? "ChatGPT" : m.toUpperCase()))
+    .replace(/\bClaude code\b/, "Claude Code")
+    .replace(/\bVS code\b/, "VS Code");
+}
+
+/**
+ * A block keeps its own spacing when it is a command, a table, or anything
+ * else whose columns carry meaning: fenced in Markdown, <pre> in HTML. Prose
+ * is re-flowed to the reader's width instead of the terminal's 80.
+ */
+export const isPreBlock = (lines: string[]) =>
+  lines.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|claude|codex|GET|POST|\{|\[|\/)(?!:)/.test(l) || /^\s{4,}\S/.test(l));
+
+/** A block that starts with something you would paste into a shell. A line that is only a command's name and a colon ("curl:") is a caption, not a command. */
+export const isCommandBlock = (lines: string[]) => lines.some((l) => /^\s*(curl|npm|npx|pip|go|claude|codex|classify)\b(?!:)/.test(l));
+
+// ---------------------------------------------------------------- markdown
 
 /**
  * The plain-text convention, as Markdown: the title line becomes an H1,
@@ -543,7 +570,7 @@ export function toMarkdown(doc: string, meta: { title: string; canonical: string
   let block: string[] = [];
   const flush = () => {
     if (!block.length) return;
-    const pre = block.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|claude|codex|GET|POST|\{|\[|\/)(?!:)/.test(l) || /^\s{4,}\S/.test(l));
+    const pre = isPreBlock(block);
     const indent = Math.min(...block.filter((l) => l.trim()).map((l) => l.match(/^ */)![0].length));
     const body = block.map((l) => l.slice(indent));
     if (pre) out.push("```" + (codeLang(body) ?? ""), ...body, "```", "");
@@ -554,10 +581,7 @@ export function toMarkdown(doc: string, meta: { title: string; canonical: string
     const line = lines[i];
     if (isHeading(line)) {
       flush();
-      const title = (line.charAt(0) + line.slice(1).toLowerCase())
-        .replace(/\b(cli|api|mcp|json|ndjson|url|http|rfc|vs|chatgpt|a2a|ard)\b/gi, (m) => (m.toLowerCase() === "chatgpt" ? "ChatGPT" : m.toUpperCase()))
-        .replace(/\bClaude code\b/, "Claude Code");
-      out.push(`## ${title}`, "");
+      out.push(`## ${headingTitle(line)}`, "");
       continue;
     }
     if (!line.trim()) flush();
