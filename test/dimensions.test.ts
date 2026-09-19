@@ -32,7 +32,7 @@ function fakeJev(options: { maxQuestions?: number; malformed?: boolean; low?: st
   const calls: any[] = [];
   globalThis.fetch = (async (_url, init) => {
     const b = JSON.parse(String(init?.body)); calls.push(b);
-    if (Object.keys(b.questions).length > (options.maxQuestions ?? Infinity)) return Response.json({ error_type: "max_tokens_exceeded" }, { status: 400 });
+    if (Object.keys(b.questions).length > (options.maxQuestions ?? Infinity)) return Response.json({ detail: { error_type: "max_tokens_exceeded" } }, { status: 400 });
     const answers = Object.fromEntries(Object.entries(b.questions).map(([id, q]: [string, any]) => {
       const itemId = q.instructions.match(/item (i\d+)/)[1];
       const text = b.state.find((i: any) => i.id === itemId).text;

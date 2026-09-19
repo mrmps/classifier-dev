@@ -93,6 +93,7 @@ function failureReason(status: number, errorType: string) {
 // Tokens per request, kept well under the documented 64k because the count
 // here is an estimate. Per-item overhead was fitted from real usage figures.
 const TOKEN_BUDGET = 48_000;
+const STATE_QUESTION_BUDGET = 28_000;
 const MAX_ITEMS = 1000;
 const CONCURRENCY = 8;
 const UPSTREAM_TIMEOUT_MS = 10_000;
@@ -206,17 +207,25 @@ export function pack(inputs: string[], labels: string[], instructions: string | 
   const out: Packed[] = [];
   let cur: Packed | null = null;
   let used = 0;
+  let stateUsed = 0;
+  let longestQuestion = 0;
   inputs.forEach((text, i) => {
-    const cost = est(text) + perItemQuestions;
-    if (!cur || used + cost > TOKEN_BUDGET || cur.items.length >= MAX_ITEMS) {
+    const id = `i${i}`;
+    const questions = questionsFor(id, labels, instructions, multi);
+    const stateCost = est(text) + 20;
+    const questionCost = Math.max(...Object.values(questions).map(q => est(JSON.stringify(q)) + 16 * (q.type === "choice" ? labels.length : 0) + 40));
+    const cost = stateCost + perItemQuestions;
+    if (!cur || used + cost > TOKEN_BUDGET ||
+        stateUsed + stateCost + Math.max(longestQuestion, questionCost) > STATE_QUESTION_BUDGET || cur.items.length >= MAX_ITEMS) {
       cur = { start: i, items: [], questions: {} };
       out.push(cur);
-      used = 0;
+      used = stateUsed = longestQuestion = 0;
     }
-    const id = `i${i}`;
     cur.items.push({ id, text });
-    Object.assign(cur.questions, questionsFor(id, labels, instructions, multi));
+    Object.assign(cur.questions, questions);
     used += cost;
+    stateUsed += stateCost;
+    longestQuestion = Math.max(longestQuestion, questionCost);
   });
   return out;
 }
@@ -386,7 +395,10 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics
       observe(res.status);
       return payload;
     }
-    const errorType = res.ok ? "malformed_response" : safeErrorType(payload.error_type);
+    // TypeSafe's live errors are wrapped in `detail`; retain top-level support
+    // for responses that use the older shape. Never copy provider messages.
+    const detail = isRecord(rawPayload) && isRecord(rawPayload.detail) ? rawPayload.detail : {};
+    const errorType = res.ok ? "malformed_response" : safeErrorType(detail.error_type) || safeErrorType(payload.error_type);
     observe(res.status, failureReason(res.status, errorType));
     last = new JevError(
       `typesafe ${res.status}: ${res.ok ? "malformed response" : errorType || "upstream failure"}`,
