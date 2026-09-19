@@ -128,15 +128,22 @@ EXAMPLES
   two forms mix: /spam,not+spam?text=... is the same call. Every option below
   works on both. A malformed GET answers with a URL that would have worked.
 
+  In the path form a raw comma, slash or plus sign is a separator. A label
+  that contains one is written percent-encoded, %2C, %2F or %2B, so
+  /C%2B%2B,python/... reads the label C++. In the query form + is a space and
+  %2B a plus sign, and a comma inside a label is written %252C.
+
 
 PARAMETERS
 
   labels        Two to one hundred categories. Required.
   input         The text to classify, up to 32,000 characters.
   inputs        Up to one thousand strings classified in a single call.
-  tier          Either fast (the default) or smart. See TIERS.
+  tier          Either fast (the default) or smart, in any case. Anything
+                else is a 400 with code bad_tier, never a silent fast.
   instructions  Extra criteria, such as "judge the reviewer's overall verdict".
   verbose       On GET requests, ?verbose=1 returns JSON instead of a bare label.
+                Sending Accept: application/json does the same.
   multi         Return every category that applies instead of just one.
   max_labels    Cap how many multi-label answers come back.
 
@@ -209,6 +216,8 @@ TIERS
            still the decision model's, since they are why it was escalated.
            usage.escalated counts them. A few seconds per escalated item, so
            a batch on smart is slower in proportion to how uncertain it is.
+           If the reasoning model cannot be reached, the fast answer stands
+           without escalated, and usage.escalation_failed says how many.
 
            Multi-label answers ignore the tier: the reasoning model was
            measured re-judging them and made them worse.
@@ -228,9 +237,36 @@ LIMITS
   per day.
 
   Each input is capped at 32,000 characters, and a request may carry up to a
-  thousand inputs. Every response carries an X-RateLimit-Limit header and, where
-  it can be determined, X-RateLimit-Remaining. Exceeding a limit returns 429
-  with a Retry-After header. Nothing is slowed down or silently dropped.
+  thousand inputs. Every classification response carries RateLimit-Limit and
+  RateLimit-Policy, and RateLimit-Remaining once the limiter has been consulted
+  (every 200 and every 429; a request rejected before that, such as a 400,
+  never reached it). The older X-RateLimit-Limit and X-RateLimit-Remaining pair
+  is sent as well. Exceeding a limit returns 429 with a Retry-After header.
+  Nothing is slowed down or silently dropped.
+
+
+ERRORS
+
+  A POST that fails answers JSON with a message and a stable code:
+
+    {"error": "Provide at least 2 labels; got 1 (\"spam\").", "code": "too_few_labels"}
+
+  The GET forms answer plain text instead, an error: line and, on a 400, the
+  usage: and try: lines with a URL that would have worked; add ?verbose=1 or
+  send Accept: application/json for the JSON object, which then carries usage
+  and try as fields.
+
+  400   bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels,
+        empty_label, duplicate_labels, empty_input, input_too_long, bad_tier
+  404   not_found
+  429   rate_limit_minute, rate_limit_day, with Retry-After
+  502   typesafe or typesafe_<status> when the decision model failed;
+        openrouter_<status>, chain_exhausted or timeout when the fallback
+        chain did; batch_unavailable for more than twenty inputs while the
+        decision model is down; upstream_other. Retry with backoff.
+
+  The full list, in the shape a client can validate against, is
+  components.schemas.Error in https://classifier.dev/openapi.json
 
   If you need more than this, or you want a classifier tuned to your own data,
   the fastest path is a short call: https://cal.com/michaelsf/coffee

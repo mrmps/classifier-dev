@@ -239,8 +239,9 @@ KEYS AND LIMITS
 
   No key is needed and none is issued for normal use. Limits are per IP and
   counted in classifications, not requests: 3,000 a minute and 20,000 a day on
-  the fast tier, 200 a minute and 2,000 a day on smart. Every response carries
-  RateLimit-Limit, RateLimit-Remaining and RateLimit-Policy; a 429 adds
+  the fast tier, 200 a minute and 2,000 a day on smart. Every classification
+  response carries RateLimit-Limit and RateLimit-Policy, and RateLimit-Remaining
+  once the limiter has been consulted (every 200 and 429); a 429 adds
   Retry-After. Need more? A partner key lifts the limits — https://cal.com/michaelsf/coffee.
   How authentication works (it does not): https://classifier.dev/auth.md
 
@@ -255,15 +256,23 @@ SANDBOX
 
 ERRORS
 
-  Every error is JSON with a message and a stable code:
+  Every POST error is JSON with a message and a stable code:
 
-    {"error": "Provide at least 2 labels", "code": "too_few_labels"}
+    {"error": "Provide at least 2 labels; got 1 (\"spam\").", "code": "too_few_labels"}
+
+  The GET forms answer plain text (error:, usage:, try: lines, the last a URL
+  that would have worked) unless ?verbose=1 or Accept: application/json asks
+  for the JSON object.
 
   400 codes: no_input, too_many_inputs, too_few_labels, too_many_labels,
-  empty_label, duplicate_labels, empty_input, input_too_long, bad_json.
-  429: rate_limit_minute, rate_limit_day (with Retry-After).
-  502: typesafe_<status>, openrouter_<status>, upstream — the model provider
-  failed after retries; retry with backoff. There are no 401s.
+  empty_label, duplicate_labels, empty_input, input_too_long, bad_tier,
+  bad_json. 404: not_found. 429: rate_limit_minute, rate_limit_day (with
+  Retry-After). 502: typesafe or typesafe_<status> when the decision model
+  failed; openrouter_<status>, chain_exhausted or timeout when the fallback
+  chain did; batch_unavailable for more than twenty inputs while the decision
+  model is down; upstream_other. Retry 502s with backoff. There are no 401s.
+  The list a client can validate against: components.schemas.Error in
+  https://classifier.dev/openapi.json
 
 
 VERSIONING
