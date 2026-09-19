@@ -25,7 +25,7 @@ export const SITE = {
   tagline: "Zero-shot text classification over plain HTTP. No API key, no account.",
   author: { name: "Michael Ryaboy", handle: "michael_chomsky", x: "https://x.com/michael_chomsky", cal: "https://cal.com/michaelsf/coffee" },
   repo: "https://github.com/mrmps/classifier-dev",
-  email: "miryaboy@gmail.com",
+  email: "contact@classifier.dev",
 };
 
 /** Every public page, for the sitemap and the trust anchors. */

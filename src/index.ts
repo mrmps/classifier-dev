@@ -231,6 +231,32 @@ const DOCS_MCP = docsServer([
   { id: "contact", title: "Contact", url: "https://classifier.dev/contact", text: CONTACT },
 ]);
 
+/** Every documentation section, flattened, for GET /v1/docs. Ids are stable while headings are. */
+function docSections() {
+  const out: { id: string; doc: string; heading: string; url: string; text: string }[] = [];
+  const src: [string, string, string][] = [
+    ["api", DOCS, "https://classifier.dev/"], ["developers", DEVELOPERS, "https://classifier.dev/developers"],
+    ["mcp-setup", MCP_SETUP, "https://classifier.dev/mcp-setup"], ["benchmark", BENCHMARK, "https://classifier.dev/benchmark"],
+    ["pricing", PRICING, "https://classifier.dev/pricing"], ["privacy", PRIVACY, "https://classifier.dev/privacy"],
+    ["about", ABOUT, "https://classifier.dev/about"], ["contact", CONTACT, "https://classifier.dev/contact"],
+  ];
+  for (const [doc, text, url] of src) {
+    let heading = "intro";
+    let buf: string[] = [];
+    const flush = () => {
+      const body = buf.join("\n").trim();
+      if (body) out.push({ id: `${doc}/${heading.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`, doc, heading, url, text: body });
+      buf = [];
+    };
+    for (const line of text.split("\n").slice(1)) {
+      if (/^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(line) && line.trim() === line) { flush(); heading = line; }
+      else buf.push(line);
+    }
+    flush();
+  }
+  return out;
+}
+
 /** For the cards and catalogs, which describe the tools without running them. */
 const PRODUCT_MCP_STATIC = productServer(async () => ({ status: 503, body: { error: "static description only" } }));
 
@@ -897,7 +923,15 @@ const worker = {
     }
     if (path === ".well-known/mcp-registry-auth") return text(MCP_REGISTRY_AUTH + "\n", 200, CACHE_HOUR);
     if (req.method === "GET" && (path === "v1/health" || path === "health")) {
-      return json({ ok: true, service: "classifier.dev", version: API_VERSION, time: new Date().toISOString(), docs: `${origin}/developers` }, 200, { "cache-control": "no-store" });
+      const base = { ok: true, service: "classifier.dev", version: API_VERSION, time: new Date().toISOString(), docs: `${origin}/developers` };
+      const verbose = url.searchParams.get("verbose") === "true" || url.searchParams.get("verbose") === "1";
+      return json(
+        verbose
+          ? { ...base, limits: { fast: { per_minute: TIERS.fast.rpm, per_day: TIERS.fast.daily }, smart: { per_minute: TIERS.smart.rpm, per_day: TIERS.smart.daily } }, models: { fast: "jev (TypeSafe)", smart: `jev + ${TIERS.smart.chain[0].model}` } }
+          : base,
+        200,
+        { "cache-control": "no-store" },
+      );
     }
     // .md twins for the machine-readable files, so appending .md to any URL works.
     if (path === "openapi.json.md") {
@@ -914,6 +948,40 @@ const worker = {
       return markdown(toMarkdown(PRICING, { title: "classifier.dev pricing", canonical: `${origin}/pricing`, description: PAGE_DOCS.pricing.desc }), 200, CACHE_HOUR);
     }
     if (req.method === "GET" && (path === "api" || path === "api/" || path === "agent.json")) return json(agentView(origin), 200, CACHE_HOUR);
+    // The documentation as a paged list of sections: an agent that wants one
+    // section at a time can walk it with a cursor instead of reading 30k chars.
+    if (req.method === "GET" && path === "v1/docs") {
+      const all = docSections();
+      const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 10, 1), 50);
+      const cursor = url.searchParams.get("cursor") ?? "";
+      let start = 0;
+      if (cursor) {
+        start = all.findIndex((s) => s.id === cursor);
+        if (start < 0) return json({ error: `unknown cursor "${cursor}"; omit it to start from the first section`, code: "bad_cursor" }, 400);
+      }
+      const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
+      const pool = q ? all.filter((s) => `${s.doc} ${s.heading} ${s.text}`.toLowerCase().includes(q)) : all;
+      const from = q ? Math.max(0, pool.findIndex((s) => s.id === cursor)) : start;
+      const page = pool.slice(from, from + limit);
+      const next = pool[from + limit]?.id ?? null;
+      return json(
+        {
+          items: page,
+          page_info: { limit, count: page.length, total: pool.length, has_more: next !== null, next_cursor: next },
+          next: next ? `${origin}/v1/docs?limit=${limit}&cursor=${encodeURIComponent(next)}${q ? `&q=${encodeURIComponent(q)}` : ""}` : null,
+        },
+        200,
+        CACHE_HOUR,
+      );
+    }
+    // A sandbox for tooling that insists on one: identical to production, which
+    // stores nothing and costs nothing, so there is no data to protect.
+    if (path === "v1/sandbox/classify" || path === "sandbox/classify") {
+      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, req), env, ctx);
+      const h = new Headers(r.headers);
+      h.set("x-sandbox", "true; identical to production, nothing is stored");
+      return new Response(r.body, { status: r.status, headers: h });
+    }
 
     // ---- the pages: text for curl, HTML for browsers, Markdown when asked ----
     const pageKey = (path === "docs" ? "developers" : path).replace(/\.md$/, "");

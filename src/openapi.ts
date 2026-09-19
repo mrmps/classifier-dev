@@ -43,7 +43,7 @@ export const OPENAPI = {
       "MCP: the same capability as tools at https://classifier.dev/mcp (Streamable HTTP, no auth), documented at " +
       "https://classifier.dev/mcp-setup. Batch: the inputs array is the batch operation — up to 1,000 texts per request; " +
       "POST /v1/classify/batch is an alias for callers that look for one.",
-    contact: { name: "Michael Ryaboy", url: "https://cal.com/michaelsf/coffee", email: "miryaboy@gmail.com" },
+    contact: { name: "Michael Ryaboy", url: "https://cal.com/michaelsf/coffee", email: "contact@classifier.dev" },
     license: { name: "MIT", url: "https://github.com/mrmps/classifier-dev/blob/main/LICENSE" },
     termsOfService: "https://classifier.dev/privacy",
     "x-api-versioning": {
@@ -70,11 +70,69 @@ export const OPENAPI = {
         summary: "Liveness and version. No authentication.",
         description: "Returns {ok, service, version, time}. A cheap way to verify the API is reachable and open before sending work.",
         tags: ["docs"],
+        parameters: [{ name: "verbose", in: "query", required: false, schema: { type: "boolean", default: false }, description: "Also return the limits and the model behind each tier." }],
         responses: {
           "200": {
             description: "The service is up.",
             content: { "application/json": { schema: { type: "object", required: ["ok", "version"], properties: { ok: { type: "boolean" }, service: { type: "string" }, version: { type: "string" }, time: { type: "string", format: "date-time" }, docs: { type: "string" } } } } },
           },
+          ...ERRORS,
+        },
+      },
+    },
+    "/v1/docs": {
+      get: {
+        operationId: "listDocSections",
+        summary: "The documentation as a paged list of sections (cursor pagination).",
+        description: "Walk every section of every document one page at a time. Follow `next` (or pass `page_info.next_cursor` as `cursor`) until `has_more` is false. `q` filters sections by a substring.",
+        tags: ["docs"],
+        parameters: [
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 50, default: 10 }, description: "Sections per page." },
+          { name: "cursor", in: "query", required: false, schema: { type: "string" }, description: "The `next_cursor` from the previous page. Omit for the first page." },
+          { name: "q", in: "query", required: false, schema: { type: "string", maxLength: 100 }, description: "Only sections containing this text (case-insensitive)." },
+        ],
+        responses: {
+          "200": {
+            description: "One page of sections.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["items", "page_info", "next"],
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["id", "doc", "heading", "url", "text"],
+                        properties: { id: { type: "string" }, doc: { type: "string" }, heading: { type: "string" }, url: { type: "string", format: "uri" }, text: { type: "string" } },
+                      },
+                    },
+                    page_info: {
+                      type: "object",
+                      required: ["limit", "count", "total", "has_more", "next_cursor"],
+                      properties: { limit: { type: "integer" }, count: { type: "integer" }, total: { type: "integer" }, has_more: { type: "boolean" }, next_cursor: { type: ["string", "null"] } },
+                    },
+                    next: { type: ["string", "null"], format: "uri", description: "Ready-made URL of the next page, or null on the last page." },
+                  },
+                },
+              },
+            },
+          },
+          ...ERRORS,
+        },
+      },
+    },
+    "/v1/sandbox/classify": {
+      post: {
+        operationId: "classifySandbox",
+        summary: "Sandbox: identical to POST /v1/classify. Exists for tooling that requires a sandbox URL.",
+        description: "There is no separate test environment because production stores nothing and costs nothing; this alias answers exactly like /v1/classify and adds an `x-sandbox` header so integrations can point a sandbox setting somewhere real.",
+        tags: ["classify"],
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } } },
+        responses: {
+          "200": { description: "Same as /v1/classify.", headers: { "x-sandbox": { schema: { type: "string" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } } },
           ...ERRORS,
         },
       },
@@ -238,9 +296,10 @@ export const OPENAPI = {
       get: {
         operationId: "getDocs",
         summary: "The documentation: plain text by default, Markdown or HTML by Accept, JSON index for application/json.",
-        description: "Content negotiation on Accept: text/plain (default, what curl prints), text/markdown, text/html, or application/json for the same machine-readable index as GET /api.",
+        description: "Content negotiation on Accept: text/plain (default, what curl prints), text/markdown, text/html, or application/json for the same machine-readable index as GET /api. `?format=` overrides Accept.",
         tags: ["docs"],
         parameters: [
+          { name: "format", in: "query", required: false, schema: { type: "string", enum: ["text", "markdown", "html", "json"] }, description: "Force a representation regardless of Accept." },
           {
             name: "labels",
             in: "query",
@@ -391,8 +450,9 @@ export const OPENAPI = {
     "/benchmark": {
       get: {
         operationId: "getBenchmark",
-        description: "Measured accuracy, calibration, cost and latency. Accept: application/json returns the live measurement summary the tables are generated from (eval/vs_jev.py).",
+        description: "Measured accuracy, calibration, cost and latency. Accept: application/json (or ?format=json) returns the live measurement summary the tables are generated from (eval/vs_jev.py).",
         tags: ["docs"],
+        parameters: [{ name: "format", in: "query", required: false, schema: { type: "string", enum: ["text", "markdown", "html", "json"] }, description: "Force a representation regardless of Accept." }],
         summary: "Measured accuracy, cost and latency for every model considered.",
         responses: {
           ...ERRORS,

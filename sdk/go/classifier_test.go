@@ -1,0 +1,41 @@
+package classifier
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestClassify(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req Request
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if r.URL.Path != "/v1/classify" || len(req.Inputs) != 2 {
+			t.Errorf("unexpected request %s %v", r.URL.Path, req)
+		}
+		conf := 0.9
+		_ = json.NewEncoder(w).Encode(Response{Results: []Result{{Label: "bug", Confidence: &conf}, {Label: "praise", Confidence: &conf}}})
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL}
+	res, err := c.Classify(context.Background(), Request{Inputs: []string{"crash", "love"}, Labels: []string{"bug", "praise"}})
+	if err != nil || res.Results[1].Label != "praise" {
+		t.Fatalf("got %v, %v", res, err)
+	}
+}
+
+func TestErrorShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"error":"Rate limit","code":"rate_limit_minute"}`))
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL}).Classify(context.Background(), Request{Inputs: []string{"x"}, Labels: []string{"a", "b"}})
+	e, ok := err.(*Error)
+	if !ok || e.Code != "rate_limit_minute" || e.RetryAfter.Seconds() != 7 {
+		t.Fatalf("got %v", err)
+	}
+}
