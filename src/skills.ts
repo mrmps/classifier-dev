@@ -19,7 +19,7 @@
  */
 
 import type { Env } from "./index";
-import { jevAsk, type Question } from "./jev";
+import { jevAsk, jevKeys, type Question } from "./jev";
 import { addUsd, type Meter } from "./cost";
 import { callerId } from "./privacy";
 import { esc, btn, page } from "./ui";
@@ -176,9 +176,10 @@ const JEV_QUESTIONS = (id: string): Record<string, Question> => {
 };
 
 export async function jevGate(env: Env, content: string, meter?: Meter): Promise<JevVerdict> {
-  if (!env.TYPESAFE_API_KEY) throw new Unavailable("the decision model is not configured");
+  const keys = jevKeys(env);
+  if (!keys) throw new Unavailable("the decision model is not configured");
   const id = "s1";
-  const { model, answers } = await jevAsk(env.TYPESAFE_API_KEY, [{ id, text: content }], JEV_QUESTIONS(id), meter);
+  const { model, answers } = await jevAsk(keys, [{ id, text: content }], JEV_QUESTIONS(id), meter);
   const p = answers.intent?.probabilities ?? {};
   const noul = (k: string) => Number((answers[k]?.noul ?? 0).toFixed(4));
   const at = (k: keyof typeof INTENT) => Number((p[INTENT[k]] ?? 0).toFixed(4));

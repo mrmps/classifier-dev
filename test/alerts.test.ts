@@ -26,10 +26,11 @@ const AE_ROWS = [
   { model: "google/gemini-3.8-flash", status: "200", reason: "", requests: 10, ms_sum: 1000, usd: 0, escfail: 0 },
 ];
 
-function env(kv: ReturnType<typeof fakeKv>, typesafeKey?: string) {
+function env(kv: ReturnType<typeof fakeKv>, typesafeKey?: string, gatewayKey?: string) {
   return {
     STATS: kv,
     ...(typesafeKey ? { TYPESAFE_API_KEY: typesafeKey } : {}),
+    ...(gatewayKey ? { AI_GATEWAY_API_KEY: gatewayKey } : {}),
     CLOUDFLARE_ACCOUNT_ID: "acct",
     CF_ANALYTICS_TOKEN: "tok",
     RESEND_API_KEY: "key",
@@ -42,14 +43,14 @@ beforeEach(() => { realFetch = globalThis.fetch; });
 afterEach(() => { globalThis.fetch = realFetch; });
 
 /** @param mailOk whether Resend accepts the message */
-function mockFetch(mailOk: boolean, sent: string[], jevStatus = 200, jevBody = "{}") {
+function mockFetch(mailOk: boolean, sent: string[], jevStatus = 200, jevBody = "{}", rows: object[] = AE_ROWS) {
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(typeof url === "object" && "url" in url ? url.url : url);
     if (u.includes("api.typesafe.ai")) return new Response(jevBody, { status: jevStatus });
     if (u.includes("analytics_engine/sql")) {
       const q = String(init?.body ?? "");
       // The baseline query has no GROUP BY; the window query does.
-      const data = q.includes("GROUP BY") ? AE_ROWS : [{ requests: 240, usd: 0 }];
+      const data = q.includes("GROUP BY") ? rows : [{ requests: 240, usd: 0 }];
       return new Response(JSON.stringify({ data }), { status: 200 });
     }
     if (u.includes("api.resend.com")) {
@@ -143,5 +144,59 @@ describe("the Jev key probe", () => {
     await runAlerts(env(kv, "tskey"), { send: true });
     expect(sent[0]).toContain("refusing the key");
     expect([...kv.store.keys()]).toContain("alert:jev_credentials");
+  });
+});
+
+
+/**
+ * With a gateway key set, Jev answers should carry the jev@vercel label. When
+ * they all carry TypeSafe's own instead, the gateway is refusing every request
+ * and TypeSafe is being paid for all of it, which nothing else reports.
+ */
+describe("the gateway refusal alert", () => {
+  const MODELS = JSON.stringify({ models: [] });
+  const allDirect = [{ model: "jev-1.13.0", status: "200", reason: "", requests: 25, ms_sum: 5000, usd: 0.001, escfail: 0 }];
+  const someGateway = [
+    { model: "jev@vercel", status: "200", reason: "", requests: 5, ms_sum: 1000, usd: 0, escfail: 0 },
+    { model: "jev-1.13.0", status: "200", reason: "", requests: 20, ms_sum: 4000, usd: 0.001, escfail: 0 },
+  ];
+
+  it("warns when the gateway key is set and no Jev answer came through it", async () => {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    mockFetch(true, sent, 200, MODELS, allDirect);
+
+    await runAlerts(env(kv, "tskey", "vck"), { send: true });
+    expect(sent[0]).toContain("WARNING");
+    expect(sent[0]).toContain("refusing every Jev request");
+    expect(sent[0]).toContain("AI Gateway dashboard");
+    expect([...kv.store.keys()]).toContain("alert:gateway_refused");
+  });
+
+  it("says nothing without a gateway key", async () => {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    mockFetch(true, sent, 200, MODELS, allDirect);
+
+    await runAlerts(env(kv, "tskey"), { send: true });
+    expect([...kv.store.keys()]).not.toContain("alert:gateway_refused");
+  });
+
+  it("says nothing while some answers do come through the gateway", async () => {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    mockFetch(true, sent, 200, MODELS, someGateway);
+
+    await runAlerts(env(kv, "tskey", "vck"), { send: true });
+    expect([...kv.store.keys()]).not.toContain("alert:gateway_refused");
+  });
+
+  it("says nothing on a quiet window, where zero could be idleness", async () => {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    mockFetch(true, sent, 200, MODELS, [{ ...allDirect[0], requests: 3 }]);
+
+    await runAlerts(env(kv, "tskey", "vck"), { send: true });
+    expect([...kv.store.keys()]).not.toContain("alert:gateway_refused");
   });
 });

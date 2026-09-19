@@ -209,7 +209,9 @@ PARAMETERS
 
   Batch responses also carry modelsUsed. The top-level model is "mixed" when
   different results were answered by different models, such as a smart-tier
-  batch where only some inputs were escalated.
+  batch where only some inputs were escalated, or a large batch whose chunks
+  reached Jev through different transports (jev@vercel and jev-1.x are the
+  same model asked two ways).
 
 
 CONFIDENCE
@@ -225,6 +227,8 @@ CONFIDENCE
 
   Use it. Act on high-confidence answers, and route the rest to a person, a
   reasoning model, or the smart tier, which does exactly that for you.
+  Confidence and scores may be rounded to two decimals depending on which
+  transport answered, so do not read meaning into the third digit.
 
   Two things confidence does not measure.
 

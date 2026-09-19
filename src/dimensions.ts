@@ -1,4 +1,4 @@
-import { estimateTokens, jevAsk, JevError, type JevResult, type Question } from "./jev";
+import { estimateTokens, jevAsk, JevError, type JevKeys, type JevResult, type Question } from "./jev";
 import type { Meter } from "./cost";
 
 export type Dimension = { name: string; labels: string[]; instructions?: string };
@@ -85,7 +85,7 @@ export function packDimensions(inputs: string[], dimensions: Dimension[], shared
 }
 
 /** One result per matrix cell. Splitting by question also handles a single wide item. */
-export async function classifyDimensions(key: string, batches: DimensionBatch[], meter?: Meter): Promise<JevResult[][]> {
+export async function classifyDimensions(keys: JevKeys, batches: DimensionBatch[], meter?: Meter): Promise<JevResult[][]> {
   const queue = [...batches];
   const results: JevResult[][] = [];
   let next = 0;
@@ -94,7 +94,7 @@ export async function classifyDimensions(key: string, batches: DimensionBatch[],
     while (!failure && next < queue.length) {
       const batch = queue[next++];
       try {
-        const res = await jevAsk(key, batch.state, Object.fromEntries(batch.cells.map((c) => [c.id, c.question])), meter);
+        const res = await jevAsk(keys, batch.state, Object.fromEntries(batch.cells.map((c) => [c.id, c.question])), meter);
         for (const cell of batch.cells) {
           const a = res.answers[cell.id]; // jevAsk validates every answer before returning.
           (results[cell.item] ??= [])[cell.dimension] = {

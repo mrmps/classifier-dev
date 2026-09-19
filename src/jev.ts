@@ -22,10 +22,60 @@
  * a conservative budget and run concurrently.
  */
 
-import { addJevCost, type Meter } from "./cost";
+import { addJevCost, addUsd, type Meter } from "./cost";
 
 const API = "https://api.typesafe.ai/v1/systemone";
 const MODEL = "jev-latest";
+
+/**
+ * Jev is also served through Vercel's AI Gateway, which carries a monthly
+ * free credit per team and, as of September 2026, bills Jev at $0 on top of
+ * it. When a gateway key is set the gateway is asked first; anything it will
+ * not answer — a free-tier 429, an exhausted credit (402), a team without a
+ * card on file (403), an outage — falls straight through to TypeSafe, so the
+ * caller sees one answer either way and the meter counts only what was
+ * actually charged.
+ *
+ * The endpoint is the one the AI SDK's `evaluate()` calls; the four `ai-*`
+ * headers are how that SDK identifies itself and the request is refused
+ * without them. Questions and answers are translated to and from Jev's own
+ * shape at the edge so nothing downstream knows which door was used.
+ *
+ * One thing the translation cannot undo: the gateway rounds probabilities
+ * and confidences to two decimals (its answers say so, `rounding:
+ * {probabilityDecimals: 2}`) where TypeSafe returns four. Probed September
+ * 2026: a top-level `rounding` in the request is ignored and
+ * `providerOptions.typesafe.rounding` / `.probabilityDecimals` come back as
+ * `warnings: [{type: "unsupported"}]`, so there is no way to ask for more.
+ * The thresholds compared against these values — MULTI_THRESHOLD here,
+ * ESCALATE_BELOW in index.ts, GATES.jev in skills.ts — therefore see
+ * 2-decimal scores whenever the gateway answered.
+ */
+const GATEWAY = "https://ai-gateway.vercel.sh/v4/ai/evaluation-model";
+const GATEWAY_MODEL = "typesafe-ai/jev";
+/** The gateway does not say which Jev answered. Starts with "jev" so the digest and the alerts count it as the primary. */
+const GATEWAY_MODEL_LABEL = "jev@vercel";
+
+/**
+ * After the gateway refuses, requests skip it for a while instead of each
+ * paying a failed round trip before TypeSafe. Rate limits lift in seconds;
+ * a refused key or an empty balance takes a person. Per isolate.
+ */
+const GATEWAY_PAUSE_MS = { limited: 30_000, refused: 5 * 60_000, failed: 30_000 } as const;
+/** A 429's Retry-After is honoured up to this; a longer wait is a misconfiguration, not a rate limit. */
+const RETRY_AFTER_CAP_MS = 5 * 60_000;
+let gatewayPausedUntil = 0;
+
+/** For the tests, which share one module across cases. */
+export function resetGatewayPause() {
+  gatewayPausedUntil = 0;
+}
+
+/** Where Jev can be asked. Either key alone works; with both, the gateway goes first and TypeSafe catches what it drops. */
+export type JevKeys = { typesafe?: string; gateway?: string };
+
+export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string }): JevKeys | null =>
+  env.TYPESAFE_API_KEY || env.AI_GATEWAY_API_KEY ? { typesafe: env.TYPESAFE_API_KEY, gateway: env.AI_GATEWAY_API_KEY } : null;
 
 // Tokens per request, kept well under the documented 64k because the count
 // here is an estimate. Per-item overhead was fitted from real usage figures.
@@ -101,11 +151,10 @@ function validAnswer(answer: unknown, question: Question): boolean {
   );
 }
 
-function validPayload(payload: unknown, body: JevBody): payload is {
-  model: string;
-  answers: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>;
-  usage?: { input_tokens?: number };
-} {
+type Answer = { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number };
+type JevPayload = { model: string; answers: Record<string, Answer>; usage?: { input_tokens?: number } };
+
+function validPayload(payload: unknown, body: JevBody): payload is JevPayload {
   if (!isRecord(payload) || typeof payload.model !== "string" || !payload.model || !isRecord(payload.answers)) return false;
   const answers = payload.answers;
   return Object.entries(body.questions).every(([id, question]) => validAnswer(answers[id], question));
@@ -159,7 +208,135 @@ export function pack(inputs: string[], labels: string[], instructions: string | 
   return out;
 }
 
-async function post(key: string, body: JevBody, meter?: Meter) {
+/** Jev's questions in the gateway's vocabulary: a yes/no is a `boolean` there, and a choice is a choice. */
+function gatewayQuestion(q: Question) {
+  return q.type === "noul"
+    ? { type: "boolean", instructions: q.instructions }
+    : { type: "choice", instructions: q.instructions, criteria: q.criteria };
+}
+
+/**
+ * A gateway answer in Jev's own shape, or null when it is not one. The
+ * calibrated confidence rides in provider metadata rather than on the answer;
+ * when it is missing or not a probability, `own` — the winning option's
+ * probability — is a stand-in for the calibrated confidence.
+ */
+function fromGateway(payload: unknown): (JevPayload & { cost?: unknown }) | null {
+  if (!isRecord(payload) || !isRecord(payload.answers)) return null;
+  const meta = isRecord(payload.providerMetadata) ? payload.providerMetadata : {};
+  const typesafe = isRecord(meta.typesafe) ? meta.typesafe : {};
+  const confidence = isRecord(typesafe.confidence) ? typesafe.confidence : {};
+  const gateway = isRecord(meta.gateway) ? meta.gateway : {};
+  const usage = isRecord(payload.usage) ? payload.usage : {};
+  const answers: Record<string, Answer> = {};
+  for (const [id, a] of Object.entries(payload.answers)) {
+    if (!isRecord(a)) continue;
+    if (a.type === "boolean") {
+      answers[id] = { noul: a.probability as number };
+    } else if (a.type === "choice") {
+      const probabilities = isRecord(a.probabilities) ? (a.probabilities as Record<string, number>) : undefined;
+      const own = typeof a.choice === "string" ? probabilities?.[a.choice] : undefined;
+      answers[id] = { choice: a.choice as string, confidence: isProbability(confidence[id]) ? confidence[id] : (own as number), probabilities };
+    }
+  }
+  return { model: GATEWAY_MODEL_LABEL, answers, usage: { input_tokens: usage.inputTokens as number }, cost: gateway.cost };
+}
+
+/**
+ * The error type of a gateway refusal. A refusal that came from TypeSafe
+ * arrives as `type: "AI_APICallError"` with TypeSafe's own body as a JSON
+ * string in `message` (probed: `{"error_type":"max_tokens_exceeded"}`), so
+ * that is unwrapped first and the batch halving upstream sees the same
+ * `max_tokens_exceeded` it would from TypeSafe directly. Failing that, a
+ * message about tokens, context or length is taken to mean the same thing.
+ */
+function gatewayErrorType(err: Record<string, unknown>): string {
+  const own = safeErrorType(err.type) || safeErrorType(err.code);
+  const message = typeof err.message === "string" ? err.message : "";
+  if (own === "max_tokens_exceeded" || /max_tokens_exceeded/.test(message)) return "max_tokens_exceeded";
+  if (message.startsWith("{")) {
+    try {
+      const inner = JSON.parse(message) as unknown;
+      const innerType = isRecord(inner) ? safeErrorType(inner.error_type) || safeErrorType(inner.type) : "";
+      if (innerType) return innerType;
+    } catch { /* not TypeSafe's body; fall through */ }
+  }
+  if (/\b(tokens?|context( length| window)?|too (long|large))\b/i.test(message) && /(exceed|limit|too (long|large)|maximum)/i.test(message)) {
+    return "max_tokens_exceeded";
+  }
+  return own;
+}
+
+function pauseGateway(kind: keyof typeof GATEWAY_PAUSE_MS, retryAfter?: string | null) {
+  const asked = Number(retryAfter);
+  const ms = kind === "limited" && Number.isFinite(asked) && asked > 0 ? Math.min(asked * 1000, RETRY_AFTER_CAP_MS) : GATEWAY_PAUSE_MS[kind];
+  gatewayPausedUntil = Math.max(gatewayPausedUntil, Date.now() + ms);
+}
+
+/** One attempt through the gateway. It is never retried here: TypeSafe is the retry. */
+async function postGateway(key: string, body: JevBody, meter?: Meter): Promise<JevPayload> {
+  const questions = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, gatewayQuestion(q)]));
+  let res: Response;
+  try {
+    res = await fetch(GATEWAY, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${key}`,
+        "content-type": "application/json",
+        "ai-gateway-protocol-version": "0.0.1",
+        "ai-gateway-auth-method": "api-key",
+        "ai-evaluation-model-specification-version": "4",
+        "ai-model-id": GATEWAY_MODEL,
+      },
+      body: JSON.stringify({ state: body.state, questions }),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+  } catch (e) {
+    const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+    pauseGateway("failed");
+    throw new JevError(`gateway ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
+  }
+  const raw = await res.json().catch(() => null);
+  if (res.ok) {
+    const payload = fromGateway(raw);
+    if (payload && validPayload(payload, body)) {
+      // The gateway says what it charged. When it does not, Jev's own rate
+      // is the honest guess; addUsd ignores the zero it reports today.
+      if (payload.cost !== undefined) addUsd(meter, payload.cost);
+      else addJevCost(meter, payload.usage?.input_tokens);
+      return payload;
+    }
+    pauseGateway("failed");
+    throw new JevError("gateway 200: malformed response", 200, "malformed_response");
+  }
+  const err = isRecord(raw) && isRecord(raw.error) ? raw.error : {};
+  const errorType = gatewayErrorType(err);
+  if (res.status === 429) pauseGateway("limited", res.headers.get("retry-after"));
+  else if (res.status === 401 || res.status === 402 || res.status === 403) pauseGateway("refused");
+  else if (res.status >= 500) pauseGateway("failed");
+  // A 400 is about this request, not the gateway; the next request may try again.
+  throw new JevError(`gateway ${res.status}: ${errorType || "upstream failure"}`, res.status, errorType);
+}
+
+/** The gateway when it is configured and not paused, TypeSafe otherwise; and TypeSafe again when the gateway drops a request. */
+async function post(keys: JevKeys, body: JevBody, meter?: Meter): Promise<JevPayload> {
+  // Without a TypeSafe key there is nothing to pause towards, so the gateway is always tried.
+  if (keys.gateway && (!keys.typesafe || Date.now() >= gatewayPausedUntil)) {
+    try {
+      return await postGateway(keys.gateway, body, meter);
+    } catch (e) {
+      if (!keys.typesafe) throw e;
+      // Too big for Jev is too big through either door: let the caller halve it
+      // rather than pay TypeSafe a round trip for the same refusal.
+      if (e instanceof JevError && e.errorType === "max_tokens_exceeded") throw e;
+      console.warn(`jev via gateway failed, asking typesafe directly: ${(e as Error).message}`);
+    }
+  }
+  if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
+  return postTypesafe(keys.typesafe, body, meter);
+}
+
+async function postTypesafe(key: string, body: JevBody, meter?: Meter): Promise<JevPayload> {
   let last: Error = new Error("typesafe: no attempt made");
   for (let attempt = 0; attempt < 3; attempt++) {
     let res: Response;
@@ -177,14 +354,7 @@ async function post(key: string, body: JevBody, meter?: Meter) {
       continue;
     }
     const rawPayload = await res.json().catch(() => null);
-    const payload = (isRecord(rawPayload) ? rawPayload : {}) as {
-      model?: string;
-      answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>;
-      usage?: { input_tokens?: number };
-      detail?: unknown;
-      error_type?: string;
-      error?: unknown;
-    };
+    const payload = (isRecord(rawPayload) ? rawPayload : {}) as Partial<JevPayload> & { error_type?: string; error?: unknown };
     if (res.ok && !payload.error && validPayload(payload, body)) {
       // Only a call that answered is billed; a retried 429 is not.
       addJevCost(meter, payload.usage?.input_tokens);
@@ -223,13 +393,13 @@ function halve(b: Packed): [Packed, Packed] {
  * about intent and quality in its own words rather than as a label set, and
  * gets the same validated, calibrated answers back.
  */
-export async function jevAsk(key: string, state: { id: string; text: string }[], questions: Record<string, Question>, meter?: Meter) {
-  const res = await post(key, { state, model: MODEL, questions }, meter);
+export async function jevAsk(keys: JevKeys, state: { id: string; text: string }[], questions: Record<string, Question>, meter?: Meter) {
+  const res = await post(keys, { state, model: MODEL, questions }, meter);
   return { model: res.model, answers: res.answers };
 }
 
 export async function jevClassify(
-  key: string,
+  keys: JevKeys,
   inputs: string[],
   labels: string[],
   instructions: string | undefined,
@@ -244,9 +414,9 @@ export async function jevClassify(
     Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
       while (next < batches.length) {
         const b = batches[next++];
-        let res: Awaited<ReturnType<typeof post>>;
+        let res: JevPayload;
         try {
-          res = await post(key, { state: b.items, model: MODEL, questions: b.questions }, meter);
+          res = await post(keys, { state: b.items, model: MODEL, questions: b.questions }, meter);
         } catch (e) {
           // The estimate undercounted this batch. Halve it and let the loop
           // pick both halves up; a single item that is still too large is a
