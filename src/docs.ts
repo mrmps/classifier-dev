@@ -110,7 +110,9 @@ EXAMPLES
   spam
 
   curl classifier.dev -d '{"input":"the checkout button does nothing","labels":["bug","feature","praise"]}'
-  {"label":"bug","confidence":1,"scores":{"bug":1,"feature":0,"praise":0},"model":"jev-1.13.0","ms":260}
+  {"tier":"fast","model":"jev-1.13.0","modelsUsed":["jev-1.13.0"],
+   "results":[{"label":"bug","confidence":1,"scores":{"bug":1,"feature":0,"praise":0},"ms":260,"model":"jev-1.13.0"}],
+   "usage":{"classifications":1,"escalated":0,"ms":260}}
 
   curl "classifier.dev/entailment,neutral,contradiction/Only+12+of+40+sites+were+inspected.+Every+site+was+inspected."
   contradiction

@@ -25,7 +25,7 @@ export const REPRODUCIBILITY = ["always", "sometimes", "intermittent", "once"] a
 export const EVIDENCE_TYPES = ["http_summary", "stderr_excerpt", "repro_steps", "screenshot", "log_excerpt", "other"] as const;
 export const SURFACE_KINDS = ["api_endpoint", "docs_page", "cli_command", "sdk_method", "other"] as const;
 
-const LIMITS = {
+export const LIMITS = {
   max_evidence_per_feedback: 10,
   max_evidence_content_bytes: 5_242_880,
   max_title_length: 256,
@@ -75,10 +75,20 @@ export function discovery() {
     },
     endpoints: {
       feedback: {
-        submit: { method: "POST", url: "/api/v1/feedback", description: "Submit a full structured feedback report with optional evidence." },
+        submit: {
+          method: "POST",
+          url: "/api/v1/feedback",
+          description: "Submit a full structured feedback report with optional evidence. Body: {reporter, subject, signal, content, evidence}.",
+          schema: "/openapi.json#/components/schemas/FeedbackReport",
+        },
       },
       observations: {
-        submit: { method: "POST", url: "/api/v1/observations", description: "Submit a lightweight observation signal." },
+        submit: {
+          method: "POST",
+          url: "/api/v1/observations",
+          description: "Submit a lightweight observation signal. Flat body: {category, summary, severity?, confidence?, surface?, domain?}.",
+          schema: "/openapi.json#/components/schemas/Observation",
+        },
       },
       attachments: {
         add: { method: "POST", url: "/api/v1/feedback/{id}/attachments", description: "Add evidence to an existing feedback report." },

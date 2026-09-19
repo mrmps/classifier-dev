@@ -49,6 +49,51 @@ describe("a path inside a namespace this service owns", () => {
   });
 });
 
+/**
+ * The guard above must not catch the endpoint the docs name. POST /v1/classify
+ * was never routed by name — it reached the handler by falling through — so
+ * the guard 404'd it, and with it every MCP classify tool and the sandbox
+ * alias, both of which self-fetch it. The env here has no rate limiter, so a
+ * body with one label is the proof: a 400 `too_few_labels` can only come from
+ * the classifier.
+ */
+describe("the documented classify paths", () => {
+  const oneLabel = JSON.stringify({ inputs: ["x"], labels: ["only"] });
+  const post = (path: string, body = oneLabel, headers: Record<string, string> = {}) =>
+    worker.fetch(
+      new Request(`https://classifier.dev${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body }),
+      env,
+      ctx,
+    );
+
+  test.each(["/", "/v1/classify", "/v1/classify/batch", "/v1/sandbox/classify"])("POST %s reaches the classifier", async (path) => {
+    const res = await post(path);
+    expect(res.status).toBe(400);
+    expect((await res.json() as { code: string }).code).toBe("too_few_labels");
+  });
+
+  test("GET /v1/classify takes the query form", async () => {
+    const res = await fetchPath("/v1/classify?labels=only&text=x");
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("at least 2 labels");
+  });
+
+  test("GET /v1/classify with nothing to classify is a 404, not the home page", async () => {
+    expect((await fetchPath("/v1/classify")).status).toBe(404);
+  });
+
+  test("the MCP classify tools reach it too", async () => {
+    // The tool schema already rejects a single label, so the proof here is a
+    // pair of duplicates: past the schema, refused by the classifier.
+    const call = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "classify_texts", arguments: { inputs: ["x"], labels: ["a", "a"] } } };
+    const res = await post("/mcp", JSON.stringify(call), { accept: "application/json, text/event-stream" });
+    expect(res.status).toBe(200);
+    const j = await res.json() as { result: { isError: boolean; structuredContent: { code: string } } };
+    expect(j.result.isError).toBe(true);
+    expect(j.result.structuredContent.code).toBe("duplicate_labels");
+  });
+});
+
 describe("security.txt", () => {
   test("answers on the path RFC 9116 reserves, and on the bare one", async () => {
     for (const path of ["/.well-known/security.txt", "/security.txt"]) {

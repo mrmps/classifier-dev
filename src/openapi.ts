@@ -1,3 +1,5 @@
+import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
+
 const ERROR_SCHEMA = { $ref: "#/components/schemas/Error" };
 /** Every non-2xx answer is the same {error, code} object; spelled out inline on each operation. */
 const err = (description: string, headers?: Record<string, unknown>) => ({
@@ -160,21 +162,7 @@ export const OPENAPI = {
         tags: ["feedback"],
         requestBody: {
           required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["category", "summary"],
-                properties: {
-                  category: { type: "string", description: "One of the categories in GET /api/v1/policy." },
-                  summary: { type: "string", maxLength: 500 },
-                  details: { type: "string" },
-                  surface: { type: "object", properties: { kind: { type: "string", enum: ["api_endpoint", "docs_page", "cli_command", "sdk_method", "other"] }, ref: { type: "string" } } },
-                  evidence: { type: "array", items: { type: "object", properties: { type: { type: "string" }, content: { type: "string" } } } },
-                },
-              },
-            },
-          },
+          content: { "application/json": { schema: { $ref: "#/components/schemas/FeedbackReport" } } },
         },
         responses: {
           "202": {
@@ -196,6 +184,47 @@ export const OPENAPI = {
                         duplicate_of: { type: ["string", "null"] },
                         budget_remaining: { type: "integer" },
                         poll: { type: "string", description: "URL to poll for the final state." },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          ...ERRORS,
+        },
+      },
+    },
+    "/api/v1/observations": {
+      post: {
+        operationId: "submitObservation",
+        summary: "A lighter signal than a full report: one category and one sentence, no evidence.",
+        description:
+          "Flat body, no envelope. Accepted and forwarded the same way as POST /api/v1/feedback and answered with the same " +
+          "receipt to poll. Use it for a quick note; use /api/v1/feedback when there is evidence to attach.",
+        tags: ["feedback"],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/Observation" } } },
+        },
+        responses: {
+          "202": {
+            description: "Accepted for processing. `Location` points at the receipt to poll.",
+            headers: { Location: { schema: { type: "string", format: "uri" }, description: "GET here until status is final." } },
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["receipt"],
+                  properties: {
+                    receipt: {
+                      type: "object",
+                      required: ["id", "status"],
+                      properties: {
+                        id: { type: "string" },
+                        observation_id: { type: "string" },
+                        status: { type: "string", enum: ["accepted"] },
+                        budget_remaining: { type: "integer" },
                       },
                     },
                   },
@@ -468,6 +497,92 @@ export const OPENAPI = {
   },
   components: {
     schemas: {
+      FeedbackReport: {
+        type: "object",
+        description:
+          "A feedback.now 1.1 report. Only `signal.category` and one of `content.title` or `content.summary` are required; " +
+          "every other field raises the quality score the receipt reports. Vocabularies are the ones GET /api/v1/policy serves.",
+        required: ["signal", "content"],
+        properties: {
+          reporter: {
+            type: "object",
+            description: "Who is reporting. Shown on the report as `vendor / product / version`.",
+            properties: {
+              agent_vendor: { type: "string", maxLength: 64 },
+              agent_product: { type: "string", maxLength: 64 },
+              agent_version: { type: "string", maxLength: 64 },
+            },
+          },
+          subject: {
+            type: "object",
+            description: "What the report is about.",
+            properties: {
+              surface: { type: "string", maxLength: 256, description: "The endpoint, page or command, e.g. `POST /v1/classify`." },
+              domain: { type: "string", maxLength: 256, description: "The host, e.g. `classifier.dev`." },
+              kind: { type: "string", enum: [...SURFACE_KINDS] },
+            },
+          },
+          signal: {
+            type: "object",
+            required: ["category"],
+            properties: {
+              category: { type: "string", enum: [...CATEGORIES] },
+              severity: { type: "string", enum: [...SEVERITIES], default: "medium" },
+              reproducibility: { type: "string", enum: [...REPRODUCIBILITY] },
+              confidence: { type: "number", minimum: LIMITS.confidence_range.min, maximum: LIMITS.confidence_range.max },
+            },
+          },
+          content: {
+            type: "object",
+            description: "`title` or `summary` is required. A missing title is taken from the summary.",
+            properties: {
+              title: { type: "string", maxLength: LIMITS.max_title_length },
+              summary: { type: "string", maxLength: LIMITS.max_summary_length },
+              hypothesis: { type: "string", maxLength: LIMITS.max_hypothesis_length, description: "What the reporter thinks is going on." },
+            },
+          },
+          evidence: {
+            type: "array",
+            maxItems: LIMITS.max_evidence_per_feedback,
+            description: "More can be added later with POST /api/v1/feedback/{id}/attachments.",
+            items: {
+              type: "object",
+              required: ["type", "content"],
+              properties: {
+                type: { type: "string", enum: [...EVIDENCE_TYPES] },
+                content: { description: "Text, or any JSON value, which is stored serialised." },
+              },
+            },
+          },
+        },
+        example: {
+          reporter: { agent_vendor: "anthropic", agent_product: "claude-code", agent_version: "2.1.0" },
+          subject: { surface: "POST /v1/classify", domain: "classifier.dev", kind: "api_endpoint" },
+          signal: { category: "bug", severity: "high", reproducibility: "always", confidence: 0.9 },
+          content: {
+            title: "POST /v1/classify returns 404",
+            summary: "The documented path answers 404 not_found while POST / classifies the same body.",
+            hypothesis: "The route was dropped in a recent deploy.",
+          },
+          evidence: [{ type: "repro_steps", content: "curl -d '{\"input\":\"hello\",\"labels\":[\"a\",\"b\"]}' https://classifier.dev/v1/classify" }],
+        },
+      },
+      Observation: {
+        type: "object",
+        description: "The flat body POST /api/v1/observations reads: a category and one sentence.",
+        required: ["category", "summary"],
+        properties: {
+          category: { type: "string", enum: [...CATEGORIES] },
+          summary: { type: "string", maxLength: LIMITS.max_summary_length },
+          severity: { type: "string", enum: [...SEVERITIES], default: "medium" },
+          confidence: { type: "number", minimum: LIMITS.confidence_range.min, maximum: LIMITS.confidence_range.max },
+          surface: { type: "string", maxLength: 256 },
+          domain: { type: "string", maxLength: 256 },
+          agent_vendor: { type: "string", maxLength: 64 },
+          agent_product: { type: "string", maxLength: 64 },
+        },
+        example: { category: "friction", summary: "The 404 body names an endpoint that also 404s.", surface: "POST /v1/classify", domain: "classifier.dev" },
+      },
       ClassifyRequest: {
         type: "object",
         required: ["labels"],

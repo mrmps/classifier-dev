@@ -1303,8 +1303,15 @@ const worker = {
     // reserves /.well-known/ outright, which is why a scanner asking for
     // security.txt used to get "Provide at least 2 labels". A real label list
     // keeps its commas, so GET /v1,v2/some+text still classifies.
+    // The one route inside /v1/ that is not handled above is the classify
+    // endpoint itself: POST /v1/classify and its batch alias are the handler
+    // below, reached by falling through, so the guard has to know them by
+    // name or it 404s the documented endpoint and everything that self-fetches
+    // it (the MCP tools, the sandbox alias).
+    const CLASSIFY_ALIASES = new Set(["v1/classify", "v1/classify/batch"]);
+    const classifyPath = CLASSIFY_ALIASES.has(path) ? "" : path;
     const RESERVED = new Set(["v1", "api", "mcp", "admin", ".well-known"]);
-    if (path.includes("/") && RESERVED.has(path.slice(0, path.indexOf("/")))) {
+    if (classifyPath.includes("/") && RESERVED.has(classifyPath.slice(0, classifyPath.indexOf("/")))) {
       return notFound(req, origin);
     }
 
@@ -1341,7 +1348,7 @@ const worker = {
       }
     } else {
       // GET /{labels}/{text}, GET /?labels=a,b&text=..., or a mix of the two.
-      getReq = readGet(path, url);
+      getReq = readGet(classifyPath, url);
       if (getReq.nothing) return notFound(req, origin);
       labels = getReq.labels;
       inputs = [getReq.text];
