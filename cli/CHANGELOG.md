@@ -3,6 +3,12 @@
 All notable changes to the `classify` CLI. Semver; the API it talks to is
 versioned separately at https://classifier.dev.
 
+## Unreleased
+
+- Public smart batches are capped at 200 inputs and run through one worker;
+  partner-key smart calls keep the configured batch size and concurrency.
+- `CLASSIFY_BATCH` rejects values outside 1–1,000 instead of creating invalid batches.
+
 ## 0.1.2 — 2026-09-19
 
 - A daily quota error exits immediately with the API's explanation instead of

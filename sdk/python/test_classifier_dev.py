@@ -14,13 +14,42 @@ class H(BaseHTTPRequestHandler):
         if "boom" in body["labels"]:
             self.send_response(429); self.send_header("Retry-After", "7"); self.send_header("content-type", "application/json"); self.end_headers()
             self.wfile.write(b'{"error":"Rate limit","code":"rate_limit_minute"}'); return
+        if "bad-http" in body["labels"]:
+            self.send_response(502); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(b"not json"); return
+        if "list-http" in body["labels"]:
+            self.send_response(502); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(b"[]"); return
+        if "malformed" in body["labels"]:
+            out = {"results": [1 for _ in body["inputs"]]}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
+        if "nullscores" in body["labels"]:
+            out = {"results": [{"label": "nullscores", "confidence": None, "scores": None} for _ in body["inputs"]]}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
+        if "bad-labels" in body["labels"]:
+            out = {"results": [{"label": "bad-labels", "labels": "oops", "confidence": 0.5, "scores": {}} for _ in body["inputs"]]}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
+        if "bad-scores" in body["labels"]:
+            out = {"results": [{"label": "bad-scores", "confidence": 0.5, "scores": {"bad-scores": "certain"}} for _ in body["inputs"]]}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
+        if "bad-confidence" in body["labels"]:
+            out = {"results": [{"label": "bad-confidence", "confidence": 2, "scores": {}} for _ in body["inputs"]]}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
+        if "bad-bool-score" in body["labels"]:
+            out = {"results": [{"label": "bad-bool-score", "confidence": 0.5, "scores": {"bad-bool-score": True}} for _ in body["inputs"]]}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
+        if "bad-bool-confidence" in body["labels"]:
+            out = {"results": [{"label": "bad-bool-confidence", "confidence": True, "scores": {}} for _ in body["inputs"]]}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
         if "html" in body["labels"]:
             self.send_response(502); self.send_header("content-type", "text/html"); self.end_headers()
             self.wfile.write(b"<html>bad gateway</html>"); return
         if "short" in body["labels"]:
             out = {"results": [{"label": "short", "confidence": 0.5}]}
         else:
-            out = {"tier": "fast", "model": "m", "results": [{"label": body["labels"][0], "confidence": 0.9, "scores": {}} for _ in body["inputs"]], "usage": {}}
+            out = {"tier": "fast", "model": "m", "results": [
+                ({"labels": [body["labels"][0]], "confidence": None, "scores": {}} if body.get("multi") else
+                 {"label": body["labels"][0], "confidence": 0.9, "scores": {}})
+                for _ in body["inputs"]
+            ], "usage": {}}
         self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode())
 
     def log_message(self, *a): pass
@@ -111,5 +140,39 @@ def test_cli():
         srv.shutdown()
 
 
+def test_structured_response_and_options():
+    srv = HTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        c = Client(base_url=f"http://127.0.0.1:{srv.server_port}")
+        try:
+            c.classify(["x"], ["malformed", "b"]); assert False
+        except ClassifierError as e:
+            assert e.code == "bad_response" and "result 0" in e.message
+        result = c.classify(["x"], ["nullscores", "b"]).results[0]
+        assert result.scores is None, "scores:null must remain distinguishable from an empty score map"
+        for labels in [["bad-labels", "b"], ["bad-scores", "b"], ["bad-confidence", "b"], ["bad-bool-score", "b"], ["bad-bool-confidence", "b"]]:
+            try:
+                c.classify(["x"], labels); assert False
+            except ClassifierError as e:
+                assert e.code == "bad_response"
+        for labels in [["bad-http", "b"], ["list-http", "b"]]:
+            try:
+                c.classify(["x"], labels); assert False
+            except ClassifierError as e:
+                assert e.status == 502
+        try:
+            c.classify(["x"], ["a", "b"], max_labels=0); assert False
+        except ValueError as e:
+            assert "max_labels" in str(e)
+        c.classify(["x"], ["a", "b"], max_labels=1)
+        for bad in ["x", [1]]:
+            try:
+                c.classify(bad, ["a", "b"]); assert False
+            except ValueError:
+                pass
+    finally:
+        srv.shutdown()
+
+
 if __name__ == "__main__":
-    test_roundtrip_and_error(); test_options_reach_the_wire(); test_every_failure_is_a_classifier_error(); test_cli(); print("ok")
+    test_roundtrip_and_error(); test_options_reach_the_wire(); test_every_failure_is_a_classifier_error(); test_cli(); test_structured_response_and_options(); print("ok")

@@ -118,6 +118,12 @@ test("end to end against a mock API: single text, stdin, batching, count, 429 re
     assert.equal(r.code, 0);
     assert.equal(r.out, "ham\n");
     assert.match(r.err, /rate limited, retrying in 1s/);
+
+    const smartMany = Array.from({ length: 401 }, (_, i) => `smart ${i}`).join("\n");
+    const smartBefore = requests.length;
+    r = await run(["--endpoint", url, "a,b", "--smart", "-q"], smartMany);
+    assert.equal(r.code, 0, r.err);
+    assert.ok(requests.slice(smartBefore).every((request) => request.inputs.length <= 200), "public smart batches stay within 200 classifications");
   } finally {
     server.close();
   }
@@ -388,5 +394,23 @@ test("exhausted retries exit without sleeping after the final response", async (
     assert.equal((r.err.match(/retrying/g) || []).length, 4);
     assert.match(r.err, /Minute limit reached/);
     assert.equal(r.out, "");
+  } finally { server.close(); }
+});
+
+test("CLASSIFY_BATCH rejects invalid values and caps smart batches", async () => {
+  const { server, requests, url } = await mockApi();
+  try {
+    for (const bad of ["0", "-1", "1.5", "NaN", "Infinity", "1001"]) {
+      const r = await run(["a,b", "--endpoint", url], "x\n", { CLASSIFY_BATCH: bad });
+      assert.equal(r.code, 1, bad);
+      assert.match(r.err, /CLASSIFY_BATCH must be a whole number/);
+    }
+    const r = await run(["a,b", "--smart", "--endpoint", url], "x\n", { CLASSIFY_BATCH: "500" });
+    assert.equal(r.code, 0, r.err);
+    const keyedMany = Array.from({ length: 401 }, () => "x").join("\n");
+    const before = requests.length;
+    const keyed = await run(["a,b", "--smart", "--api-key", "partner", "--endpoint", url], keyedMany, { CLASSIFY_BATCH: "500" });
+    assert.equal(keyed.code, 0, keyed.err);
+    assert.deepEqual(requests.slice(before).map((request) => request.inputs.length), [401], "partner-key smart calls keep their configured batch size");
   } finally { server.close(); }
 });

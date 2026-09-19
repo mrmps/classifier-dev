@@ -86,6 +86,14 @@ func (c *Client) Classify(ctx context.Context, req Request) (*Response, error) {
 	if len(req.Labels) < 2 || len(req.Labels) > 100 {
 		return nil, errors.New("classifier.dev: labels must hold 2 to 100 names")
 	}
+	if req.MaxLabels < 0 {
+		return nil, errors.New("classifier.dev: max_labels must be a whole number above 0")
+	}
+	// The API treats max_labels as a multi-label request even when the caller
+	// omitted multi. Make the response contract match what was sent.
+	if req.MaxLabels > 0 {
+		req.Multi = true
+	}
 	base := c.BaseURL
 	if base == "" {
 		base = "https://classifier.dev"
@@ -130,6 +138,34 @@ func (c *Client) Classify(ctx context.Context, req Request) (*Response, error) {
 	}
 	if len(out.Results) != len(req.Inputs) {
 		return nil, fmt.Errorf("classifier.dev: %d results for %d inputs", len(out.Results), len(req.Inputs))
+	}
+	// json.Unmarshal accepts an empty object as a Result. Check the answer
+	// shape as well, so a structurally invalid 200 cannot look like a valid
+	// all-empty classification to a caller.
+	var wire struct {
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil || len(wire.Results) != len(req.Inputs) {
+		return nil, errors.New("classifier.dev: bad response: results is not an array")
+	}
+	for i, rawResult := range wire.Results {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(rawResult, &fields); err != nil {
+			return nil, fmt.Errorf("classifier.dev: bad response: result %d is not an object", i)
+		}
+		if req.Multi {
+			var labels []string
+			value, ok := fields["labels"]
+			if !ok || json.Unmarshal(value, &labels) != nil || labels == nil {
+				return nil, fmt.Errorf("classifier.dev: bad response: result %d has no multi-label answer", i)
+			}
+		} else {
+			var label *string
+			value, ok := fields["label"]
+			if !ok || json.Unmarshal(value, &label) != nil || label == nil {
+				return nil, fmt.Errorf("classifier.dev: bad response: result %d has no single-label answer", i)
+			}
+		}
 	}
 	return &out, nil
 }

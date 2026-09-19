@@ -11,7 +11,7 @@ results, err := classifier.Classify(ctx,
 // results[0].Label == "bug"; *results[0].Confidence is a calibrated 0-1
 ```
 
-No API key. Up to 1,000 texts per call. For the rest, build a `Request` and send it
+No API key. Up to 1,000 texts per call (200 for public smart requests). For the rest, build a `Request` and send it
 through a `Client`:
 
 ```go
@@ -27,6 +27,7 @@ res, err := c.Classify(ctx, classifier.Request{
 // res.Results[i].Labels, res.Results[i].Scores, res.Usage.Escalated
 ```
 
-Errors are `*classifier.Error` with the API's message, a stable `Code`, the HTTP
+`MaxLabels` implies multi-label output and rejects negative values. Malformed
+successful response shapes return errors. HTTP errors are `*classifier.Error` with the API's message, a stable `Code`, the HTTP
 `Status` and, on 429, `RetryAfter`. A request that never got an answer returns the
 `net/http` error as is. Docs: https://classifier.dev/developers
