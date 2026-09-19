@@ -454,13 +454,17 @@ WHAT IS SENT WHERE
 
 WHAT IS LOGGED
 
-  Per request, for rate limiting and operations: the label names, which tier
-  ran, which model answered, the latency, the response status, a coarse
-  request-country, a client family derived from the User-Agent (curl, python,
-  browser, MCP, ...) and a hashed client IP for the per-IP limits. Not the
-  input text. These records power the usage counts and the alerting that
-  keeps the service up, and are kept for 90 days in Cloudflare Analytics
-  Engine.
+  Per request, for rate limiting and operations: which tier ran, which model
+  answered, the latency, the response status, a coarse request-country and a
+  client family derived from the User-Agent (curl, python, browser, MCP, ...).
+  Not the input text, and not the labels: what is kept is a keyed fingerprint
+  of the label set, which counts how many distinct classifiers are in use
+  without recording anybody's wording. The caller is a keyed hash of the IP
+  that changes every day, so the record cannot be read back to an address and
+  cannot be followed from one day to the next. The address itself is used for
+  the per-IP limits while the request is in flight and is not written down.
+  These records power the usage counts and the alerting that keeps the service
+  up, and are kept for 90 days in Cloudflare Analytics Engine.
 
 
 IF YOU ASK FOR UPDATES
@@ -471,6 +475,10 @@ IF YOU ASK FOR UPDATES
   There is nothing an address could be joined on, here or later. Your IP gates
   that form the way it gates the API, and is not stored beside the address.
 
+  The bar that floats at the foot of the home page remembers one thing, in
+  your browser's local storage and nowhere else: that you closed it, so it
+  stays closed. That flag never leaves the browser and is not an identifier.
+
   The address is used to send occasional news about this service and for
   nothing else. It is never sold, never shared, and never passed to an
   advertiser. Unsubscribing is a reply to any mail that arrives; ask at
@@ -479,9 +487,10 @@ IF YOU ASK FOR UPDATES
 
 WHAT IS NOT COLLECTED
 
-  No accounts, no cookies, no third-party analytics or tracking scripts on any
-  page, no advertising. The home page loads no external resources apart from
-  the fonts.
+  No accounts, no cookies on any page you can reach, no third-party analytics
+  or tracking scripts on any page, no advertising. The home page loads no
+  external resources apart from the fonts. The only thing kept in your browser
+  is the flag above, and it is written only if you close the updates bar.
 
 
 AGENTS AND THE MCP SERVERS

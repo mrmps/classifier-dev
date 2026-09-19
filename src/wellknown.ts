@@ -55,7 +55,10 @@ export function sitemapXml(origin: string) {
 /**
  * Everything is public and meant to be read by machines, so every crawler and
  * every user-triggered agent is welcome, by name so the intent is unambiguous.
- * /admin is the operator dashboard.
+ *
+ * Nothing is listed as disallowed. A Disallow line is a public index of the
+ * paths worth trying, and the one non-public page here is already noindex by
+ * header and asks for a password either way.
  */
 export function robotsTxt(origin: string) {
   const agents = [
@@ -68,7 +71,6 @@ export function robotsTxt(origin: string) {
     "User-agent: *",
     "Content-Signal: search=yes, ai-input=yes, ai-train=yes",
     "Allow: /",
-    "Disallow: /admin",
     "",
     `Sitemap: ${origin}/sitemap.xml`,
     `Agentmap: ${origin}/.well-known/ard.json`,

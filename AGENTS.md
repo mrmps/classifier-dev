@@ -30,3 +30,8 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   text, the signup form and the Markdown all render from it. Addresses go to a
   separate Neon project and the table stores nothing that could join them to API
   traffic — keep it that way.
+- Nothing that identifies a caller is written down. An IP and a label set both
+  go through `src/privacy.ts` first — a keyed hash, day-scoped for the caller —
+  before they reach Analytics Engine, KV or an email. If you add a column,
+  a log line or a panel, it carries counts and fingerprints, never the caller's
+  address or their words.

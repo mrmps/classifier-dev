@@ -140,8 +140,10 @@ export async function dailyReport(
   lines.push(`LAST ${WINDOW_HOURS} HOURS`);
   lines.push(`  requests         ${requests}`);
   lines.push(`  classifications  ${classifications}`);
-  lines.push(`  unique visitors  ${visitors}`);
-  lines.push(`  distinct label sets ${classifiers}`);
+  // A caller pseudonym is scoped to a UTC day, so over a window longer than a
+  // day this counts caller-days rather than people. See src/privacy.ts.
+  lines.push(`  unique callers   ${visitors}`);
+  lines.push(`  distinct classifiers ${classifiers}`);
   lines.push(`  avg latency      ${Math.round(num(t.avg_ms))}ms`);
   lines.push("");
 
@@ -195,7 +197,7 @@ export async function dailyReport(
   }
 
   if (enterpriseClassifiers.length) {
-    lines.push("ENTERPRISE LABEL SETS");
+    lines.push("ENTERPRISE CLASSIFIERS");
     for (const r of enterpriseClassifiers) {
       lines.push(`  ${pad(String(num(r.requests)), 6)} ${pad(String(r.tier ?? "?"), 8)} ${String(r.labels)}`);
     }
@@ -203,7 +205,7 @@ export async function dailyReport(
   }
 
   if (topClassifiers.length) {
-    lines.push("TOP CLASSIFIERS  (label sets people actually use)");
+    lines.push("TOP CLASSIFIERS  (fingerprints — the labels themselves are never kept)");
     for (const r of topClassifiers) {
       lines.push(`  ${pad(String(num(r.requests)), 6)} ${String(r.labels)}`);
     }
@@ -250,7 +252,7 @@ export async function dailyReport(
   // All-time distinct classifiers, from the KV registry.
   try {
     const list = await env.STATS.list({ prefix: "cls:", limit: 1000 });
-    lines.push(`ALL-TIME distinct label sets: ${list.keys.length}${list.list_complete ? "" : "+"}`);
+    lines.push(`ALL-TIME distinct classifiers: ${list.keys.length}${list.list_complete ? "" : "+"}`);
     lines.push("");
   } catch {
     /* ignore */
@@ -283,8 +285,8 @@ export async function dailyReport(
           "classifier.dev ·",
           errCount ? `⚠${errCount} err ·` : "",
           `${arrow}${requests} req ·`,
-          `${visitors} ppl ·`,
-          `${classifiers} labelsets ·`,
+          `${visitors} callers ·`,
+          `${classifiers} classifiers ·`,
           `${Math.round(num(t.avg_ms))}ms`,
         ]
           .filter(Boolean)

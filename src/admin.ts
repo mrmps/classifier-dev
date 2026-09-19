@@ -8,7 +8,14 @@
  *
  * Gated by a single shared password, held in the ADMIN_PASSWORD secret and
  * never in the source. A correct password mints an HMAC-signed, expiring
- * cookie; there is no session store to keep.
+ * cookie; there is no session store to keep. Without that secret the route
+ * does not answer at all, because a page that says what it is is a page worth
+ * attacking.
+ *
+ * None of these figures is anybody's data. The caller column is a day-scoped
+ * hash and the label column a keyed fingerprint, both made in src/privacy.ts
+ * before anything is written, so there is nothing here to leak and nothing to
+ * hand over if somebody asks.
  */
 
 import type { Env } from "./index";
@@ -68,6 +75,21 @@ function readCookie(req: Request, name: string) {
     if (eq > 0 && part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
   }
   return undefined;
+}
+
+/**
+ * A login POST has to come from this site's own form. Origin is sent on every
+ * cross-site POST; Referer is the fallback for the few clients that strip it.
+ * Neither header present means neither can be trusted to be same-origin.
+ */
+function sameOrigin(req: Request, url: URL) {
+  const stated = req.headers.get("origin") ?? req.headers.get("referer");
+  if (!stated) return false;
+  try {
+    return new URL(stated).origin === url.origin;
+  } catch {
+    return false;
+  }
 }
 
 async function loginLimited(env: Env, ip: string) {
@@ -420,7 +442,7 @@ input[type=password]:focus{border-color:var(--blue)}
 function shell(title: string, body: string, extra = "") {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
+<meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
 <meta name="theme-color" content="#0b0e14">
 <title>${esc(title)}</title><style>${STYLE}</style></head>
 <body>${body}${extra}</body></html>`;
@@ -473,7 +495,7 @@ const REASON_TEXT: Record<string, string> = {
 };
 const reasonText = (r: string) => REASON_TEXT[r] ?? (r.startsWith("typesafe_") ? `TypeSafe returned ${r.slice(9)}` : r);
 
-function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
+function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: string) {
   const t = d.totals[0] ?? {};
   const requests = num(t.requests);
   const classifications = num(t.classifications);
@@ -531,8 +553,8 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
     `  cost / 1k         ${usd(per1k)}`,
     `  avg latency       ${ms(avgMs)}`,
     `  error rate        ${errRate.toFixed(1)}%  (${group(failed)} of ${group(requests)})`,
-    `  unique IPs        ${group(d.visitors)}`,
-    `  label sets        ${group(d.labelSets)}`,
+    `  unique callers    ${group(d.visitors)}`,
+    `  classifiers       ${group(d.labelSets)}`,
     "",
     ...(reasonRows.length
       ? ["WHY REQUESTS FAIL", ...reasonRows.map(([r, v]) => `  ${pad(reasonText(r), 38)} ${group(v.requests)}`), ""]
@@ -572,8 +594,8 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
       ["cost / 1k", usd(per1k)],
       ["avg latency", ms(avgMs)],
       ["error rate", `${errRate.toFixed(1)}%`, `${group(failed)} of ${group(requests)}`],
-      ["unique IPs", group(d.visitors)],
-      ["label sets", group(d.labelSets)],
+      ["unique callers", group(d.visitors), range === "24h" ? "" : "counts caller-days"],
+      ["classifiers", group(d.labelSets)],
     ]),
   )}
 
@@ -666,8 +688,8 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
   )}
 
   ${section(
-    "Label sets that fail",
-    `<div class="scroll"><table><thead><tr><th>labels</th><th>cause</th><th>requests</th></tr></thead><tbody>
+    "Classifiers that fail",
+    `<div class="scroll"><table><thead><tr><th>classifier</th><th>cause</th><th>requests</th></tr></thead><tbody>
     ${
       d.failLabels.length
         ? d.failLabels
@@ -702,8 +724,8 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
   )}
 
   ${section(
-    "Top label sets",
-    `<div class="scroll"><table><thead><tr><th>labels</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
+    "Busiest classifiers",
+    `<p class="note">a classifier is a keyed fingerprint of the label set. the labels themselves are never recorded — see <code>src/privacy.ts</code>.</p><div class="scroll"><table><thead><tr><th>classifier</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
     ${
       d.topLabels.length
         ? d.topLabels
@@ -729,7 +751,7 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>) {
     </tbody></table></div></details>`,
   )}
 </article></div>`,
-    `<script>
+    `<script nonce="${nonce}">
 const DATA = ${JSON.stringify({
       req: pts.map((p) => [p.t, `${group(p.reqs)} requests`]),
       usd: pts.map((p) => [p.t, `${usd(p.usd)} spend`]),
@@ -779,56 +801,109 @@ for (const wrap of document.querySelectorAll(".chartwrap")) {
 
 // ---------------------------------------------------------------- entry
 
-const HTML = { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex, nofollow", "cache-control": "no-store" };
+/**
+ * What a page of operator figures is allowed to do, which is nothing. It loads
+ * no third-party anything, so `default-src 'none'` costs it nothing and turns
+ * any injected `<script src>` into a console error. The script it does carry
+ * runs off a per-response nonce; inline `style=` attributes stay allowed
+ * because the charts are drawn with them and none of them is caller-controlled.
+ *
+ * The rest keeps the page out of indexes, out of frames, out of caches, and
+ * out of the Referer header of anything an operator clicks next.
+ */
+function securityHeaders(nonce?: string): Record<string, string> {
+  const csp = [
+    "default-src 'none'",
+    nonce ? `script-src 'nonce-${nonce}'` : "script-src 'none'",
+    "style-src 'unsafe-inline'",
+    "img-src 'self' data:",
+    "form-action 'self'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+  return {
+    "content-security-policy": csp,
+    "x-robots-tag": "noindex, nofollow, noarchive, nosnippet",
+    "cache-control": "no-store, no-cache, must-revalidate, private",
+    pragma: "no-cache",
+    "referrer-policy": "no-referrer",
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "permissions-policy": "accelerometer=(), camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    "cross-origin-opener-policy": "same-origin",
+    "cross-origin-resource-policy": "same-origin",
+  };
+}
+
+const nonce = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/=+$/, "");
+
+/** The dashboard, the one page here that carries a script. */
+function page(status: number, build: (nonce: string) => string) {
+  const n = nonce();
+  return new Response(build(n), {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8", ...securityHeaders(n) },
+  });
+}
+
+/** Everything before sign-in: no script, so no nonce, so `script-src 'none'`. */
+function locked(status: number, error?: string, extra: Record<string, string> = {}) {
+  return new Response(loginPage(error), {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8", ...extra, ...securityHeaders() },
+  });
+}
+
+const cookie = (value: string, maxAge: number) =>
+  `${COOKIE}=${value}; Path=/admin; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Strict`;
 
 /** Returns null when the path is not /admin, so the caller can carry on routing. */
 export async function adminResponse(req: Request, env: Env, path: string, ip: string): Promise<Response | null> {
   if (path !== "admin") return null;
 
   const secret = env.ADMIN_PASSWORD;
-  if (!secret) {
-    return new Response(
-      shell("admin · classifier.dev", `<div class="login"><div class="loginbox"><div class="mark"></div>
-        <h1>classifier.dev <span>admin</span></h1>
-        <p>ADMIN_PASSWORD is not set. Run <code>npx wrangler secret put ADMIN_PASSWORD</code> and redeploy.</p>
-      </div></div>`),
-      { status: 503, headers: HTML },
-    );
-  }
+  // With no password configured there is no dashboard, and saying so would
+  // confirm the route to anyone who asks. It reads as any other missing page.
+  if (!secret) return null;
 
   const url = new URL(req.url);
 
   if (url.searchParams.get("logout") !== null) {
     return new Response(null, {
       status: 302,
-      headers: { location: "/admin", "set-cookie": `${COOKIE}=; Path=/admin; Max-Age=0; HttpOnly; Secure; SameSite=Strict`, ...HTML },
+      headers: { location: "/admin", "set-cookie": cookie("", 0), ...securityHeaders() },
     });
   }
 
   if (req.method === "POST") {
-    if (await loginLimited(env, ip)) {
-      return new Response(loginPage("Too many attempts. Wait a minute and try again."), { status: 429, headers: HTML });
-    }
+    // A cross-site form can post here, and SameSite=Strict only protects the
+    // cookie it would set, not the guess it carries. Same origin or nothing.
+    if (!sameOrigin(req, url)) return locked(403, "Bad request origin.");
+    if (await loginLimited(env, ip)) return locked(429, "Too many attempts. Wait a minute and try again.");
     const form = await req.formData().catch(() => null);
     const given = String(form?.get("password") ?? "");
-    if (!(await secretEquals(given, secret))) {
-      return new Response(loginPage("Wrong password."), { status: 401, headers: HTML });
-    }
+    if (!(await secretEquals(given, secret))) return locked(401, "Wrong password.");
     return new Response(null, {
       status: 302,
       headers: {
         location: "/admin",
-        "set-cookie": `${COOKIE}=${await mint(env, secret)}; Path=/admin; Max-Age=${SESSION_HOURS * 3600}; HttpOnly; Secure; SameSite=Strict`,
-        ...HTML,
+        "set-cookie": cookie(await mint(env, secret), SESSION_HOURS * 3600),
+        ...securityHeaders(),
       },
     });
   }
 
-  if (!(await valid(env, secret, readCookie(req, COOKIE)))) {
-    return new Response(loginPage(), { status: 401, headers: HTML });
+  const token = readCookie(req, COOKIE);
+  if (!(await valid(env, secret, token))) {
+    // A cookie that does not check out is either stale or a forgery attempt,
+    // and forging is worth rate limiting for the same reason guessing is.
+    if (token && (await loginLimited(env, ip))) return locked(429, "Too many attempts. Wait a minute and try again.");
+    // A cookie that does not check out should not come back on the next request.
+    return locked(401, undefined, token ? { "set-cookie": cookie("", 0) } : {});
   }
 
   const asked = url.searchParams.get("range") ?? "24h";
   const range: RangeKey = asked === "7d" || asked === "30d" ? asked : "24h";
-  return new Response(dashboard(range, await load(env, range)), { status: 200, headers: HTML });
+  const data = await load(env, range);
+  return page(200, (n) => dashboard(range, data, n));
 }

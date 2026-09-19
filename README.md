@@ -31,7 +31,7 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
     src/report.ts   digest — Analytics Engine SQL -> Resend, flags model fallbacks
     src/alerts.ts   every 15 minutes; emails only when something is wrong
     src/feedback.ts agent feedback, feedback.now protocol -> email
-    src/admin.ts    /admin — the operator dashboard, same data as the digest
+    src/privacy.ts  keyed pseudonyms: nothing kept points back at a caller
     src/cost.ts     per-request upstream spend, from the providers' own accounting
     src/docs.ts     the site (GET / and GET /benchmark), plain text
     src/home.ts     the same two documents rendered, for browsers only
@@ -108,14 +108,13 @@ Secrets set with `wrangler secret put` live on the Worker, not in the script
 bundle, so a deploy leaves them alone and CI never needs to know them.
 
 Secrets the Worker reads: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`,
-`RESEND_API_KEY`, `CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `ADMIN_PASSWORD`,
-`ADMIN_SIGNING_KEY`. Add one with `npx wrangler secret put NAME`; none of them
-are ever read from the repository.
+`RESEND_API_KEY`, `CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `PRIVACY_SALT`. Add one
+with `npx wrangler secret put NAME`; none of them are ever read from the
+repository. `src/index.ts` lists the rest in the `Env` interface.
 
 Secrets are compared with `secretEquals` (src/secrets.ts), never `===`: a
 plain comparison returns on the first wrong byte and tells a caller how much
-of a guess was right. `ADMIN_SIGNING_KEY` is random and unrelated to the
-password, so a leaked session cookie cannot be ground back into it.
+of a guess was right.
 
 ## The model
 
@@ -234,32 +233,36 @@ are the `T` object at the top of `src/alerts.ts`.
 The first previews without sending or touching state; the second emails a
 sample through the real path, to prove delivery works.
 
-### /admin
-
-The same dataset, rendered: <https://classifier.dev/admin>. Requests,
-classifications, upstream spend, cost per 1,000, latency, error rate, unique
-IPs and distinct label sets, over 24h / 7d / 30d, plus breakdowns by tier,
-model, status and country, and the busiest label sets. Every chart is backed by
-a table, so nothing is readable by colour alone.
-
-One shared password, in the `ADMIN_PASSWORD` secret — never in the source. A
-correct password mints an HMAC-signed cookie that expires in 12 hours; there is
-no session store. Wrong guesses go through the same Durable Object limiter the
-API uses, capped at 10 a minute per IP.
-
-Preview it any time without sending:
+Preview the digest any time without sending it:
 
     curl -H "authorization: Bearer $REPORT_KEY" https://classifier.dev/report
 
 A query string lands in logs, browser history and Referer headers, so the
-header is the way in; `?key=` still works for compatibility.
-
-Append `&send=1` to actually email it.
+header is the way in; `?key=` still works for compatibility. Append `&send=1`
+to actually email it.
 
 Cloudflare's Analytics Engine SQL is a narrow ClickHouse subset — no `uniq()`,
 no `SELECT DISTINCT`, and a bare `SELECT col ... GROUP BY col` is rejected.
 Distinct counts therefore use `SELECT col, count() ... GROUP BY col` and count
 the returned rows. Each query is isolated so one failure cannot blank the report.
+
+### Privacy
+
+Two columns in that dataset used to be the caller: the IP address, and the
+label set, joined and lowercased. Both are keyed hashes now (`src/privacy.ts`),
+so the figures still count distinct callers and distinct classifiers and
+nothing can be read back into an address or into somebody's wording. The caller
+hash takes the UTC day as well, so it stops being the same value tomorrow —
+which is why a unique-caller count over 7d or 30d is really caller-days.
+
+Set the key once, and treat it as a secret like any other:
+
+    npx wrangler secret put PRIVACY_SALT     # 32 random bytes
+
+Rotating it renumbers every fingerprint, so distinct counts double-count across
+the rotation. It falls back to `ADMIN_SIGNING_KEY`, then `REPORT_KEY`, then a
+per-isolate random value, because an unkeyed hash of an IPv4 address or of a
+common label set inverts in seconds.
 
 ## Eval
 

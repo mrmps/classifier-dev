@@ -13,6 +13,7 @@
  */
 
 import type { Env } from "./index";
+import { callerId } from "./privacy";
 
 const SCHEMA_VERSION = "1.1";
 const RETENTION_DAYS = 90;
@@ -229,7 +230,7 @@ export function parseFeedback(body: Record<string, unknown>): Feedback {
 
 // ---------------------------------------------------------------- email
 
-function render(f: Feedback, meta: { receipt: string; feedbackId: string; score: number; ip: string; token: string }) {
+function render(f: Feedback, meta: { receipt: string; feedbackId: string; score: number; token: string }) {
   const r = f.reporter;
   const who = [r.agent_vendor, r.agent_product, r.agent_version].filter(Boolean).join(" / ") || "anonymous agent";
   const lines = [
@@ -299,7 +300,7 @@ export async function submitFeedback(env: Env, ctx: ExecutionContext, body: Reco
   }
 
   const status = duplicateOf ? "duplicate" : "accepted";
-  const record = { id: feedbackId, receipt: receiptId, received: new Date().toISOString(), status, quality_score: score, duplicate_of: duplicateOf, ip, token: token ? `${token.slice(0, 8)}…` : "", ...f };
+  const record = { id: feedbackId, receipt: receiptId, received: new Date().toISOString(), status, quality_score: score, duplicate_of: duplicateOf, caller: await callerId(env, ip), token: token ? `${token.slice(0, 8)}…` : "", ...f };
   try {
     await env.STATS.put(`fb:${feedbackId}`, JSON.stringify(record), ttl);
     await env.STATS.put(
@@ -316,7 +317,7 @@ export async function submitFeedback(env: Env, ctx: ExecutionContext, body: Reco
       email(
         env,
         `[classifier.dev] ${f.signal.severity} ${f.signal.category}: ${f.content.title}`.slice(0, 180),
-        render(f, { receipt: receiptId, feedbackId, score, ip, token }),
+        render(f, { receipt: receiptId, feedbackId, score, token }),
       ).catch((e) => console.error(`feedback email failed: ${(e as Error).message}`)),
     );
   }
@@ -356,7 +357,11 @@ export async function submitObservation(env: Env, ctx: ExecutionContext, body: R
   const observationId = id("obs");
   const receiptId = id("rcpt");
   try {
-    await env.STATS.put(`obs:${observationId}`, JSON.stringify({ id: observationId, received: new Date().toISOString(), ip, ...obs }), ttl);
+    await env.STATS.put(
+      `obs:${observationId}`,
+      JSON.stringify({ id: observationId, received: new Date().toISOString(), caller: await callerId(env, ip), ...obs }),
+      ttl,
+    );
     await env.STATS.put(
       `rcpt:${receiptId}`,
       JSON.stringify({ id: receiptId, observation_id: observationId, status: "accepted", budget_remaining: b.remaining }),

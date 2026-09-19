@@ -19,6 +19,7 @@ import * as newsletter from "./newsletter";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
+import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
 import { hasClassifyQuery, readGet, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
@@ -39,6 +40,13 @@ export interface Env {
   ADMIN_PASSWORD?: string;
   /** Signs the /admin session cookie. Random, and unrelated to the password. */
   ADMIN_SIGNING_KEY?: string;
+  /**
+   * Keys the hashes in src/privacy.ts, which stand in for the caller's IP and
+   * label set everywhere either would otherwise be written down. Random, and
+   * unrelated to everything else here. See src/privacy.ts for what falls back
+   * to what when it is unset.
+   */
+  PRIVACY_SALT?: string;
   /**
    * Postgres for the updates list, and nothing else. A separate Neon project on
    * purpose: the addresses share a database with no other data, so there is
@@ -771,9 +779,13 @@ function upstreamReason(msg: string) {
   return "upstream_other";
 }
 
-/** Fingerprint a label set so we can count distinct classifiers without storing text. */
-function classifierId(labels: string[]) {
-  return [...labels].map((l) => l.toLowerCase().trim()).sort().join("|").slice(0, 120);
+/**
+ * Name a label set so we can count distinct classifiers without keeping one.
+ * This used to be the labels themselves, lowercased and joined, which meant
+ * every caller's wording sat in analytics and on the dashboard for 90 days.
+ */
+function classifierId(env: Env, labels: string[]) {
+  return labelFingerprint(env, labels);
 }
 
 /** Enterprise callers use a secret bearer token and are not application-rate-limited. */
@@ -786,7 +798,7 @@ async function hasEnterpriseAccess(req: Request, env: Env) {
   return secretEquals(token, env.ENTERPRISE_API_KEY);
 }
 
-function record(env: Env, ctx: ExecutionContext, d: {
+export function record(env: Env, ctx: ExecutionContext, d: {
   tier: Tier;
   n: number;
   ms: number;
@@ -807,24 +819,29 @@ function record(env: Env, ctx: ExecutionContext, d: {
   /** Smart-tier answers that could not reach the reasoning model. */
   escalationFailed: number;
 }) {
-  try {
-    env.AE?.writeDataPoint({
-      blobs: [d.tier, classifierId(d.labels), d.country, String(d.status), d.client, d.model, d.reason, d.agent],
-      // double3 and blob7/blob8 were added after launch: rows written before
-      // that read back as 0 and "", so cost and failure reasons are only
-      // meaningful from that deploy forward.
-      doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed],
-      indexes: [d.ip.slice(0, 32)],
-    });
-  } catch {
-    /* analytics must never break a request */
-  }
-  // Distinct classifier registry, for the daily digest. Cheap: one write per new label set.
+  // Hashing is async, so the write moved off the response path entirely. The
+  // point is unchanged apart from the two columns that used to carry the
+  // caller: blob2 is a label-set fingerprint, index1 a day-scoped pseudonym.
+  // Neither can be read back into what the caller sent. See src/privacy.ts.
   ctx.waitUntil(
     (async () => {
+      const [caller, labels] = await Promise.all([callerId(env, d.ip), classifierId(env, d.labels)]);
       try {
-        if (!d.labels.length) return;
-        const key = `cls:${classifierId(d.labels)}`;
+        env.AE?.writeDataPoint({
+          blobs: [d.tier, labels, d.country, String(d.status), d.client, d.model, d.reason, d.agent],
+          // double3 and blob7/blob8 were added after launch: rows written before
+          // that read back as 0 and "", so cost and failure reasons are only
+          // meaningful from that deploy forward.
+          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed],
+          indexes: [caller],
+        });
+      } catch {
+        /* analytics must never break a request */
+      }
+      // Distinct classifier registry, for the daily digest. Cheap: one write per new label set.
+      try {
+        if (!labels) return;
+        const key = `cls:${labels}`;
         if (!(await env.STATS.get(key))) {
           await env.STATS.put(key, new Date().toISOString(), { expirationTtl: 60 * 60 * 24 * 90 });
         }
