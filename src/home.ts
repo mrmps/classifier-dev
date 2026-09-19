@@ -241,6 +241,36 @@ function linkify(text: string) {
  * stays outside the link, and a template such as /{labels}/{text} is text.
  */
 
+/**
+ * A command block is what you type and what comes back. The commands are
+ * highlighted as shell; what they print is dim and outside the <code>, so the
+ * highlighter leaves it alone and the copy control can skip it. A command
+ * runs on while a single quote is open or the line ends in a backslash.
+ */
+function commandHtml(ls: string[]): string {
+  const parts: string[] = [];
+  let cmd: string[] = [];
+  let inCmd = false;
+  let open = false;
+  const flushCmd = () => {
+    if (cmd.length) parts.push(`<code class="language-bash">${linkify(cmd.join("\n"))}</code>`);
+    cmd = [];
+  };
+  for (const l of ls) {
+    if (!inCmd && isCommandBlock([l])) inCmd = true;
+    if (!inCmd) {
+      flushCmd();
+      parts.push(`<span class="out">${linkify(l)}</span>`);
+      continue;
+    }
+    cmd.push(l);
+    if ((l.match(/'/g) ?? []).length % 2) open = !open;
+    if (!open && !/\\$/.test(l)) inCmd = false;
+  }
+  flushCmd();
+  return parts.join("\n");
+}
+
 export function renderBlocks(body: string[]): string {
   const out: string[] = [];
   let buf: string[] = [];
@@ -254,8 +284,10 @@ export function renderBlocks(body: string[]): string {
       const copy = isCommandBlock(lines)
         ? `<p class="row">${btn("copy", { cls: "dim", icon: COPY_ICON, attrs: ' data-copy="1"' })}</p>`
         : "";
-      const lang = isCommandBlock(lines) ? "bash" : codeLang(lines);
-      const code = lang ? `<code class="language-${lang}">${linkify(text)}</code>` : linkify(text);
+      const code = isCommandBlock(lines) ? commandHtml(text.split("\n")) : (() => {
+        const lang = codeLang(lines);
+        return lang ? `<code class="language-${lang}">${linkify(text)}</code>` : linkify(text);
+      })();
       out.push(`<div class="block"><pre>${code}</pre>${copy}</div>`);
     } else {
       out.push(`<p>${linkify(lines.map((l) => l.trim()).join(" "))}</p>`);
@@ -506,8 +538,10 @@ export const COPY_SCRIPT = `<script>
 // carries its own text.
 for (const b of document.querySelectorAll("[data-copy]")) {
   b.addEventListener("click", async () => {
-    const pre = b.closest(".block")?.querySelector("pre");
-    const text = b.dataset.text || (pre ? pre.innerText : "");
+    // The block's commands, without what they printed.
+    const pre = b.closest(".block")?.querySelector("pre")?.cloneNode(true);
+    for (const o of pre?.querySelectorAll(".out") ?? []) o.remove();
+    const text = b.dataset.text || (pre ? pre.innerText.replace(/\\n{2,}/g, "\\n").trim() : "");
     const label = b.querySelector(".lbl"), was = label.textContent;
     try { await navigator.clipboard.writeText(text); label.textContent = "copied"; }
     catch { label.textContent = "press ctrl+c"; }

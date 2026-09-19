@@ -124,13 +124,19 @@ EXAMPLES
   curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone+now
   spam
 
-  curl classifier.dev -d '{"input":"the checkout button does nothing",
-                           "labels":["bug","feature","praise"]}'
-  {"tier":"fast","model":"jev-1.13.0","modelsUsed":["jev-1.13.0"],
-   "results":[{"label":"bug","confidence":1,
-               "scores":{"bug":1,"feature":0,"praise":0},
-               "ms":260,"model":"jev-1.13.0"}],
-   "usage":{"classifications":1,"escalated":0,"ms":260}}
+  curl classifier.dev -d '{
+    "input": "the checkout button does nothing",
+    "labels": ["bug", "feature", "praise"]
+  }'
+  {
+    "tier": "fast", "model": "jev-1.13.0", "modelsUsed": ["jev-1.13.0"],
+    "results": [{
+      "label": "bug", "confidence": 1,
+      "scores": {"bug": 1, "feature": 0, "praise": 0},
+      "ms": 260, "model": "jev-1.13.0"
+    }],
+    "usage": {"classifications": 1, "escalated": 0, "ms": 260}
+  }
 
   curl "classifier.dev/entailment,neutral,contradiction/Only+12+of+40+sites+were+inspected.+Every+site+was+inspected."
   contradiction
@@ -205,10 +211,15 @@ MULTI-LABEL
 
   One article, fifty tags, the ones that fit:
 
-    curl classifier.dev -d '{"input":"...","labels":["ml","databases",...],
-                             "multi":true,"max_labels":10}'
-    {"results":[{"labels":["databases","serverless","rust","caching", ...],
-                 "scores":{"databases":0.98,"serverless":0.98,...,"gaming":0.01}}]}
+    curl classifier.dev -d '{
+      "input": "...",
+      "labels": ["ml", "databases", "... up to 100 ..."],
+      "multi": true, "max_labels": 10
+    }'
+    {"results": [{
+      "labels": ["databases", "serverless", "rust", "caching", ...],
+      "scores": {"databases": 0.98, "serverless": 0.98, ..., "gaming": 0.01}
+    }]}
 
   On GET, add ?multi=1 and the labels come back one per line.
 
