@@ -488,8 +488,9 @@ IF YOU ASK FOR UPDATES
 WHAT IS NOT COLLECTED
 
   No accounts, no cookies on any page you can reach, no third-party analytics
-  or tracking scripts on any page, no advertising. The home page loads no
-  external resources apart from the fonts. The only thing kept in your browser
+  or tracking scripts on any page, no advertising. These pages load nothing
+  from anywhere else at all — no fonts, no scripts, no images — and they say
+  so in a Content-Security-Policy header a browser will hold them to. The only thing kept in your browser
   is the flag above, and it is written only if you close the updates bar.
 
 

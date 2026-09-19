@@ -23,10 +23,21 @@ import { sql } from "./report";
 import { secretEquals, deriveSigningKey, hmacHex } from "./secrets";
 
 const DATASET = "classifier_events";
-const COOKIE = "cd_admin";
+// The __Secure- prefix is enforced by the browser, not by us: it refuses to
+// store or send the cookie unless it was set over HTTPS with Secure. It costs a
+// re-login when it changes, which is cheaper than a cookie a sibling host can
+// overwrite.
+const COOKIE = "__Secure-cd_admin";
 const SESSION_HOURS = 12;
 /** Wrong passwords are cheap to try, so they go through the same limiter as the API. */
 const LOGIN_ATTEMPTS_PER_MIN = 10;
+/**
+ * And a ceiling for the deployment, because ten a minute per IP is no limit at
+ * all to somebody with a thousand IPs. Set well above anything one operator
+ * signing in could reach, so tripping it means a spray is underway — and the
+ * worst it can do is make the dashboard ask again later.
+ */
+const LOGIN_ATTEMPTS_PER_MIN_TOTAL = 120;
 
 type RangeKey = "24h" | "7d" | "30d";
 const RANGES: Record<RangeKey, { hours: number; interval: string; label: string; tick: string }> = {
@@ -92,16 +103,22 @@ function sameOrigin(req: Request, url: URL) {
   }
 }
 
-async function loginLimited(env: Env, ip: string) {
+async function limiterSays(env: Env, name: string, limit: number, daily: number) {
   try {
-    const id = env.LIMITER.idFromName(`adminlogin:${ip}`);
-    const res = await env.LIMITER.get(id).fetch(
-      `https://limiter/?limit=${LOGIN_ATTEMPTS_PER_MIN}&daily=200&cost=1`,
-    );
+    const id = env.LIMITER.idFromName(name);
+    const res = await env.LIMITER.get(id).fetch(`https://limiter/?limit=${limit}&daily=${daily}&cost=1`);
     return ((await res.json()) as { limited?: boolean }).limited === true;
   } catch {
     return false; // a limiter wobble must not lock the operator out
   }
+}
+
+async function loginLimited(env: Env, ip: string) {
+  const [perIp, everyone] = await Promise.all([
+    limiterSays(env, `adminlogin:${ip}`, LOGIN_ATTEMPTS_PER_MIN, 200),
+    limiterSays(env, "adminlogin:all", LOGIN_ATTEMPTS_PER_MIN_TOTAL, 5_000),
+  ]);
+  return perIp || everyone;
 }
 
 // ---------------------------------------------------------------- helpers
@@ -871,7 +888,12 @@ export async function adminResponse(req: Request, env: Env, path: string, ip: st
   if (url.searchParams.get("logout") !== null) {
     return new Response(null, {
       status: 302,
-      headers: { location: "/admin", "set-cookie": cookie("", 0), ...securityHeaders() },
+      headers: {
+        location: "/admin",
+        "set-cookie": cookie("", 0),
+        "clear-site-data": '"cookies"',
+        ...securityHeaders(),
+      },
     });
   }
 

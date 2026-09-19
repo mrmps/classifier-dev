@@ -76,12 +76,13 @@ describe("the door", () => {
     expect(cookie).toContain("Secure");
     expect(cookie).toContain("SameSite=Strict");
     expect(cookie).toContain("Path=/admin");
+    expect(cookie.startsWith("__Secure-")).toBe(true);
     expect(cookie).not.toContain(PASSWORD);
   });
 
   test("a forged cookie does not open it, and is cleared on the way out", async () => {
     const res = (await adminResponse(get("https://classifier.dev/admin", {
-      cookie: `cd_admin=${Date.now() + 60_000}.deadbeef`,
+      cookie: `__Secure-cd_admin=${Date.now() + 60_000}.deadbeef`,
     }), env, "admin", IP))!;
     expect(res.status).toBe(401);
     expect(res.headers.get("set-cookie")).toContain("Max-Age=0");

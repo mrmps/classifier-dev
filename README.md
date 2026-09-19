@@ -237,9 +237,9 @@ Preview the digest any time without sending it:
 
     curl -H "authorization: Bearer $REPORT_KEY" https://classifier.dev/report
 
-A query string lands in logs, browser history and Referer headers, so the
-header is the way in; `?key=` still works for compatibility. Append `&send=1`
-to actually email it.
+The header is the only way in. A query string lands in access logs, in browser
+history and in the Referer header of whatever gets clicked next, so `?key=` is
+gone. Append `?send=1` to actually email it.
 
 Cloudflare's Analytics Engine SQL is a narrow ClickHouse subset — no `uniq()`,
 no `SELECT DISTINCT`, and a bare `SELECT col ... GROUP BY col` is rejected.
