@@ -392,6 +392,14 @@ const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =
     headers: { "content-type": "application/json; charset=utf-8", ...CORS, ...SECURITY, ...extra },
   });
 
+async function readJsonObject(req: Request): Promise<Record<string, unknown>> {
+  const body: unknown = await req.json();
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Body must be a JSON object");
+  }
+  return body as Record<string, unknown>;
+}
+
 function buildMultiPrompt(
   labels: string[],
   instructions?: string,
@@ -1152,9 +1160,9 @@ const worker = {
       const bearer = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
       const readBody = async () => {
         try {
-          return (await req.json()) as Record<string, unknown>;
+          return await readJsonObject(req);
         } catch {
-          throw new feedback.Invalid("body must be JSON");
+          throw new feedback.Invalid("body must be a JSON object");
         }
       };
       try {
@@ -1196,8 +1204,8 @@ const worker = {
       // A form post means a browser with no JavaScript, and it wants a page back.
       const form = (req.headers.get("content-type") ?? "").includes("form-");
       const body = form
-        ? Object.fromEntries(await req.formData())
-        : await req.json().catch(() => ({}));
+        ? await req.formData().then((data) => Object.fromEntries(data)).catch(() => ({}))
+        : await readJsonObject(req).catch(() => ({}));
       const email = newsletter.normalise((body as Record<string, unknown>).email);
 
       if (!email) {
