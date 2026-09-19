@@ -335,6 +335,14 @@ with a score. Labels scoring >= 0.7 are returned, most likely first;
 - [OpenAPI specification](https://classifier.dev/openapi.json): machine-readable, OpenAPI 3.1
 - [Benchmark](https://classifier.dev/benchmark): measured accuracy, calibration, cost and latency
 
+## Found a problem?
+
+This host speaks the agent-feedback protocol. Read
+[/.well-known/agent-feedback.json](https://classifier.dev/.well-known/agent-feedback.json)
+for the accepted categories and limits, then POST a report to
+\`/api/v1/feedback\` or a lighter signal to \`/api/v1/observations\`. No key
+needed, and the receipt you get back can be polled at \`/api/v1/receipts/{id}\`.
+
 ## Limits
 
 Per IP, counted in classifications: 3,000/minute and 20,000/day on the fast

@@ -6,6 +6,7 @@ import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { homeHtml, benchmarkHtml } from "./home";
 import { dailyReport } from "./report";
 import { runAlerts } from "./alerts";
+import * as feedback from "./feedback";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -742,6 +743,45 @@ export default {
     // The operator dashboard. Returns null for every other path.
     const admin = await adminResponse(req, env, path, ip);
     if (admin) return admin;
+
+    // ---- agent feedback, to the feedback.now protocol ----------------------
+    // These sit above the classify fallback on purpose: GET /{labels}/{text}
+    // would otherwise read /api/v1/policy as the label set "api".
+    if (path === ".well-known/agent-feedback.json") return json(feedback.discovery());
+    if (path === "api/v1/policy") return json(feedback.POLICY);
+
+    if (path.startsWith("api/v1/")) {
+      const bearer = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
+      const readBody = async () => {
+        try {
+          return (await req.json()) as Record<string, unknown>;
+        } catch {
+          throw new feedback.Invalid("body must be JSON");
+        }
+      };
+      try {
+        if (path === "api/v1/feedback" && req.method === "POST") {
+          return json(await feedback.submitFeedback(env, ctx, await readBody(), ip, bearer), 202);
+        }
+        if (path === "api/v1/observations" && req.method === "POST") {
+          return json(await feedback.submitObservation(env, ctx, await readBody(), ip), 202);
+        }
+        const attach = path.match(/^api\/v1\/feedback\/([A-Za-z0-9_]+)\/attachments$/);
+        if (attach && req.method === "POST") {
+          return json(await feedback.addAttachments(env, attach[1], await readBody()), 200);
+        }
+        const receipt = path.match(/^api\/v1\/receipts\/([A-Za-z0-9_]+)$/);
+        if (receipt && req.method === "GET") {
+          const found = await feedback.getReceipt(env, receipt[1]);
+          return found ? json(found) : json({ error: "no such receipt" }, 404);
+        }
+      } catch (e) {
+        if (e instanceof feedback.Invalid) return json({ error: e.message }, 400);
+        console.error(`feedback failed: ${(e as Error).message}`);
+        return json({ error: "could not record that submission" }, 500);
+      }
+      return json({ error: "no such endpoint", discovery: "/.well-known/agent-feedback.json" }, 404);
+    }
     if (req.method === "GET" && (path === "" || path === "index.html")) {
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
         return new Response(unfurlHtml(), {
