@@ -3,9 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-08-01"
 account_id = "0f43966d80a42e1f8038d48af053400d"
 
-# Three digests a day: 08:00, 14:00 and 20:00 Pacific
+# Three digests a day at 08:00, 14:00 and 20:00 Pacific, and an alert check
+# every fifteen minutes that stays silent unless something is wrong.
 [triggers]
-crons = ["0 15 * * *", "0 21 * * *", "0 3 * * *"]
+crons = ["0 15 * * *", "0 21 * * *", "0 3 * * *", "*/15 * * * *"]
 
 [[kv_namespaces]]
 binding = "STATS"
