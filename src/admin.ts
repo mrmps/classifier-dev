@@ -20,6 +20,7 @@
 
 import type { Env } from "./index";
 import { sql } from "./report";
+import { esc, btn, BASE_CSS, COPY_ICON } from "./ui";
 import { secretEquals, deriveSigningKey, hmacHex } from "./secrets";
 
 const DATASET = "classifier_events";
@@ -122,9 +123,6 @@ async function loginLimited(env: Env, ip: string) {
 }
 
 // ---------------------------------------------------------------- helpers
-
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 
 const num = (v: unknown) => {
   const n = Number(v ?? 0);
@@ -359,47 +357,13 @@ function barList(rows: { name: string; value: number; note?: string; color: stri
 // ---------------------------------------------------------------- page
 
 /**
- * The site is plain text on purpose, so the one HTML surface it has reads like
- * a rendered markdown document in a terminal: the syntax stays visible and
- * unselectable, links are bracketed, and nothing is a card.
+ * The dashboard is drawn from the site's own tokens (ui.ts), plus what only a
+ * dashboard needs: the chart hues, the key/value grid, the bars and the login.
+ * Charts are the one place more than one colour has a job — a tier, a status
+ * class and a country each need telling apart at a glance.
  */
-const STYLE = `
-:root{
-  --bg:#0b0e14;
-  --fg:#e5e5e5; --bright:#f5f5f5; --muted:#a3a3a3; --dim:#737373;
-  --syntax:#525252; --line:#404040; --rule:#262626;
-  --blue:#58a6ff; --blue-bg:#1f6feb; --blue-fg:#bfdbfe;
-  --amber:#d29922; --green:#3fb950; --red:#f85149;
-}
-*{box-sizing:border-box}
-html{color-scheme:dark}
-body{margin:0;background:var(--bg);color:var(--fg);
-  font:14px/1.625 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
-  -webkit-font-smoothing:antialiased}
-.page{padding:64px 16px}
-.doc{max-width:896px;margin:0 auto}
-.doc>*+*{margin-top:24px}
-section>*+*{margin-top:8px}
-h1{font-size:20px;font-weight:700;color:var(--bright);margin:0;letter-spacing:-.01em}
-h2{font-size:14px;font-weight:600;color:var(--fg);margin:0}
-p{margin:0}
-/* Markdown syntax: visible, muted, never part of a copy. */
-.syn{user-select:none;color:var(--syntax)}
-.quote{border-left:2px solid var(--rule);padding-left:12px;color:var(--muted)}
-.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
-/* The bracketed control. Hover and focus fill, exactly like a selected line. */
-.b{display:inline-flex;align-items:center;gap:6px;padding:0 6px;color:var(--blue);
-  text-decoration:none;background:none;border:0;font:inherit;cursor:pointer;
-  outline:none;transition:background-color .1s,color .1s;white-space:nowrap}
-.b:hover,.b:focus-visible{background:var(--blue-bg);color:#fff}
-.b .br{user-select:none;color:var(--syntax);transition:color .1s}
-.b:hover .br,.b:focus-visible .br{color:var(--blue-fg)}
-.b.dim{color:var(--muted)}
-.b.on{background:var(--blue-bg);color:#fff}
-.b.on .br{color:var(--blue-fg)}
-.b svg{width:15px;height:15px;flex:none}
-.note{border-left:2px solid var(--amber);padding-left:12px;color:var(--muted)}
-.note b{color:var(--fg);font-weight:600}
+const STYLE = BASE_CSS + `
+:root{--blue:#7aa2f7;--green:#7fd39a;--amber:#e0b35a;--red:var(--bad)}
 /* key/value block: the digest's aligned columns, on screen */
 .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:0 32px;margin:0}
 .kv .k{display:flex;justify-content:space-between;gap:16px;padding:1px 0}
@@ -424,36 +388,18 @@ p{margin:0}
 .cross{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3}
 .dot{stroke:var(--bg);stroke-width:2}
 .hit{fill:transparent}
-.tip{position:absolute;pointer-events:none;background:#161b22;border:1px solid var(--line);
+.tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);
   color:var(--fg);font-size:12px;padding:4px 8px;white-space:nowrap;
   transform:translate(-50%,-145%);z-index:5;font-variant-numeric:tabular-nums}
-/* tables */
-.scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
-th,td{text-align:right;padding:2px 10px 2px 0;white-space:nowrap}
-th:first-child,td:first-child{text-align:left}
-th{color:var(--dim);font-weight:500;border-bottom:1px solid var(--rule)}
-td{color:var(--fg)}
 td.lab{max-width:38ch;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
-details>summary{cursor:pointer;color:var(--muted);list-style:none;user-select:none;padding:2px 0}
-details>summary::-webkit-details-marker{display:none}
-details>summary:hover{color:var(--fg)}
-details>summary::before{content:"▸ ";color:var(--syntax)}
-details[open]>summary::before{content:"▾ ";color:var(--syntax)}
-.empty{color:var(--dim)}
-@media (max-width:640px){
-  .page{padding:40px 12px}
-  .bname{max-width:20ch}
-  .doc{font-size:13px}
-}
+@media (max-width:640px){.bname{max-width:20ch}}
 /* login */
 .login{min-height:100dvh;display:grid;place-items:center;padding:24px}
 .loginbox{width:100%;max-width:420px}
 .loginbox>*+*{margin-top:16px}
-input[type=password]{width:100%;padding:6px 8px;background:#11161f;color:var(--fg);
-  border:1px solid var(--line);font:inherit;outline:none}
-input[type=password]:focus{border-color:var(--blue)}
-.err{color:var(--red)}
+input[type=password]{width:100%;padding:6px 8px;background:var(--surface);color:var(--fg);
+  border:1px solid var(--line-strong);border-radius:var(--r);font:inherit}
+.err{color:var(--bad)}
 `;
 
 function shell(title: string, body: string, extra = "") {
@@ -464,17 +410,6 @@ function shell(title: string, body: string, extra = "") {
 <title>${esc(title)}</title><style>${STYLE}</style></head>
 <body>${body}${extra}</body></html>`;
 }
-
-const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-
-/** A bracketed control, the one interactive idiom on the page. */
-const btn = (label: string, opts: { href?: string; cls?: string; icon?: string; attrs?: string } = {}) => {
-  const inner = `<span class="br">[</span>${opts.icon ?? ""}<span class="lbl">${esc(label)}</span><span class="br">]</span>`;
-  const cls = `b${opts.cls ? ` ${opts.cls}` : ""}`;
-  return opts.href
-    ? `<a class="${cls}" href="${opts.href}"${opts.attrs ?? ""}>${inner}</a>`
-    : `<button type="button" class="${cls}"${opts.attrs ?? ""}>${inner}</button>`;
-};
 
 function loginPage(error?: string) {
   return shell(

@@ -17,7 +17,7 @@ const HOME_CSS = `
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
-.k{color:var(--blue)}
+.k{color:var(--bright)}
 .block{position:relative}
 .block>.row{margin-top:4px}
 h2{scroll-margin-top:24px}
@@ -30,38 +30,22 @@ h2{scroll-margin-top:24px}
 .vs .gap{padding-left:32px}
 .vs thead th:first-child{border-bottom:0}
 .vs thead tr:last-child th{border-bottom:0;padding-top:4px}
-.vs td.win{color:var(--green)}
+/* The better score is bright and bold; a reader who cannot see colour still sees it. */
+.vs td.win{color:var(--bright);font-weight:600}
 .vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
-/* The agent prompt: the one thing a first-time visitor should not miss.
-   Accents are Display P3 with sRGB fallbacks; the panel is a quiet surface with
-   a hairline border, and the only saturated thing on the page is the button. */
-:root{
-  --accent:#00a63e; --accent:color(display-p3 .259723 .647032 .276349);
-  --accent-hover:#00b446; --accent-hover:color(display-p3 .29 .70 .31);
-  --accent-text:#48d565; --accent-text:color(display-p3 .451324 .823458 .446819);
-  --surface:#10141c; --surface:color(display-p3 .064 .078 .108);
-  --surface-2:#0d1118; --surface-2:color(display-p3 .052 .066 .094);
-  --hair:rgba(255,255,255,.08); --hair-2:rgba(255,255,255,.12);
-}
-/* Concentric radii: the card wraps the prompt at --pad, so its own radius has
-   to be the prompt's plus that inset, or the two curves are not parallel. The
-   padding changes on a phone and the radius follows it. */
-.agent{--pad:18px;padding:var(--pad) var(--pad) calc(var(--pad) + 2px);
-  border-radius:calc(var(--r) + var(--pad));background:var(--surface);
-  box-shadow:0 0 0 1px var(--hair),inset 0 1px 0 rgba(255,255,255,.04)}
+/* The agent prompt: the one thing a first-time visitor should not miss. A
+   bordered panel on the raised surface, the prompt inset on the page colour,
+   and under it the only filled control on the page. */
+.agent{--pad:18px;padding:var(--pad);background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
 .agent h2{color:var(--bright)}
-.agent .prompt>pre{white-space:pre-wrap;word-break:break-word;color:var(--bright);
-  border:0;border-radius:var(--r);background:var(--surface-2);box-shadow:0 0 0 1px var(--hair)}
+.agent .prompt>pre{white-space:pre-wrap;word-break:break-word;color:var(--bright);background:var(--bg)}
 .agent .block>.row{margin-top:12px}
-.b.cta{background:var(--accent);color:#fff;font-weight:600;font-size:15px;padding:9px 16px;border-radius:var(--r);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.4);
-  transition:background-color .12s,scale .12s}
-.b.cta .br{color:rgba(255,255,255,.45)}
-.b.cta:hover,.b.cta:focus-visible{background:var(--accent-hover);color:#fff}
-.b.cta:focus-visible{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 0 2px var(--bg),0 0 0 4px var(--accent-text)}
+.b.cta{background:var(--accent);color:var(--ink);font-weight:600;padding:8px 14px;
+  transition-property:background-color,color,scale;transition-duration:.1s}
+.b.cta .br{color:var(--ink);opacity:.55}
+.b.cta svg{stroke-width:2}
+@media (hover:hover){.b.cta:hover{background:var(--accent-hover);color:var(--ink)}.b.cta:hover .br{color:var(--ink)}}
 .b.cta:active{scale:.96}
-.b.cta:hover .br,.b.cta:focus-visible .br{color:rgba(255,255,255,.6)}
-.b.cta svg{width:16px;height:16px}
 .agent .alt{margin-top:14px}
 .or{color:var(--dim)}
 @media (max-width:640px){.agent{--pad:14px}}
@@ -69,28 +53,25 @@ h2{scroll-margin-top:24px}
 .roadmap td:first-child{color:var(--bright);padding-right:20px}
 .roadmap td:last-child{text-align:left;color:var(--muted);white-space:normal}
 .sub{--h:38px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}
-/* The field matches the button it sits beside: same radius, same height.
+/* The field matches the button it sits beside: same corners, same height.
    16px is a floor, not a preference — iOS Safari zooms the page on focus
    below it, and the rest of the page is 13px on a phone. */
-.sub input{flex:1 1 280px;min-width:0;height:var(--h);padding:0 10px;background:#11161f;color:var(--fg);
-  border:1px solid var(--line);border-radius:var(--r);font:inherit;font-size:max(16px,1em)}
-.sub input:focus-visible{border-color:var(--accent-text);
-  outline:2px solid var(--accent-text);outline-offset:2px}
+.sub input{flex:1 1 280px;min-width:0;height:var(--h);padding:0 10px;background:var(--surface);color:var(--fg);
+  border:1px solid var(--line-strong);border-radius:var(--r);font:inherit;font-size:max(16px,1em)}
 .sub input::placeholder{color:var(--dim)}
 .sub .b{min-height:var(--h);padding-top:0;padding-bottom:0}
-.sub .said{color:var(--green)}
-.sub .said.bad{color:var(--red)}
+.sub .said{color:var(--muted)}
+.sub .said.bad{color:var(--bad)}
 .terms{color:var(--dim);margin-top:10px}
 /* Screen-reader-only, for labels the sighted layout carries visually. */
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
 /* The floating signup: the UPDATES form, stuck to the bottom of the viewport
    while the reader is anywhere else on the page. It is drawn the way the rest
-   of the page is — the surface and hairline of a code block, the same field
+   of the page is — the surface and line of a code block, the same field
    and bracketed button as the form in the document, held to the document's
    own column — so it reads as a line of the page that stayed put, not a
-   banner over it. The one curve it has follows the site's rule: the field's
-   radius plus the inset the strip wraps it in. */
+   banner over it. The shadow is the one thing that says it floats. */
 .dock{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;justify-content:center;
   padding:0 16px calc(12px + env(safe-area-inset-bottom,0px));pointer-events:none;
   opacity:0;translate:0 6px;transition:opacity .2s ease-out,translate .2s ease-out}
@@ -100,8 +81,8 @@ h2{scroll-margin-top:24px}
 .dock[hidden]{display:none}
 .dock.in{opacity:1;translate:none}
 .dock form{--pad:8px;pointer-events:auto;margin:0;width:100%;max-width:var(--measure);
-  padding:var(--pad);border-radius:calc(var(--r) + var(--pad));background:var(--surface);
-  box-shadow:0 0 0 1px var(--hair-2),0 12px 32px -12px rgba(0,0,0,.8)}
+  padding:var(--pad);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:0 12px 32px -12px rgba(0,0,0,.8)}
 .dock .head{flex:none;padding:0 6px 0 4px;color:var(--fg);font-weight:600;white-space:nowrap}
 .dock input{flex:1 1 0;background:var(--bg)}
 /* Whatever the server said, on its own line under the field so a long message
@@ -575,14 +556,12 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
 }
 </script>`;
 
+/** The page you are on is marked for the eye and for the screen reader alike. */
+const navLink = (label: string, href: string, here: string, key: string) =>
+  btn(label, { href, cls: here === key ? "on" : "", attrs: here === key ? ' aria-current="page"' : "" });
+
 const NAV = (here: string) =>
-  `<nav><p class="row">${btn("home", { href: "/", cls: here === "home" ? "on" : "" })}${btn("benchmark", {
-    href: "/benchmark",
-    cls: here === "benchmark" ? "on" : "",
-  })}${btn("docs", { href: "/docs", cls: here === "developers" ? "on" : "" })}${btn("mcp", {
-    href: "/mcp-setup",
-    cls: here === "mcp-setup" ? "on" : "",
-  })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
+  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
     href: "/skill.md",
     cls: "dim",
   })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
