@@ -31,6 +31,21 @@ h2{scroll-margin-top:24px}
 .vs thead tr:last-child th{border-bottom:0;padding-top:4px}
 .vs td.win{color:var(--green)}
 .vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
+/* The agent prompt: the one thing a first-time visitor should not miss. */
+.agent{padding:16px 16px 18px;border:1px solid rgba(63,185,80,.45);background:rgba(63,185,80,.06);
+  box-shadow:inset 3px 0 0 var(--green)}
+.agent h2{color:var(--bright)}
+.agent .prompt>pre{white-space:pre-wrap;word-break:break-word;color:var(--bright);
+  border-color:rgba(63,185,80,.5);background:#0d1a12}
+.agent .block>.row{margin-top:10px}
+.b.cta{background:var(--green);color:#04120a;font-weight:700;font-size:16px;padding:10px 18px;
+  box-shadow:0 0 0 1px var(--green),0 0 28px rgba(63,185,80,.35)}
+.b.cta .br{color:rgba(4,18,10,.55)}
+.b.cta:hover,.b.cta:focus-visible{background:#56d364;color:#04120a;box-shadow:0 0 0 1px #56d364,0 0 36px rgba(86,211,100,.5)}
+.b.cta:hover .br,.b.cta:focus-visible .br{color:rgba(4,18,10,.7)}
+.b.cta svg{width:18px;height:18px}
+.agent .alt{margin-top:12px}
+.or{color:var(--dim)}
 `;
 
 /** The headline: what the service adds over calling its own model directly. */
@@ -367,6 +382,30 @@ export function homeHtml(): string {
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
   ${NAV("home")}
 
+  <section class="agent" id="agent">
+    <h2><span class="syn">## </span>Give your agent this prompt</h2>
+    <p class="lead">Paste it into any coding agent. It installs the skill and teaches the agent to classify text through this API &#8212; no key, no setup.</p>
+    <div class="block prompt"><pre>${esc(AGENT_PROMPT)}</pre>
+    <p class="row">${btn("copy prompt", {
+      cls: "cta",
+      icon: COPY_ICON,
+      attrs: ` data-copy="1" data-text="${esc(AGENT_PROMPT)}"`,
+    })}</p></div>
+    <p class="row alt"><span class="or">or open it in</span>${btn("Claude Code", {
+      cls: "dim",
+      href: `claude-cli://open?q=${encodeURIComponent(AGENT_PROMPT)}`,
+    })}${btn("Codex", {
+      cls: "dim",
+      href: `codex://threads/new?prompt=${encodeURIComponent(AGENT_PROMPT)}`,
+    })}${btn("Cursor", {
+      cls: "dim",
+      href: `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(AGENT_PROMPT)}`,
+    })}${btn("Grok", {
+      cls: "dim",
+      href: `https://grok.com/?q=${encodeURIComponent(AGENT_PROMPT)}`,
+    })}</p>
+  </section>
+
   ${vsJevSection()}
 
   <section>
@@ -397,23 +436,6 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt   <span class="o
       icon: COPY_ICON,
       attrs: ' data-copy="1" data-text="classify bug,feature,praise &lt; feedback.txt"',
     })}</p></div>
-  </section>
-
-  <section>
-    <h2><span class="syn">## </span>Connect your agent</h2>
-    <p class="row">${btn("Claude Code", {
-      href: `claude-cli://open?q=${encodeURIComponent(AGENT_PROMPT)}`,
-    })}${btn("Codex", {
-      href: `codex://threads/new?prompt=${encodeURIComponent(AGENT_PROMPT)}`,
-    })}${btn("Cursor", {
-      href: `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(AGENT_PROMPT)}`,
-    })}${btn("Grok", {
-      href: `https://grok.com/?q=${encodeURIComponent(AGENT_PROMPT)}`,
-    })}${btn("copy prompt", {
-      cls: "dim",
-      icon: COPY_ICON,
-      attrs: ` data-copy="1" data-text="${esc(AGENT_PROMPT)}"`,
-    })}</p>
   </section>
 
   ${renderDoc(DOCS, true)}
