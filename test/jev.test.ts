@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
-import { estimateTokens, jevAsk, jevClassify, jevKeys, pack, resetGatewayPause, type Question } from "../src/jev";
+import { estimateTokens, jevAsk, jevClassify, jevKeys, resetGatewayPause, type Question } from "../src/jev";
 import { newMeter } from "../src/cost";
 
 /**
@@ -19,23 +19,44 @@ describe("the token estimate", () => {
     expect(estimateTokens(cjk)).toBeGreaterThan(estimateTokens(english) * 4);
   });
 
-  test("packs Chinese text into more requests than the same amount of English", () => {
-    const zh = pack(Array.from({ length: 60 }, (_, i) => cjk + i), labels, undefined, false);
-    const en = pack(Array.from({ length: 60 }, (_, i) => english + i), labels, undefined, false);
-    expect(en).toHaveLength(1);
-    expect(zh.length).toBeGreaterThan(1);
-    // Every input is in exactly one request, in order.
-    expect(zh.flatMap((b) => b.items.map((it) => it.id))).toEqual(Array.from({ length: 60 }, (_, i) => `i${i}`));
-  });
-
-  test("keeps state plus the longest question below the separate 32k context limit", () => {
-    const inputs = Array(70).fill(english.repeat(4));
-    for (const multi of [false, true]) {
-      for (const batch of pack(inputs, labels, undefined, multi)) {
-        const state = batch.items.reduce((n, item) => n + estimateTokens(item.text) + 20, 0);
-        const question = Math.max(...Object.values(batch.questions).map(q => estimateTokens(JSON.stringify(q))));
-        expect(state + question).toBeLessThan(32000);
+  test("posted single and multi requests keep every input ordered and below both conservative budgets", async () => {
+    const realFetch = globalThis.fetch;
+    const calls: { state: { id: string; text: string }[]; questions: Record<string, Question> }[] = [];
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      calls.push(body);
+      const answers = Object.fromEntries(Object.entries(body.questions as Record<string, Question>).map(([id, question]) => {
+        if (question.type === "noul") return [id, { noul: 0.9 }];
+        const choices = Object.keys(question.criteria);
+        return [id, { choice: choices[0], confidence: 0.8, probabilities: Object.fromEntries(choices.map((choice, i) => [choice, i ? 0.2 / (choices.length - 1) : 0.8])) }];
+      }));
+      return Response.json({ model: "jev-test", answers });
+    }) as typeof fetch;
+    try {
+      const scenarios = [
+        { inputs: Array.from({ length: 60 }, (_, i) => cjk + i), labels, instructions: undefined, multi: false },
+        {
+          inputs: Array.from({ length: 70 }, (_, i) => english.repeat(2) + i),
+          labels: Array.from({ length: 12 }, (_, i) => `category-${i}`),
+          instructions: "Apply this detailed rubric consistently. ".repeat(12),
+          multi: true,
+        },
+      ];
+      for (const scenario of scenarios) {
+        calls.length = 0;
+        await jevClassify({ typesafe: "key" }, scenario.inputs, scenario.labels, scenario.instructions, scenario.multi);
+        expect(calls.length).toBeGreaterThan(1);
+        expect(calls.flatMap((call) => call.state.map((item) => item.id))).toEqual(scenario.inputs.map((_, i) => `i${i}`));
+        for (const call of calls) {
+          const state = call.state.reduce((sum, item) => sum + estimateTokens(item.text) + 20, 0);
+          const costs = Object.values(call.questions).map((question) =>
+            estimateTokens(JSON.stringify(question)) + 16 * (question.type === "choice" ? Object.keys(question.criteria).length : 0) + 40);
+          expect(state + costs.reduce((sum, cost) => sum + cost, 0)).toBeLessThanOrEqual(48000);
+          expect(state + Math.max(...costs)).toBeLessThanOrEqual(28000);
+        }
       }
+    } finally {
+      globalThis.fetch = realFetch;
     }
   });
 });
@@ -94,6 +115,60 @@ describe("a batch Jev refuses as too large", () => {
     expect(out).toHaveLength(25);
     expect(out.every(r => r.label === "bug" && r.model === "jev-test")).toBe(true);
     expect(calls.filter(n => n <= 3).reduce((a, b) => a + b, 0)).toBe(25);
+  });
+
+  test("bounds concurrent requests at eight and restores input order", async () => {
+    let active = 0;
+    let peak = 0;
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { state: { id: string }[]; questions: Record<string, unknown> };
+      active++;
+      peak = Math.max(peak, active);
+      const index = Number(body.state[0].id.slice(1));
+      await new Promise((resolve) => setTimeout(resolve, (12 - index) * 2));
+      active--;
+      const answers = Object.fromEntries(Object.keys(body.questions).map((id) => [id, {
+        choice: "bug", confidence: 0.8, probabilities: { bug: 0.8, feature: 0.1, praise: 0.1 },
+      }]));
+      return Response.json({ model: `jev-${index}`, answers });
+    }) as typeof fetch;
+
+    const out = await jevClassify(
+      { typesafe: "key" },
+      Array.from({ length: 12 }, (_, index) => "漢".repeat(10_000) + index),
+      labels,
+      undefined,
+      false,
+    );
+    expect(peak).toBe(8);
+    expect(out.map((result) => result.model)).toEqual(Array.from({ length: 12 }, (_, index) => `jev-${index}`));
+  });
+
+  test("a fatal batch keeps the first failure, waits for in-flight work and stops dequeuing", async () => {
+    let calls = 0;
+    let settled = 0;
+    globalThis.fetch = (async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { state: { id: string }[]; questions: Record<string, unknown> };
+      calls++;
+      if (body.state[0].id === "i0") return Response.json({ error_type: "invalid_request" }, { status: 400 });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      settled++;
+      if (body.state[0].id === "i1") return Response.json({ error_type: "later_failure" }, { status: 401 });
+      const answers = Object.fromEntries(Object.keys(body.questions).map((id) => [id, {
+        choice: "bug", confidence: 0.8, probabilities: { bug: 0.8, feature: 0.1, praise: 0.1 },
+      }]));
+      return Response.json({ model: "jev-test", answers });
+    }) as typeof fetch;
+
+    await expect(jevClassify(
+      { typesafe: "key" },
+      Array.from({ length: 10 }, () => "漢".repeat(10_000)),
+      labels,
+      undefined,
+      false,
+    )).rejects.toThrow(/invalid_request/);
+    expect(calls).toBe(8);
+    expect(settled).toBe(7);
   });
 
   test("a single input that is still too large is a real failure", async () => {
