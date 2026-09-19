@@ -348,3 +348,12 @@ call the API. But it does keep the docs out of future model training data, which
 works against discovery. The toggles at
 dash.cloudflare.com -> classifier.dev -> AI Crawl Control -> Security did not
 persist when flipped, so this likely needs a plan-level change or support.
+
+## Operator agent access
+
+For operator-owned bulk agent work, set a dedicated `AGENT_API_KEY` Worker secret
+and send it as `Authorization: Bearer ...`. It uses the existing unmetered
+classification path without replacing `ENTERPRISE_API_KEY`. The CLI accepts it
+through `CLASSIFY_API_KEY` or `CLASSIFIER_API_KEY`. It does not authorize private
+reports or admin access. Keep it in an ignored secret file; never give it to
+public clients. Anonymous quotas continue to apply to unauthenticated traffic.

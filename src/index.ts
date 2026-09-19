@@ -28,6 +28,8 @@ export interface Env {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;
+  /** Dedicated operator credential for bulk agent work; independent of enterprise callers. */
+  AGENT_API_KEY?: string;
   RESEND_API_KEY: string;
   REPORT_TO: string;
   CLOUDFLARE_ACCOUNT_ID: string;
@@ -843,14 +845,16 @@ function classifierId(env: Env, labels: string[]) {
   return labelFingerprint(env, labels);
 }
 
-/** Enterprise callers use a secret bearer token and are not application-rate-limited. */
+/** Enterprise and operator-agent callers use dedicated unmetered bearer credentials. */
 async function hasEnterpriseAccess(req: Request, env: Env) {
-  if (!env.ENTERPRISE_API_KEY) return false;
+  const keys = [env.ENTERPRISE_API_KEY, env.AGENT_API_KEY].filter((key): key is string => !!key);
+  if (!keys.length) return false;
   const authorization = req.headers.get("authorization");
   if (!authorization) return false;
   const [scheme, token, extra] = authorization.trim().split(/\s+/);
   if (extra || scheme.toLowerCase() !== "bearer" || !token) return false;
-  return secretEquals(token, env.ENTERPRISE_API_KEY);
+  const matches = await Promise.all(keys.map((key) => secretEquals(token, key)));
+  return matches.some(Boolean);
 }
 
 export function record(env: Env, ctx: ExecutionContext, d: {
