@@ -218,7 +218,7 @@ const JSON_LD = () => {
       featureList: ["Zero-shot classification into your own labels", "Calibrated confidence per answer", "1,000 texts per request", "Multi-label mode", "MCP server", "CLI", "No API key"],
       author: { "@id": "https://classifier.dev/#author" },
       publisher: { "@id": "https://classifier.dev/#org" },
-      sameAs: [SITE.repo, SITE.author.x, "https://www.npmjs.com/package/classifier-dev", "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier"],
+      sameAs: [SITE.repo, SITE.author.x, "https://www.npmjs.com/package/classifier-dev", "https://pypi.org/project/classifier-dev/", "https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go", "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier"],
       softwareHelp: { "@type": "CreativeWork", url: "https://classifier.dev/developers" },
       installUrl: "https://classifier.dev/mcp-setup",
       license: "https://github.com/mrmps/classifier-dev/blob/main/LICENSE",

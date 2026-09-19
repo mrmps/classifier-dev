@@ -728,6 +728,12 @@ Server card: [server-card.json](https://classifier.dev/.well-known/mcp/server-ca
 Registry: [dev.classifier/classifier and dev.classifier/docs](https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier)
 in the official MCP registry.
 
+## SDKs
+
+- Python: \`pip install classifier-dev\` — \`from classifier_dev import classify\` ([PyPI](https://pypi.org/project/classifier-dev/))
+- Go: \`go get github.com/mrmps/classifier-dev/sdk/go\` ([pkg.go.dev](https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go))
+- JavaScript: no SDK needed — POST JSON to https://classifier.dev/v1/classify with fetch(); the npm package \`classifier-dev\` is the CLI.
+
 ## CLI
 
     npm i -g classifier-dev
