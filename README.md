@@ -28,9 +28,20 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
     src/admin.ts    /admin — the operator dashboard, same data as the digest
     src/cost.ts     per-request upstream spend, from the providers' own accounting
     src/docs.ts     the site (GET / and GET /benchmark), plain text
+    src/home.ts     the same two documents rendered, for browsers only
+    src/ui.ts       the shared look: markdown in a terminal
     cli/            the `classify` command, published to npm as classifier-dev
     eval/           benchmarks; read eval/README.md before quoting a number
     finish-dns.sh   one-shot DNS wiring, see below
+
+## The site
+
+`curl classifier.dev` prints plain text, exactly as it always has. A browser
+sends `Accept: text/html` and gets the same document rendered — headings,
+bracketed links, copy buttons — from `src/home.ts`. Nothing is duplicated: the
+page is generated from `DOCS` and `BENCHMARK` at request time, so the text
+stays canonical and the two cannot drift. `?format=text` opts out by hand, and
+both responses carry `Vary: accept`.
 
 ## Deploy
 
