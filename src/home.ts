@@ -24,39 +24,76 @@ h2{scroll-margin-top:24px}
 .foot{color:var(--dim);border-top:1px solid var(--rule);padding-top:16px}
 .nb{white-space:nowrap}
 .vs{width:auto;margin-top:12px}
-.vs th,.vs td{padding:4px 0}
-/* Each set gets its own rule, stopping at its own edge; the gap column stays clear. */
-.vs th.set{padding:0 0 0 32px;color:var(--fg);font-weight:600;border-bottom:0}
-.vs th.set>span{display:block;text-align:center;padding-bottom:4px;border-bottom:1px solid var(--rule)}
+.vs th,.vs td{padding:5px 0}
+/* One header on two lines: each set's name centred over its pair, the column
+   names under. The table is ruled the way a ledger is: one line under the
+   whole header and one over the sum row, both edge to edge, and nothing else.
+   The 32px gap between sets does the grouping a rule per set used to do. */
+.vs th.set{padding:0 0 0 32px;color:var(--fg);font-weight:600;text-align:center;border-bottom:0}
+.vs th.set>span{display:block;text-align:center}
 .vs .num{text-align:right;padding-left:14px}
 .vs .gap{padding-left:32px}
-.vs thead tr:first-child th{border-bottom:0}
-.vs thead tr:last-child th{padding-top:4px;border-bottom:1px solid var(--rule)}
+.vs thead tr:first-child th{border-bottom:0;padding-bottom:0}
+.vs thead tr:last-child th{padding-top:2px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.vs tbody tr:first-child th,.vs tbody tr:first-child td{padding-top:9px}
 .vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
 .vs tbody th .eq{color:var(--dim)}
 .vs tr.smart th{color:var(--bright)}
 /* The gain row: dim where the difference is inside the noise. A clear gain is
    bright and bold, a clear loss is the one status colour; the sign carries
    the meaning for a reader who sees neither. */
-.vs tr.gain th,.vs tr.gain td{color:var(--dim);border-top:1px solid var(--rule)}
+.vs tr.gain th,.vs tr.gain td{color:var(--dim);border-top:1px solid var(--line);padding-top:8px}
 .vs tr.gain td.win{color:var(--bright);font-weight:600}
 .vs tr.gain td.loss{color:var(--bad)}
-/* The agent prompt: the one thing a first-time visitor should not miss. A
-   bordered panel on the raised surface, the prompt inset on the page colour,
-   and under it the only filled control on the page. */
-.agent{--pad:18px;padding:var(--pad);background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+/* The agent prompt: the one thing a first-time visitor should not miss, so it
+   is the one surface on the page drawn with depth. No border: a hairline ring
+   and a lift, a faint wash of the accent from the top corner (at full P3
+   chroma where the display has it), and the prompt nested inside at the
+   concentric radius, the panel's corner being the prompt's plus the inset.
+   Under it, the one filled control on the page. */
+.agent{--pad:18px;--inset:8px;--r-in:var(--r);--ring:rgba(255,255,255,.08);
+  padding:var(--pad);border-radius:calc(var(--r-in) + var(--inset));
+  background:var(--surface);
+  background:radial-gradient(120% 90% at 0% 0%,color-mix(in oklch,var(--accent) 10%,transparent),transparent 58%) var(--surface);
+  box-shadow:0 0 0 1px var(--ring),inset 0 1px 0 rgba(255,255,255,.05),0 24px 48px -32px rgba(0,0,0,.9)}
 .agent h2{color:var(--bright)}
-.agent .prompt>pre{white-space:pre-wrap;word-break:break-word;color:var(--bright);background:var(--bg)}
-.agent .block>.row{margin-top:12px}
-.b.cta{background:var(--accent);color:var(--ink);font-weight:600;padding:8px 14px;
-  transition-property:background-color,color,scale;transition-duration:.1s}
-.b.cta .br{color:var(--ink);opacity:.55}
-.b.cta svg{stroke-width:2}
-@media (hover:hover){.b.cta:hover{background:var(--accent-hover);color:var(--ink)}.b.cta:hover .br{color:var(--ink)}}
-.b.cta:active{scale:.96}
+.agent .prompt>pre{white-space:pre-wrap;word-break:break-word;color:var(--bright);
+  margin-inline:calc(var(--inset) - var(--pad));padding:12px 14px;line-height:1.6;
+  background:var(--bg);border:0;border-radius:var(--r-in);box-shadow:0 0 0 1px var(--ring)}
+.agent .block>.row{margin-top:14px}
 .agent .alt{margin-top:14px}
 .or{color:var(--dim)}
-@media (max-width:640px){.agent{--pad:14px}}
+/* The filled control. The brand lavender, lit from the top: a gradient in
+   OKLCH so the step through the hue stays even, a hairline of the deeper
+   purple as its edge, a highlight along the top edge and a shade along the
+   bottom so it reads as a thing with a surface, and a soft lavender glow
+   under it. The four colours are re-stated in Display P3 for the screens
+   that can show them; sRGB gets the nearest it has. Hover lifts the light,
+   press sinks the control. */
+.b.cta{--c:#a98cff;--c-hi:#cdbdff;--c-lo:#8d6bff;--c-edge:#6b34e2;--glow:rgba(169,140,255,.45);
+  color:var(--ink);font-weight:600;font-size:15px;padding:10px 18px 10px 14px;border-radius:var(--r);
+  background:var(--c);
+  background:linear-gradient(to bottom in oklch,var(--c-hi),var(--c) 45%,var(--c-lo));
+  box-shadow:0 0 0 1px var(--c-edge),inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 0 rgba(25,7,39,.22),
+    0 1px 2px rgba(0,0,0,.3),0 12px 28px -12px var(--glow);
+  transition-property:filter,scale,box-shadow;transition-duration:.15s;transition-timing-function:ease-out}
+.b.cta .br{color:var(--ink);opacity:.5}
+.b.cta svg{width:16px;height:16px;stroke-width:2}
+@media (hover:hover){
+  .b.cta:hover{background:linear-gradient(to bottom in oklch,var(--c-hi),var(--c) 45%,var(--c-lo));color:var(--ink);
+    filter:brightness(1.07);
+    box-shadow:0 0 0 1px var(--c-edge),inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(25,7,39,.22),
+      0 1px 2px rgba(0,0,0,.3),0 14px 32px -12px var(--glow)}
+  .b.cta:hover .br{color:var(--ink);opacity:.5}
+}
+.b.cta:active{scale:.97;filter:brightness(.97);
+  box-shadow:0 0 0 1px var(--c-edge),inset 0 1px 2px rgba(25,7,39,.3),0 4px 12px -8px var(--glow)}
+.b.cta:focus-visible{outline:2px solid var(--bright);outline-offset:3px}
+@media (color-gamut:p3){
+  .b.cta{--c:color(display-p3 .66 .49 1);--c-hi:color(display-p3 .81 .73 1);--c-lo:color(display-p3 .55 .40 1);
+    --c-edge:color(display-p3 .39 .22 .85);--glow:color(display-p3 .66 .49 1/.5)}
+}
+@media (max-width:640px){.agent{--pad:14px;--inset:6px}}
 /* The updates list: two columns of plain text, and one field. Still not a card. */
 .roadmap td:first-child{color:var(--bright);padding-right:20px}
 .roadmap td:last-child{text-align:left;color:var(--muted);white-space:normal}
@@ -79,7 +116,8 @@ h2{scroll-margin-top:24px}
    of the page is — the surface and line of a code block, the same field
    and bracketed button as the form in the document, held to the document's
    own column — so it reads as a line of the page that stayed put, not a
-   banner over it. The shadow is the one thing that says it floats. */
+   banner over it. The shadow is the one thing that says it floats. Its
+   corner is the field's radius plus the inset, so the two curves run parallel. */
 .dock{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;justify-content:center;
   padding:0 16px calc(12px + env(safe-area-inset-bottom,0px));pointer-events:none;
   opacity:0;translate:0 6px;transition:opacity .2s ease-out,translate .2s ease-out}
@@ -89,7 +127,7 @@ h2{scroll-margin-top:24px}
 .dock[hidden]{display:none}
 .dock.in{opacity:1;translate:none}
 .dock form{--pad:8px;pointer-events:auto;margin:0;width:100%;max-width:var(--measure);
-  padding:var(--pad);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:var(--pad);background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--r) + var(--pad));
   box-shadow:0 12px 32px -12px rgba(0,0,0,.8)}
 .dock .head{flex:none;padding:0 6px 0 4px;color:var(--fg);font-weight:600;white-space:nowrap}
 .dock input{flex:1 1 0;background:var(--bg)}
