@@ -84,5 +84,8 @@ parallel subscriptions. A redirect alone must never grant Pro.
 
 The local browser smoke test for this change used real Autumn/Stripe sandbox
 checkout and real Jev classification, with email delivery intercepted and
-Cloudflare storage simulated. Production email delivery and live checkout
-must be verified after the live Stripe connection is completed.
+Cloudflare storage simulated. Production verification on 2026-09-19 confirmed
+real email delivery, browser sign-in against deployed Durable Objects, an
+enabled live Stripe webhook, and a live checkout charging $20 USD per month.
+No real payment was submitted during verification; subscription activation,
+key rotation and cancellation were exercised in the separate sandbox.
