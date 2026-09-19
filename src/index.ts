@@ -258,8 +258,9 @@ const agentView = (origin: string) => ({
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
     subscribe: {
       method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
-      content_type: "application/json", body: { email: "agent@example.com" },
-      description: "Subscribe your own inbox to product updates. Use an address you control, or one whose owner explicitly requested updates. No API key or browser needed.",
+      content_type: "application/json", body: { email: "agent@example.com", wants: ["private", "trained"] },
+      description: "Subscribe your own inbox to product updates. Use an address you control, or one whose owner explicitly requested updates. No API key or browser needed. `wants` is optional: the roadmap items the subscriber would use first.",
+      wants: Object.fromEntries(newsletter.ROADMAP.map((r) => [r.key, `${r.name}: ${r.what}`])),
       confirmation_required: true,
       confirm: { method: "POST", url: `${origin}/${newsletter.CONFIRM_PATH}`, body: { token: "token from the confirmation email" } },
       response: { status: 202, body: { ok: true, status: "pending_confirmation" } },
@@ -1382,15 +1383,16 @@ const worker = {
         : await readJsonObject(req).catch(() => ({}));
       const token = (body as Record<string, unknown>).token;
       try {
-        const email = await newsletter.verifyToken(env, token);
-        if (!email) return req.method === "GET" || form
+        const claim = await newsletter.verifyToken(env, token);
+        if (!claim) return req.method === "GET" || form
           ? html(newsletter.resultPage(false, "This confirmation link is invalid or expired. Subscribe again for a new link."), 400, privateHeaders)
           : json({ error: "invalid or expired confirmation token; subscribe again" }, 400, privateHeaders);
-        if (req.method === "GET") return html(newsletter.confirmationPage(token as string), 200, privateHeaders);
-        const added = await newsletter.subscribe(env, email, form ? "form" : "api");
-        if (added) ctx.waitUntil(newsletter.notify(env, email, form ? "form" : "api").catch(() => console.error("subscription notification failed")));
+        if (req.method === "GET") return html(newsletter.confirmationPage(token as string, claim.wants), 200, privateHeaders);
+        const { email, wants } = claim;
+        const added = await newsletter.subscribe(env, email, form ? "form" : "api", wants);
+        if (added) ctx.waitUntil(newsletter.notify(env, email, form ? "form" : "api", wants).catch(() => console.error("subscription notification failed")));
         return form ? html(newsletter.resultPage(true, "Email confirmed. Your request has been recorded."), 200, privateHeaders)
-          : json({ ok: true, status: "confirmed" }, 200, privateHeaders);
+          : json({ ok: true, status: "confirmed", wants }, 200, privateHeaders);
       } catch {
         return req.method === "GET" || form
           ? html(newsletter.resultPage(false, "Could not confirm just now. Try this link again shortly."), 503, privateHeaders)
@@ -1407,11 +1409,14 @@ const worker = {
       }
 
       // A form post means a browser with no JavaScript, and it wants a page back.
+      // A checkbox form repeats the `wants` field once per tick, which is why
+      // it is read with getAll and not folded into an object.
       const form = (req.headers.get("content-type") ?? "").includes("form-");
-      const body = form
-        ? await req.formData().then((data) => Object.fromEntries(data)).catch(() => ({}))
+      const body: Record<string, unknown> = form
+        ? await req.formData().then((data) => ({ email: data.get("email"), wants: data.getAll("wants") })).catch(() => ({}))
         : await readJsonObject(req).catch(() => ({}));
-      const email = newsletter.normalise((body as Record<string, unknown>).email);
+      const email = newsletter.normalise(body.email);
+      const wants = newsletter.wanted(body.wants);
 
       if (!email) {
         return form
@@ -1439,7 +1444,7 @@ const worker = {
       }
 
       try {
-        await newsletter.requestConfirmation(env, email);
+        await newsletter.requestConfirmation(env, email, wants);
       } catch (e) {
         console.error(e instanceof newsletter.Unavailable ? e.message : "confirmation email failed");
         return form
@@ -1449,7 +1454,7 @@ const worker = {
 
       return form
         ? html(newsletter.resultPage(true, "Check your inbox to confirm your subscription."), 202, { "cache-control": "no-store" })
-        : json({ ok: true, status: "pending_confirmation" }, 202, { "cache-control": "no-store" });
+        : json({ ok: true, status: "pending_confirmation", wants }, 202, { "cache-control": "no-store" });
     }
 
     if (req.method === "GET" && !classifyByQuery && (path === "" || path === "index.html" || path === "index.md")) {

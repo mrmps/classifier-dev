@@ -1,11 +1,25 @@
 /**
  * The updates list.
  *
- * Email and subscription state, in a Postgres that holds nothing else. No IP, no user
- * agent, no request id. The columns you would join a person to a classification
- * on were never created, so the schema enforces this and no policy has to.
- * PRIVACY on the home page promises the API keeps no text; this keeps the same
- * promise about the people who ask for news.
+ * Email, subscription state and which roadmap items the person ticked, in a
+ * Postgres that holds nothing else. No IP, no user agent, no request id. The
+ * columns you would join a person to a classification on were never created,
+ * so the schema enforces this and no policy has to. PRIVACY on the home page
+ * promises the API keeps no text; this keeps the same promise about the
+ * people who ask for news.
+ *
+ * The table, for whoever next touches it (`migrations/` holds the changes;
+ * the original was made by hand):
+ *
+ *   create table subscriber (
+ *     id bigint generated always as identity primary key,
+ *     email text not null unique,
+ *     source text not null default 'site',
+ *     wants text[] not null default '{}',      -- ROADMAP keys, in ROADMAP order
+ *     created_at timestamptz not null default now(),
+ *     confirmed_at timestamptz,
+ *     unsubscribed_at timestamptz
+ *   );
  *
  * ROADMAP is the single source of the copy. The plain text at `curl
  * classifier.dev`, the form on the rendered page and the Markdown all read it,
@@ -18,14 +32,27 @@
 import type { Env } from "./index";
 import { btn, esc, page } from "./ui";
 
-/** What an address is worth. Honest about being work in progress, not a promise with a date. */
-export const ROADMAP: ReadonlyArray<{ name: string; what: string }> = [
-  { name: "Private inference", what: "your text never reaches a shared provider" },
-  { name: "Dedicated endpoints", what: "capacity that is yours, at your own latency" },
-  { name: "Trained endpoints", what: "tuned on your labelled data, not just your labels" },
-  { name: "A self-serve API", what: "keys and higher limits without booking a call" },
-  { name: "Better classification", what: "accuracy work, measured the way /benchmark is" },
+/**
+ * What an address is worth. Honest about being work in progress, not a promise
+ * with a date. The key is what a subscriber ticks: it is the value of the
+ * checkbox on the page, the string in the `wants` array of the API body, a
+ * claim in the confirmation token and the element stored in the `wants`
+ * column, so renaming one renames the stored answer — add a key, never
+ * repurpose one.
+ */
+export const ROADMAP: ReadonlyArray<{ key: string; name: string; what: string }> = [
+  { key: "private", name: "Private inference", what: "your text never reaches a shared provider" },
+  { key: "dedicated", name: "Dedicated endpoints", what: "capacity that is yours, at your own latency" },
+  { key: "trained", name: "Trained endpoints", what: "tuned on your labelled data, not just your labels" },
+  { key: "api", name: "A self-serve API", what: "keys and higher limits without booking a call" },
+  { key: "accuracy", name: "Better classification", what: "accuracy work, measured the way /benchmark is" },
 ];
+
+/** The keys a `wants` may hold, in the order they are printed and stored. */
+export const ROADMAP_KEYS: ReadonlyArray<string> = ROADMAP.map((r) => r.key);
+
+/** The names behind a list of keys, for a person reading mail. */
+export const wantedNames = (wants: ReadonlyArray<string>) => ROADMAP.filter((r) => wants.includes(r.key)).map((r) => r.name);
 
 export const SUBSCRIBE_PATH = "subscribe";
 
@@ -46,6 +73,19 @@ export function normalise(raw: unknown): string | null {
   return EMAIL.test(email) ? email : null;
 }
 
+/**
+ * Which roadmap items were ticked. Takes the JSON array an agent sends, the
+ * repeated `wants` fields a checkbox form posts, or one comma-separated
+ * string, and returns the known keys among them, once each, in ROADMAP order.
+ * Anything else is dropped rather than refused: a stale key from a cached
+ * page is not a reason to lose the address.
+ */
+export function wanted(raw: unknown): string[] {
+  const given = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(",") : [];
+  const asked = new Set(given.filter((v): v is string => typeof v === "string").map((v) => v.trim().toLowerCase()));
+  return ROADMAP_KEYS.filter((k) => asked.has(k));
+}
+
 /** The plain-text section, rendered into DOCS. Widths match the pricing tables. */
 export function roadmapDoc(): string {
   const rows = ROADMAP.map((r) => `    ${r.name.padEnd(24)}${r.what}`).join("\n");
@@ -55,11 +95,15 @@ export function roadmapDoc(): string {
 
 ${rows}
 
-  Subscribe from anywhere you can make a request:
+  Subscribe from anywhere you can make a request, naming what you would use
+  first so the order of work can follow the asking:
 
     curl -X POST https://classifier.dev/${SUBSCRIBE_PATH} \\
       -H "content-type: application/json" \\
-      -d '{"email":"you@example.com"}'
+      -d '{"email":"you@example.com","wants":["private","trained"]}'
+
+  "wants" is optional. It takes any of:
+    ${ROADMAP_KEYS.join(", ")}
 
   Check your inbox and confirm before updates start. Agents can POST the
   emailed token as {"token":"..."} to /subscribe/confirm without a browser.
@@ -67,8 +111,9 @@ ${rows}
   within the hour send at most one confirmation email.
 
   One mail when something on that list ships, and nothing in between. The list
-  keeps your address, signup source, and subscription dates in a separate
-  database, with no classification traffic. Unsubscribing is a reply.
+  keeps your address, what you ticked, the signup source and the subscription
+  dates in a separate database, with no classification traffic. Unsubscribing
+  is a reply.
 `;
 }
 
@@ -85,14 +130,23 @@ async function tokenKey(env: Env): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", utf8.encode(env.NEWSLETTER_CONFIRMATION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
-export async function confirmationToken(env: Env, email: string, now = Date.now()): Promise<string> {
+/** A claim the token carries: the address, and what its owner ticked. */
+export interface Claim { email: string; wants: string[] }
+
+/**
+ * The ticks ride in the token. No row exists until the inbox owner confirms,
+ * so the token is the only place they can wait; and since the token is
+ * signed, what comes back is what was asked for. A different list is a
+ * different token, so it is a different confirmation email.
+ */
+export async function confirmationToken(env: Env, email: string, now = Date.now(), wants: ReadonlyArray<string> = []): Promise<string> {
   const expires = Math.floor(now / 3_600_000) * 3_600_000 + 86_400_000;
-  const payload = encode(utf8.encode(JSON.stringify({ email, expires })));
+  const payload = encode(utf8.encode(JSON.stringify({ email, expires, ...(wants.length ? { wants } : {}) })));
   const signature = await crypto.subtle.sign("HMAC", await tokenKey(env), utf8.encode(payload));
   return `${payload}.${encode(new Uint8Array(signature))}`;
 }
 
-export async function verifyToken(env: Env, token: unknown, now = Date.now()): Promise<string | null> {
+export async function verifyToken(env: Env, token: unknown, now = Date.now()): Promise<Claim | null> {
   if (typeof token !== "string" || token.length > 1500 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) return null;
   const key = await tokenKey(env);
   try {
@@ -100,14 +154,16 @@ export async function verifyToken(env: Env, token: unknown, now = Date.now()): P
     if (!await crypto.subtle.verify("HMAC", key, decode(signature), utf8.encode(payload))) return null;
     const claims = JSON.parse(new TextDecoder().decode(decode(payload)));
     if (!Number.isSafeInteger(claims.expires) || claims.expires <= now || claims.expires > now + 86_400_000) return null;
-    return normalise(claims.email);
+    const email = normalise(claims.email);
+    return email ? { email, wants: wanted(claims.wants) } : null;
   } catch { return null; }
 }
 
 /** No database row exists until the inbox owner confirms. */
-export async function requestConfirmation(env: Env, email: string): Promise<void> {
+export async function requestConfirmation(env: Env, email: string, wants: ReadonlyArray<string> = []): Promise<void> {
   if (!env.NEWSLETTER_RESEND_API_KEY || !env.NEWSLETTER_FROM || !env.NEWSLETTER_DATABASE_URL) throw new Unavailable("newsletter is not configured");
-  const token = await confirmationToken(env, email);
+  const token = await confirmationToken(env, email, Date.now(), wants);
+  const names = wantedNames(wants);
   const link = `https://classifier.dev/${CONFIRM_PATH}?token=${encodeURIComponent(token)}`;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -122,6 +178,7 @@ export async function requestConfirmation(env: Env, email: string): Promise<void
       subject: "Confirm your classifier.dev updates subscription",
       text: [
         "Confirm that you want classifier.dev product updates:", link, "",
+        ...(names.length ? [`You ticked: ${names.join(", ")}.`, ""] : []),
         "Open the link and press Confirm subscription. It expires within 24 hours.",
         "If you did not request updates, ignore this email. You have not been added to the list.", "",
         "Agents can confirm without a browser:",
@@ -141,33 +198,50 @@ export async function requestConfirmation(env: Env, email: string): Promise<void
   }
 }
 
-/** Store only confirmed addresses; retries do not re-notify or undo an unsubscribe. */
-export async function subscribe(env: Env, email: string, source: string): Promise<boolean> {
+/**
+ * Store a confirmed address with what it ticked. Returns whether this
+ * confirmation is the one that put the address on the list, which is what
+ * the owner is told about.
+ *
+ * A repeat confirmation keeps the one row: the date it was first confirmed
+ * stands, and the ticks are replaced only when the new list has something in
+ * it, so a bare re-subscribe from curl never blanks a list made on the page.
+ * An unsubscribe is never undone. The keys go over as one Postgres array
+ * literal; they are ROADMAP keys, never the caller's text, so the literal
+ * needs no quoting, and `wanted` guarantees it. `now()` is one instant for
+ * the whole statement, so a row whose confirmed_at equals it was confirmed
+ * by this call.
+ */
+export async function subscribe(env: Env, email: string, source: string, wants: ReadonlyArray<string> = []): Promise<boolean> {
   const conn = env.NEWSLETTER_DATABASE_URL;
   if (!conn) throw new Unavailable("NEWSLETTER_DATABASE_URL is not set");
   const res = await fetch(`https://${new URL(conn).host}/sql`, {
     method: "POST",
     headers: { "content-type": "application/json", "neon-connection-string": conn },
     body: JSON.stringify({
-      query: `insert into subscriber (email, source, confirmed_at) values ($1, $2, now())
-        on conflict (email) do update set confirmed_at = now()
-        where subscriber.confirmed_at is null and subscriber.unsubscribed_at is null
-        returning email`,
-      params: [email, source.slice(0, 32)],
+      query: `insert into subscriber (email, source, confirmed_at, wants) values ($1, $2, now(), $3::text[])
+        on conflict (email) do update set
+          confirmed_at = coalesce(subscriber.confirmed_at, now()),
+          wants = case when cardinality(excluded.wants) > 0 then excluded.wants else subscriber.wants end
+        where subscriber.unsubscribed_at is null
+        returning (confirmed_at = now()) as added`,
+      params: [email, source.slice(0, 32), `{${wants.join(",")}}`],
     }),
   });
   if (!res.ok) throw new Unavailable(`neon returned ${res.status}`);
-  const result = await res.json() as { rowCount: number };
-  return result.rowCount > 0;
+  const result = await res.json() as { rows?: { added?: boolean }[] };
+  return result.rows?.[0]?.added === true;
 }
 
 /** GET is read-only: scanners must not activate subscriptions by opening a link. */
-export function confirmationPage(token: string): string {
+export function confirmationPage(token: string, wants: ReadonlyArray<string> = []): string {
+  const names = wantedNames(wants);
   return page({
     title: "confirm subscription · classifier.dev",
     body: `<div class="page"><main><article class="doc prose">
       <header><h1>Confirm your subscription</h1></header>
       <p>Get one email when a classifier.dev roadmap item ships.</p>
+      ${names.length ? `<p class="quote">You ticked: ${esc(names.join(", "))}.</p>` : ""}
       <form method="post" action="/${CONFIRM_PATH}">
         <input type="hidden" name="token" value="${esc(token)}">
         ${btn("Confirm subscription", { cls: "cta", type: "submit" })}
@@ -186,13 +260,15 @@ export { Unavailable };
  * outage never makes a confirmation fail. This means the response to the subscriber
  * is sent even if the notification email never arrives.
  */
-export async function notify(env: Env, email: string, source: string): Promise<void> {
+export async function notify(env: Env, email: string, source: string, wants: ReadonlyArray<string> = []): Promise<void> {
   if (!env.RESEND_API_KEY || !env.REPORT_TO) return;
 
   const date = new Date().toISOString();
+  const names = wantedNames(wants);
   const body = [
     `Subscriber: ${email}`,
     `Source: ${source}`,
+    `Wants: ${names.length ? names.join(", ") : "(nothing ticked)"}`,
     `Date: ${date}`,
     "",
     "The subscriber list is in the newsletter Neon project.",

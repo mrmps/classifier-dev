@@ -6,7 +6,7 @@
 // parameter, never as text in a statement — an apostrophe in a name is enough
 // to matter, and the same hole is how a table gets read back out.
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { ROADMAP, normalise, roadmapDoc, subscribe, notify, Unavailable, confirmationToken, verifyToken, requestConfirmation } from "../src/newsletter";
+import { ROADMAP, ROADMAP_KEYS, normalise, wanted, roadmapDoc, subscribe, notify, Unavailable, confirmationToken, verifyToken, requestConfirmation } from "../src/newsletter";
 import worker, { type Env } from "../src/index";
 import { OPENAPI } from "../src/openapi";
 
@@ -26,7 +26,7 @@ function capture(status = 200) {
       headers: new Headers(init?.headers),
       body: JSON.parse(String(init?.body)),
     });
-    return new Response(JSON.stringify({ rowCount: 1 }), { status });
+    return new Response(JSON.stringify({ rowCount: 1, rows: [{ added: true }] }), { status });
   }) as typeof globalThis.fetch;
   return seen;
 }
@@ -69,12 +69,31 @@ describe("normalise", () => {
   });
 });
 
+describe("wanted", () => {
+  it("keeps known keys once each, in roadmap order, from an array or a form's repeats", () => {
+    expect(wanted(["trained", "private", "trained", " PRIVATE "])).toEqual(["private", "trained"]);
+    expect(wanted("accuracy,api")).toEqual(["api", "accuracy"]);
+  });
+
+  it("drops what it does not know rather than refusing the address", () => {
+    expect(wanted(["private", "pony", 42, null, { key: "api" }])).toEqual(["private"]);
+    expect(wanted(undefined)).toEqual([]);
+    expect(wanted({ private: true })).toEqual([]);
+  });
+
+  it("only ever returns keys that are safe inside an array literal", () => {
+    for (const k of ROADMAP_KEYS) expect(k).toMatch(/^[a-z-]+$/);
+    expect(new Set(ROADMAP_KEYS).size).toBe(ROADMAP.length);
+  });
+});
+
 describe("the printed roadmap", () => {
-  it("prints every item, so the page and the plain text cannot drift", () => {
+  it("prints every item and every key, so the page and the plain text cannot drift", () => {
     const doc = roadmapDoc();
     for (const r of ROADMAP) {
       expect(doc).toContain(r.name);
       expect(doc).toContain(r.what);
+      expect(doc).toContain(r.key);
     }
   });
 
@@ -83,7 +102,7 @@ describe("the printed roadmap", () => {
   });
 
   it("tells the reader what is kept", () => {
-    expect(roadmapDoc()).toContain("signup source, and subscription dates");
+    expect(roadmapDoc()).toContain("your address, what you ticked, the signup source and the subscription");
   });
 });
 
@@ -98,18 +117,36 @@ describe("subscribe", () => {
     expect(seen[0].body.query).toContain("$1");
   });
 
-  it("makes a repeat signup a no-op, so the answer is never an address oracle", async () => {
+  it("keeps one row per address and never undoes an unsubscribe, so the answer is never an address oracle", async () => {
     const seen = capture();
     await subscribe(env, "someone@example.com", "api");
-    expect(seen[0].body.query).toContain("subscriber.confirmed_at is null and subscriber.unsubscribed_at is null");
+    expect(seen[0].body.query).toContain("on conflict (email) do update");
+    expect(seen[0].body.query).toContain("coalesce(subscriber.confirmed_at, now())");
+    expect(seen[0].body.query).toContain("where subscriber.unsubscribed_at is null");
+    // A bare re-confirm must not blank the ticks a person made on the page.
+    expect(seen[0].body.query).toContain("when cardinality(excluded.wants) > 0 then excluded.wants else subscriber.wants");
   });
 
-  it("writes only the address and where it came from", async () => {
+  it("sends the ticks as one array literal of roadmap keys", async () => {
+    const seen = capture();
+    await subscribe(env, "someone@example.com", "form", ["private", "trained"]);
+    expect(seen[0].body.params[2]).toBe("{private,trained}");
+    expect(seen[0].body.query).toContain("$3::text[]");
+    await subscribe(env, "someone@example.com", "api");
+    expect(seen[1].body.params[2]).toBe("{}");
+  });
+
+  it("reports whether this confirmation was the one that added the address", async () => {
+    globalThis.fetch = (async () => Response.json({ rowCount: 1, rows: [{ added: false }] })) as typeof fetch;
+    expect(await subscribe(env, "again@example.com", "api", ["api"])).toBe(false);
+  });
+
+  it("writes only the address, where it came from and what was ticked", async () => {
     const seen = capture();
     await subscribe(env, "someone@example.com", "form");
 
     const { query, params } = seen[0].body;
-    expect(params).toEqual(["someone@example.com", "form"]);
+    expect(params).toEqual(["someone@example.com", "form", "{}"]);
     // No column that could tie the row to a request.
     for (const forbidden of ["ip", "user_agent", "request_id", "country"]) {
       expect(query).not.toContain(forbidden);
@@ -155,7 +192,7 @@ describe("notify", () => {
       REPORT_TO: "owner@example.com",
     } as Env;
 
-    await notify(env, "subscriber@example.com", "form");
+    await notify(env, "subscriber@example.com", "form", ["private", "api"]);
 
     expect(seen).toHaveLength(1);
     expect(seen[0].url).toBe("https://api.resend.com/emails");
@@ -164,6 +201,8 @@ describe("notify", () => {
     expect(seen[0].body.subject).toContain("subscriber@example.com");
     expect(String(seen[0].body.text)).toContain("subscriber@example.com");
     expect(String(seen[0].body.text)).toContain("form");
+    // The owner reads names, not keys.
+    expect(String(seen[0].body.text)).toContain("Wants: Private inference, A self-serve API");
 
     globalThis.fetch = realFetch;
   });
@@ -226,25 +265,30 @@ describe("agent subscription API", () => {
 
   it("advertises an unauthenticated subscription in agent discovery and OpenAPI", async () => {
     const res = await worker.fetch(new Request("https://classifier.dev/agent.json"), env, ctx);
-    const discovery = await res.json() as { api: { subscribe: { url: string; body: { email: string }; confirmation_required: boolean } } };
+    const discovery = await res.json() as { api: { subscribe: { url: string; body: { email: string; wants: string[] }; wants: Record<string, string>; confirmation_required: boolean } } };
     expect(discovery.api.subscribe.url).toBe("https://classifier.dev/subscribe");
-    expect(discovery.api.subscribe.body).toEqual({ email: "agent@example.com" });
+    expect(discovery.api.subscribe.body).toEqual({ email: "agent@example.com", wants: ["private", "trained"] });
+    expect(Object.keys(discovery.api.subscribe.wants)).toEqual([...ROADMAP_KEYS]);
     expect(discovery.api.subscribe.confirmation_required).toBe(true);
     expect(OPENAPI.paths["/subscribe"].post.security).toEqual([]);
+    const schema = OPENAPI.paths["/subscribe"].post.requestBody.content["application/json"].schema as { properties: { wants: { items: { enum: string[] } } } };
+    expect(schema.properties.wants.items.enum).toEqual([...ROADMAP_KEYS]);
   });
 
   it("accepts an agent inbox through JSON without credentials and permits retries", async () => {
     const seen = capture();
     for (let i = 0; i < 2; i++) {
-      const res = await request({ email: " Agent+updates@Example.com " });
+      const res = await request({ email: " Agent+updates@Example.com ", wants: ["trained", "nope", "private"] });
       expect(res.status).toBe(202);
-      expect(await res.json()).toEqual({ ok: true, status: "pending_confirmation" });
+      expect(await res.json()).toEqual({ ok: true, status: "pending_confirmation", wants: ["private", "trained"] });
     }
     expect(seen).toHaveLength(2);
     for (const call of seen) {
       expect(call.url).toBe("https://api.resend.com/emails");
       expect(call.body.to).toEqual(["agent+updates@example.com"]);
       expect(call.body.text).toContain("POST https://classifier.dev/subscribe/confirm");
+      // The person is told what they ticked, by name.
+      expect(call.body.text).toContain("You ticked: Private inference, Trained endpoints.");
     }
     await Promise.all(pending.splice(0));
   });
@@ -287,13 +331,29 @@ describe("email confirmation", () => {
   it("verifies ownership only with an unmodified, unexpired token", async () => {
     const now = 1_800_000_000_000;
     const token = await confirmationToken(env, "agent@example.com", now);
-    expect(await verifyToken(env, token, now)).toBe("agent@example.com");
+    expect(await verifyToken(env, token, now)).toEqual({ email: "agent@example.com", wants: [] });
     expect(await verifyToken(env, token, now + 86_400_000)).toBeNull();
     expect(await verifyToken(env, token, now - 86_400_000)).toBeNull();
     expect(await verifyToken({ ...env, NEWSLETTER_CONFIRMATION_SECRET: "another-key" }, token, now)).toBeNull();
     for (const bad of [null, 5, "bad", token + "x", "x" + token, "a.b", "a".repeat(1501)]) {
       expect(await verifyToken(env, bad, now)).toBeNull();
     }
+  });
+
+  it("carries the ticks in the token, so they survive until the row exists", async () => {
+    const now = 1_800_000_000_000;
+    const token = await confirmationToken(env, "agent@example.com", now, ["trained", "private"]);
+    expect(await verifyToken(env, token, now)).toEqual({ email: "agent@example.com", wants: ["trained", "private"].sort((a, b) => ROADMAP_KEYS.indexOf(a) - ROADMAP_KEYS.indexOf(b)) });
+    // A different list is a different token, and so a different email.
+    expect(token).not.toBe(await confirmationToken(env, "agent@example.com", now, ["api"]));
+    // Confirming writes what the token carried, not what the request says.
+    const seen = capture();
+    const live = await confirmationToken(env, "agent@example.com", Date.now(), ["trained", "private"]);
+    const res = await worker.fetch(new Request("https://classifier.dev/subscribe/confirm", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: live, wants: ["accuracy"] }),
+    }), env, ctx);
+    expect(await res.json()).toEqual({ ok: true, status: "confirmed", wants: ["private", "trained"] });
+    expect(seen[0].body.params).toEqual(["agent@example.com", "api", "{private,trained}"]);
   });
 
   it("deduplicates emails for the same inbox within an hour, with a fresh token next hour", async () => {
@@ -317,9 +377,9 @@ describe("email confirmation", () => {
     expect(seen).toHaveLength(0);
     const res = await confirm(token);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, status: "confirmed" });
+    expect(await res.json()).toEqual({ ok: true, status: "confirmed", wants: [] });
     expect(seen).toHaveLength(1);
-    expect(seen[0].body.params).toEqual(["agent@example.com", "api"]);
+    expect(seen[0].body.params).toEqual(["agent@example.com", "api", "{}"]);
   });
 
   it("rejects forged tokens without writing", async () => {
@@ -336,21 +396,47 @@ describe("email confirmation", () => {
     expect((await confirm(token)).status).toBe(200);
   });
 
-  it("supports forms without JavaScript for both steps", async () => {
+  it("supports forms without JavaScript for both steps, reading every ticked box", async () => {
     const seen = capture();
-    const signup = await worker.fetch(new Request("https://classifier.dev/subscribe", { method: "POST", body: new URLSearchParams({ email: "agent@example.com" }) }), env, ctx);
+    const data = new URLSearchParams({ email: "agent@example.com" });
+    data.append("wants", "accuracy");
+    data.append("wants", "dedicated");
+    const signup = await worker.fetch(new Request("https://classifier.dev/subscribe", { method: "POST", body: data }), env, ctx);
     expect(signup.status).toBe(202);
     expect(await signup.text()).toContain("Check your inbox");
     expect(seen[0].url).toBe("https://api.resend.com/emails");
-    const token = await confirmationToken(env, "agent@example.com");
+    expect(seen[0].body.text).toContain("You ticked: Dedicated endpoints, Better classification.");
+    const token = await confirmationToken(env, "agent@example.com", Date.now(), ["dedicated", "accuracy"]);
+    expect(seen[0].body.text).toContain(token);
+    const preview = await worker.fetch(new Request(`https://classifier.dev/subscribe/confirm?token=${encodeURIComponent(token)}`), env, ctx);
+    expect(await preview.text()).toContain("You ticked: Dedicated endpoints, Better classification.");
     const result = await worker.fetch(new Request("https://classifier.dev/subscribe/confirm", { method: "POST", body: new URLSearchParams({ token }) }), env, ctx);
     expect(result.status).toBe(200);
     expect(await result.text()).toContain("Email confirmed");
-    expect(seen[1].body.params).toEqual(["agent@example.com", "form"]);
+    expect(seen[1].body.params).toEqual(["agent@example.com", "form", "{dedicated,accuracy}"]);
   });
 
   it("returns unchanged state for duplicate or unsubscribed addresses", async () => {
-    globalThis.fetch = (async () => Response.json({ rowCount: 0 })) as typeof fetch;
+    globalThis.fetch = (async () => Response.json({ rowCount: 0, rows: [] })) as typeof fetch;
     expect(await subscribe(env, "agent@example.com", "api")).toBe(false);
+  });
+});
+
+describe("the checklist on the page", () => {
+  const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
+  const home = async () => (await worker.fetch(new Request("https://classifier.dev/", { headers: { accept: "text/html" } }), env, ctx)).text();
+
+  it("offers every roadmap item as a box in both forms, posting the key", async () => {
+    const html = await home();
+    for (const r of ROADMAP) {
+      expect(html).toContain(`id="want-${r.key}" type="checkbox" name="wants" value="${r.key}"`);
+      expect(html).toContain(`id="dock-${r.key}" type="checkbox" name="wants" value="${r.key}"`);
+      expect(html).toContain(r.what);
+    }
+  });
+
+  it("says what is kept, the same way the plain text does", async () => {
+    expect(await home()).toContain("what you ticked");
+    expect(roadmapDoc()).toContain("what you ticked");
   });
 });
