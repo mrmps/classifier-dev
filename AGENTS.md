@@ -26,6 +26,11 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
 - The MCP servers (`src/mcp.ts`) are stateless Streamable HTTP; tools call the API through `worker.fetch` so limits and logging are shared.
 - Never commit secrets; `.secrets.env`, `.dev.vars` are ignored. `eval/data/` is ignored except the summary copied to `src/vs-jev.json`.
 - Measured numbers on the site come from `eval/`; do not type numbers in by hand.
+- Jev is asked through Vercel's AI Gateway first when `AI_GATEWAY_API_KEY`
+  is set (free monthly credit, rate-limited) and through TypeSafe directly
+  when the gateway refuses; both transports and the translation between them
+  live in `src/jev.ts`. Nothing downstream should know which door answered
+  beyond the `model` label.
 - The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
   text, the signup form and the Markdown all render from it. Addresses go to a
   separate Neon project and the table stores nothing that could join them to API

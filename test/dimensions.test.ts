@@ -138,12 +138,12 @@ describe("packing and recovery", () => {
     expect(batches.length).toBeGreaterThan(1);
     expect(batches.flatMap((b)=>b.cells)).toHaveLength(1000);
     expect(new Set(batches.flatMap((b)=>b.cells.map(c=>c.id))).size).toBe(1000);
-    const out = await classifyDimensions("key", batches);
+    const out = await classifyDimensions({ typesafe: "key" }, batches);
     expect(out).toHaveLength(50); out.forEach((row)=>expect(row).toHaveLength(20));
   });
   test("splits a rejected wide item by questions", async () => {
     const calls = fakeJev({maxQuestions:1});
-    const out = await classifyDimensions("key", packDimensions(items, readDimensions(dims)));
+    const out = await classifyDimensions({ typesafe: "key" }, packDimensions(items, readDimensions(dims)));
     expect(out.map(row=>row.map(r=>r.label))).toEqual([["billing","bug"],["identity","request"]]);
     expect(calls.filter(c=>Object.keys(c.questions).length===1)).toHaveLength(4);
   });

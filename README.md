@@ -107,7 +107,9 @@ Repository secrets the deploy needs:
 Secrets set with `wrangler secret put` live on the Worker, not in the script
 bundle, so a deploy leaves them alone and CI never needs to know them.
 
-Secrets the Worker reads: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`,
+Secrets the Worker reads: `TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY` (Vercel's
+AI Gateway, which serves Jev on a free monthly credit; when set it is asked
+first and TypeSafe catches what it refuses), `OPENROUTER_API_KEY`,
 `CONTEXT_API_KEY` (context.dev, the chat's web search and page reads),
 `RESEND_API_KEY`, `CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `PRIVACY_SALT`. Add one
 with `npx wrangler secret put NAME`; none of them are ever read from the

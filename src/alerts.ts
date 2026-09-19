@@ -36,6 +36,8 @@ const T = {
   costFloorUsd: 1,
   /** Traffic stopping outright, when the day says it should not have. */
   quietBaselinePerHour: 20,
+  /** Jev answers in the window before "none came through the gateway" means the gateway is refusing, not idle. */
+  gatewayMinJev: 20,
 };
 
 /**
@@ -230,6 +232,27 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
       id: "dimensions_fallback", severity: "warning",
       title: "Multidimensional classification is using the LLM fallback",
       detail: `${dimensionFallback} fields used the fallback in the last ${WINDOW_MIN}m. Check Jev availability; requests above 20 decisions cannot use this fallback.`,
+    });
+  }
+
+  // With a gateway key set, every Jev answer should be coming through it for
+  // free. When none does, the gateway is refusing or rate-limiting every
+  // request and TypeSafe is quietly paid for all of it; the caller sees the
+  // same answers, so nothing else reports it.
+  const byGateway = answered
+    .filter((r) => String(r.model).toLowerCase().includes("jev@vercel"))
+    .reduce((a, r) => a + num(r.requests), 0);
+  if (env.AI_GATEWAY_API_KEY && byJev >= T.gatewayMinJev && byGateway === 0) {
+    alerts.push({
+      id: "gateway_refused",
+      severity: "warning",
+      title: "the AI Gateway is refusing every Jev request",
+      detail:
+        `AI_GATEWAY_API_KEY is set, but none of the ${byJev} Jev answers in the last ${WINDOW_MIN}m came ` +
+        `through Vercel's AI Gateway (model jev@vercel); all of them went to TypeSafe directly, which is ` +
+        `being paid for every one.\n\nThe gateway is refusing or rate-limiting each request. Check the ` +
+        `Vercel AI Gateway dashboard for the team: the credit balance, whether a card is on file (the ` +
+        `personal scope needs one), and the key itself. Answers are unaffected; only the bill is.`,
     });
   }
 

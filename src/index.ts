@@ -19,7 +19,7 @@ import { runAlerts } from "./alerts";
 import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
-import { jevClassify, MULTI_THRESHOLD } from "./jev";
+import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -34,6 +34,12 @@ import { proHtml } from "./proui";
 export interface Env extends BillingEnv {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
+  /**
+   * Vercel AI Gateway, which serves Jev on a free monthly credit. With it set,
+   * Jev is asked there first and TYPESAFE_API_KEY catches what the gateway
+   * refuses (see src/jev.ts). Either key alone is enough to run the fast tier.
+   */
+  AI_GATEWAY_API_KEY?: string;
   /** context.dev, for the chat's web search and page reads only. Never served. */
   CONTEXT_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;
@@ -886,11 +892,12 @@ async function classifyMany(
   multi?: MultiOpts,
   meter?: Meter,
 ): Promise<{ results: Result[]; escalationFailed: number }> {
-  if (env.TYPESAFE_API_KEY) {
+  const keys = jevKeys(env);
+  if (keys) {
     const started = Date.now();
     let jev: Awaited<ReturnType<typeof jevClassify>> | null = null;
     try {
-      jev = await jevClassify(env.TYPESAFE_API_KEY, inputs, labels, instructions, !!multi, meter);
+      jev = await jevClassify(keys, inputs, labels, instructions, !!multi, meter);
     } catch (e) {
       console.warn(`jev failed, falling back: ${(e as Error).message}`);
     }
@@ -939,8 +946,9 @@ async function classifyMany(
 async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter) {
   const started = Date.now();
   let jev: Awaited<ReturnType<typeof classifyDimensions>> | undefined;
-  if (env.TYPESAFE_API_KEY) {
-    try { jev = await classifyDimensions(env.TYPESAFE_API_KEY, batches, meter); }
+  const keys = jevKeys(env);
+  if (keys) {
+    try { jev = await classifyDimensions(keys, batches, meter); }
     catch (e) { console.warn(`dimensions Jev failed: ${(e as Error).message}`); }
   }
   if (!jev && inputs.length * dimensions.length > FALLBACK_MAX_INPUTS) {
