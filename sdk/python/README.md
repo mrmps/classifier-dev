@@ -15,7 +15,7 @@ for r in classify(["the checkout button does nothing", "love the new dark mode"]
 ```
 
 `Client(api_key=...)` for a partner key; `client.classify(..., tier="smart", multi=True, max_labels=2, instructions="...")`
-for the rest. `max_labels` validates and implies multi-label output. A withheld
+for the rest. `max_labels` validates and implies multi-label output. An unavailable
 API score remains `None`. HTTP, transport and malformed-response failures raise
 `ClassifierError`: the API's message and stable `.code`
 with `.status`, `.retry_after` on 429, and `code == "network"` or `"timeout"` (status 0)

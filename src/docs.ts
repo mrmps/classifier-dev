@@ -249,6 +249,9 @@ CONFIDENCE
   they do not validate the input or prove that the label is correct. Supply
   labels that cover the inputs your caller may send.
 
+  Acronyms, identifiers, and non-language inputs retain the scores the model
+  returns.
+
 
 MULTI-LABEL
 

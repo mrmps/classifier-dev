@@ -3,6 +3,7 @@ import Ajv from "ajv/dist/2020";
 import worker, { type Env } from "../src/index";
 import { packDimensions, readDimensions, classifyDimensions } from "../src/dimensions";
 import { OPENAPI } from "../src/openapi";
+import { assertMatrix } from "../e2e/matrix.mts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -165,6 +166,11 @@ describe("packing and recovery", () => {
     globalThis.fetch=(async()=>{calls++;return Response.json({choices:[{message:{content:"A"}}],usage:{cost:0.001}});}) as typeof fetch;
     const h=harness({TYPESAFE_API_KEY:undefined}); const r=await h.post({items,dimensions:dims});
     expect(r.response.status).toBe(200); expect(calls).toBe(4); expect(r.body.usage.fallback).toBe(4);
+    for (const row of r.body.results) for (const field of Object.values(row.dimensions) as any[]) {
+      expect(field).toMatchObject({ confidence: null, scores: null });
+      expect(field.unscored).toBeUndefined();
+    }
+    expect(() => assertMatrix(r.body, items.length, dims)).not.toThrow();
     expect(h.points[0].doubles[8]).toBe(4);
   });
   test("smart escalates only an uncertain cell and does not attach stale scores", async () => {

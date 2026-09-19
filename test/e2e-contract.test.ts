@@ -16,7 +16,6 @@ const corruptFields = [
   { ...field, scores: { billing: 1 } },
   { ...field, scores: { billing: 0.9, platform: 0.9 } },
   { ...field, scores: { billing: NaN, platform: 0.1 } },
-  { ...field, confidence: null, scores: null },
   { ...field, confidence: 2 },
   { ...field, ms: -1 },
 ];
@@ -30,5 +29,10 @@ test("live contract rejects missing dimensions and wrong decision counts", () =>
 });
 test("live contract rejects stale scores after escalation", () => {
   const data = { ...valid, tier: "smart", results: [{ dimensions: { team: { ...field, escalated: true } } }], usage: { ...valid.usage, escalated: 1 } };
+  expect(() => assertMatrix(data, 1, dimensions, "smart")).toThrow();
+});
+test("live contract rejects an escalated field without an unscored reason", () => {
+  const escalated = { ...field, confidence: null, scores: null, escalated: true };
+  const data = { ...valid, tier: "smart", results: [{ dimensions: { team: escalated } }], usage: { ...valid.usage, escalated: 1 } };
   expect(() => assertMatrix(data, 1, dimensions, "smart")).toThrow();
 });
