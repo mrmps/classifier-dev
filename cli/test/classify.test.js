@@ -122,6 +122,21 @@ test("end to end against a mock API: single text, stdin, batching, count, 429 re
   }
 });
 
+test("an empty pipe is an empty answer, not the help text", async () => {
+  // stdin here is a pipe that closes at once: a filter upstream matched nothing.
+  const r = await run(["spam,ham"], "");
+  assert.equal(r.out, "", "nothing on stdout for a downstream tool to choke on");
+  assert.equal(r.err, "");
+  assert.equal(r.code, 0);
+  const blank = await run(["spam,ham", "--count"], "\n\n");
+  assert.equal(blank.out, "");
+  assert.equal(blank.code, 0);
+  // No labels at all is a person who has not read the usage yet.
+  const none = await run([], "");
+  assert.match(none.out, /USAGE/);
+  assert.equal(none.code, 2);
+});
+
 test("--help and --version", async () => {
   const h = await run(["--help"]);
   assert.match(h.out, /USAGE/);

@@ -6,7 +6,7 @@ import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
-import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, toMarkdown } from "./pages";
+import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
 import {
@@ -325,7 +325,7 @@ function docSections() {
       buf = [];
     };
     for (const line of text.split("\n").slice(1)) {
-      if (/^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(line) && line.trim() === line) { flush(); heading = line; }
+      if (isHeading(line)) { flush(); heading = line; }
       else buf.push(line);
     }
     flush();

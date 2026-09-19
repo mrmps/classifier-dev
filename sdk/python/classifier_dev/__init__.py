@@ -11,6 +11,8 @@ confidence. Standard library only.
 from __future__ import annotations
 
 import json
+import os
+import socket
 import sys
 import urllib.error
 import urllib.request
@@ -24,7 +26,13 @@ DEFAULT_BASE_URL = "https://classifier.dev"
 
 
 class ClassifierError(Exception):
-    """A non-2xx answer: message, stable code, HTTP status, and retry_after seconds on 429."""
+    """Anything that stopped a call from returning results.
+
+    A non-2xx answer carries the API's message and stable ``code``, the HTTP
+    ``status``, and ``retry_after`` seconds on 429. A request that never got an
+    answer carries status 0 with code ``timeout`` or ``network``; a 2xx whose
+    body is not one result per input is ``bad_response``.
+    """
 
     def __init__(self, message: str, code: str, status: int, retry_after: Optional[int] = None):
         super().__init__(f"classifier.dev: {message} ({code}, HTTP {status})")
@@ -94,6 +102,14 @@ class Client:
                 err = {}
             retry = e.headers.get("Retry-After")
             raise ClassifierError(err.get("error", f"HTTP {e.code}"), err.get("code", f"http_{e.code}"), e.code, int(retry) if retry and retry.isdigit() else None) from None
+        except (urllib.error.URLError, OSError) as e:
+            # No answer at all: a refused connection, a DNS miss, a socket that
+            # timed out. One exception type for the caller to catch, as promised.
+            reason = getattr(e, "reason", e)
+            timed_out = isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(reason).lower()
+            raise ClassifierError(f"{'timed out' if timed_out else 'network error'}: {reason}", "timeout" if timed_out else "network", 0) from e
+        except ValueError as e:
+            raise ClassifierError(f"response was not JSON: {e}", "bad_response", 200) from None
         results = payload.get("results")
         if not isinstance(results, list) or len(results) != len(inputs):
             raise ClassifierError(f"{len(results) if isinstance(results, list) else 0} results for {len(inputs)} inputs", "bad_response", 200)
@@ -117,12 +133,27 @@ def classify(inputs: Sequence[str], labels: Sequence[str], **kwargs: Any) -> Lis
     return Client().classify(inputs, labels, **kwargs).results
 
 
-def _cli() -> None:  # pragma: no cover
-    """classify-py <labels> < lines  — a tiny CLI; the full one is `npm i -g classifier-dev`."""
+def _cli() -> None:
+    """classify-py <labels> < lines  — a tiny CLI; the full one is `npm i -g classifier-dev`.
+
+    One ``label<TAB>confidence<TAB>text`` line per input line, in input order,
+    a thousand lines per request. Errors go to stderr with exit 1; an empty
+    stdin is an empty answer. ``CLASSIFIER_ENDPOINT`` points it elsewhere.
+    """
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("usage: classify-py label1,label2[,...] < texts.txt", file=sys.stderr)
         sys.exit(2)
     labels = [l.strip() for l in sys.argv[1].split(",") if l.strip()]
+    if len(labels) < 2:
+        print("classify-py: give at least two labels, comma-separated", file=sys.stderr)
+        sys.exit(2)
     texts = [l.strip() for l in sys.stdin if l.strip()]
-    for text, r in zip(texts, classify(texts, labels)):
-        print(f"{r.label}\t{'-' if r.confidence is None else f'{r.confidence:.2f}'}\t{text}")
+    client = Client(base_url=os.environ.get("CLASSIFIER_ENDPOINT", DEFAULT_BASE_URL))
+    try:
+        for start in range(0, len(texts), 1000):
+            chunk = texts[start : start + 1000]
+            for text, r in zip(chunk, client.classify(chunk, labels).results):
+                print(f"{r.label}\t{'-' if r.confidence is None else f'{r.confidence:.2f}'}\t{text}")
+    except ClassifierError as e:
+        print(f"classify-py: {e.message}", file=sys.stderr)
+        sys.exit(1)
