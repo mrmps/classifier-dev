@@ -182,6 +182,10 @@ export function homeHtml(): string {
       href: `claude-cli://open?q=${encodeURIComponent(AGENT_PROMPT)}`,
     })}${btn("Codex", {
       href: `codex://threads/new?prompt=${encodeURIComponent(AGENT_PROMPT)}`,
+    })}${btn("Cursor", {
+      href: `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(AGENT_PROMPT)}`,
+    })}${btn("Grok", {
+      href: `https://grok.com/?q=${encodeURIComponent(AGENT_PROMPT)}`,
     })}${btn("copy prompt", {
       cls: "dim",
       icon: COPY_ICON,
