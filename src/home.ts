@@ -31,21 +31,35 @@ h2{scroll-margin-top:24px}
 .vs thead tr:last-child th{border-bottom:0;padding-top:4px}
 .vs td.win{color:var(--green)}
 .vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
-/* The agent prompt: the one thing a first-time visitor should not miss. */
-.agent{padding:16px 16px 18px;border:1px solid rgba(63,185,80,.45);background:rgba(63,185,80,.06);
-  box-shadow:inset 3px 0 0 var(--green)}
+/* The agent prompt: the one thing a first-time visitor should not miss.
+   Accents are Display P3 with sRGB fallbacks; the panel is a quiet surface with
+   a hairline border, and the only saturated thing on the page is the button. */
+:root{
+  --accent:#00a63e; --accent:color(display-p3 .259723 .647032 .276349);
+  --accent-hover:#00b446; --accent-hover:color(display-p3 .29 .70 .31);
+  --accent-text:#48d565; --accent-text:color(display-p3 .451324 .823458 .446819);
+  --surface:#10141c; --surface:color(display-p3 .064 .078 .108);
+  --surface-2:#0d1118; --surface-2:color(display-p3 .052 .066 .094);
+  --hair:rgba(255,255,255,.08); --hair-2:rgba(255,255,255,.12);
+}
+.agent{padding:18px 18px 20px;border-radius:8px;background:var(--surface);
+  box-shadow:0 0 0 1px var(--hair),inset 0 1px 0 rgba(255,255,255,.04)}
 .agent h2{color:var(--bright)}
 .agent .prompt>pre{white-space:pre-wrap;word-break:break-word;color:var(--bright);
-  border-color:rgba(63,185,80,.5);background:#0d1a12}
-.agent .block>.row{margin-top:10px}
-.b.cta{background:var(--green);color:#04120a;font-weight:700;font-size:16px;padding:10px 18px;
-  box-shadow:0 0 0 1px var(--green),0 0 28px rgba(63,185,80,.35)}
-.b.cta .br{color:rgba(4,18,10,.55)}
-.b.cta:hover,.b.cta:focus-visible{background:#56d364;color:#04120a;box-shadow:0 0 0 1px #56d364,0 0 36px rgba(86,211,100,.5)}
-.b.cta:hover .br,.b.cta:focus-visible .br{color:rgba(4,18,10,.7)}
-.b.cta svg{width:18px;height:18px}
-.agent .alt{margin-top:12px}
+  border:0;border-radius:6px;background:var(--surface-2);box-shadow:0 0 0 1px var(--hair)}
+.agent .block>.row{margin-top:12px}
+.b.cta{background:var(--accent);color:#fff;font-weight:600;font-size:15px;padding:9px 16px;border-radius:6px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.4);
+  transition:background-color .12s,transform .12s}
+.b.cta .br{color:rgba(255,255,255,.45)}
+.b.cta:hover,.b.cta:focus-visible{background:var(--accent-hover);color:#fff}
+.b.cta:focus-visible{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 0 2px var(--bg),0 0 0 4px var(--accent-text)}
+.b.cta:active{transform:translateY(1px)}
+.b.cta:hover .br,.b.cta:focus-visible .br{color:rgba(255,255,255,.6)}
+.b.cta svg{width:16px;height:16px}
+.agent .alt{margin-top:14px}
 .or{color:var(--dim)}
+@media (max-width:640px){.agent{padding:14px 14px 16px}}
 `;
 
 /** The headline: what the service adds over calling its own model directly. */
