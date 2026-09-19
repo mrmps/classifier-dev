@@ -361,8 +361,8 @@ const PRODUCT_MCP_STATIC = productServer(async () => ({ status: 503, body: { err
 
 /** The MCP endpoints, whose preflight is the transport's own and not the site's. */
 const MCP_PATHS = new Set(["mcp", ".well-known/mcp", "mcp/docs"]);
-/** One chat turn counts against the smart-tier window as this many classifications: about twenty turns a minute. */
-const CHAT_COST = 10;
+/** One chat turn counts against the smart-tier window as this many classifications: ten turns a minute, a hundred a day. */
+const CHAT_COST = 20;
 
 const CACHE_HOUR = { "cache-control": "public, max-age=3600" };
 
@@ -1144,7 +1144,15 @@ const worker = {
           "retry-after": String(gate.resetIn ?? 60),
         });
       }
-      return new Response(chatStream({ key: env.OPENROUTER_API_KEY, webKey: env.CONTEXT_API_KEY, server: productServer(mcpClassify), req, messages }), {
+      // The assistant classifies on the service's own key, so a visitor who
+      // has spent their public quota can still watch it work; the per-turn
+      // gate above and the per-call cap in chat.ts bound what a turn can cost.
+      const asService = new Request(req.url, {
+        headers: env.ENTERPRISE_API_KEY
+          ? { "user-agent": req.headers.get("user-agent") ?? "", authorization: `Bearer ${env.ENTERPRISE_API_KEY}` }
+          : req.headers,
+      });
+      return new Response(chatStream({ key: env.OPENROUTER_API_KEY, webKey: env.CONTEXT_API_KEY, server: productServer(mcpClassify), req: asService, messages }), {
         headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", ...CORS, ...SECURITY },
       });
     }

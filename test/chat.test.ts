@@ -7,7 +7,7 @@
 // with `done` or with an `error` event, never mid-sentence.
 import { afterEach, describe, expect, it } from "bun:test";
 import worker, { type Env } from "../src/index";
-import { parseMessages, toolsFor, WEB_TOOLS, MAX_MESSAGES } from "../src/chat";
+import { parseMessages, toolsFor, WEB_TOOLS, MAX_MESSAGES, CHAT_MAX_INPUTS } from "../src/chat";
 import { productServer, type ClassifyFn } from "../src/mcp";
 import { homeHtml, docHtml, benchmarkHtml } from "../src/home";
 
@@ -180,6 +180,40 @@ describe("a turn", () => {
     expect(result.error).toBeUndefined();
     expect(ev[ev.length - 1]).toEqual({ t: "done" });
     expect(seen.length).toBe(2);
+  });
+
+  it("classifies on the service's key, and refuses a batch over the chat's cap before it costs anything", async () => {
+    let typesafeCalls = 0;
+    let first = true;
+    globalThis.fetch = (async (url, init) => {
+      const u = String(url);
+      if (u.includes("openrouter.ai")) {
+        const body = JSON.parse(String(init?.body));
+        const last = body.messages[body.messages.length - 1];
+        if (last.role === "user") {
+          const inputs = Array(first ? CHAT_MAX_INPUTS + 1 : 1).fill("x");
+          first = false;
+          return sse({ call: { name: "classify_texts", args: { inputs, labels: ["a", "b"] } } });
+        }
+        return sse({ text: last.content.startsWith("error") ? "too many" : "ok" });
+      }
+      if (u.includes("api.typesafe.ai")) {
+        typesafeCalls++;
+        return Response.json({ model: "jev-test", answers: { i0: { choice: "a", confidence: 0.9, probabilities: { a: 0.9, b: 0.1 } } } });
+      }
+      throw new Error(`unexpected fetch ${u}`);
+    }) as typeof fetch;
+    const env = { OPENROUTER_API_KEY: "k", TYPESAFE_API_KEY: "t", ENTERPRISE_API_KEY: "ent", STATS: { get: async () => null, put: async () => {} } } as unknown as Partial<Env>;
+    const big = await events(await post(env, { messages: [{ role: "user", content: "big" }] }));
+    expect(big.find((e) => e.t === "result")!.error).toBe(true);
+    expect(typesafeCalls).toBe(0);
+    // A small batch goes through as the service itself: unlimited, no public per-IP quota consulted.
+    const limiterCalls: string[] = [];
+    const spy = { idFromName: (n: string) => n, get: (n: string) => ({ fetch: async () => { limiterCalls.push(n); return Response.json({ limited: false, remaining: 1 }); } }) } as unknown as DurableObjectNamespace;
+    const small = await events(await post({ ...env, LIMITER: spy }, { messages: [{ role: "user", content: "small" }] }));
+    expect(small.find((e) => e.t === "result")!.text).toContain("a\t0.90");
+    expect(typesafeCalls).toBe(1);
+    expect(limiterCalls.filter((n) => n.startsWith("fast:"))).toEqual([]);
   });
 
   it("ends with an error event, not a broken stream, when the model is unreachable", async () => {
