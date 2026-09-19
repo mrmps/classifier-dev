@@ -144,7 +144,7 @@ describe("a batch Jev refuses as too large", () => {
     expect(out.map((result) => result.model)).toEqual(Array.from({ length: 12 }, (_, index) => `jev-${index}`));
   });
 
-  test("a fatal batch waits for in-flight work and stops dequeuing", async () => {
+  test("a fatal batch keeps the first failure, waits for in-flight work and stops dequeuing", async () => {
     let calls = 0;
     let settled = 0;
     globalThis.fetch = (async (_url, init) => {
@@ -153,6 +153,7 @@ describe("a batch Jev refuses as too large", () => {
       if (body.state[0].id === "i0") return Response.json({ error_type: "invalid_request" }, { status: 400 });
       await new Promise((resolve) => setTimeout(resolve, 10));
       settled++;
+      if (body.state[0].id === "i1") return Response.json({ error_type: "later_failure" }, { status: 401 });
       const answers = Object.fromEntries(Object.keys(body.questions).map((id) => [id, {
         choice: "bug", confidence: 0.8, probabilities: { bug: 0.8, feature: 0.1, praise: 0.1 },
       }]));

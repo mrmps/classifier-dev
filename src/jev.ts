@@ -481,7 +481,7 @@ export async function runJevBatches<T>(keys: JevKeys, prepared: JevBatch<T>[], m
           const mid = Math.ceil(batch.groups.length / 2);
           queue.push(batchFrom(batch.groups.slice(0, mid)), batchFrom(batch.groups.slice(mid)));
         } else {
-          failure = error;
+          failure ??= error;
         }
       }
     }
