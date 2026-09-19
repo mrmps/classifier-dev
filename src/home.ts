@@ -526,11 +526,20 @@ if (dock && !off()) {
       if (entries.some((e) => e.isIntersecting)) retire(false);
     }).observe(section);
   }
+  // The section's own position is the fallback for the observer: between them,
+  // the dock retires whether or not IntersectionObserver ever fires.
+  const reached = () => {
+    if (!section) return false;
+    return section.getBoundingClientRect().top < innerHeight;
+  };
   const onScroll = () => {
-    if (retired || !dock.hidden) return;
+    if (retired) return;
+    if (reached()) return retire(false);
+    if (!dock.hidden) return;
     if (scrollY > 600) {
       dock.hidden = false;
-      requestAnimationFrame(() => dock.classList.add("in"));
+      void dock.offsetHeight; // settle the layout so the transition has a start
+      dock.classList.add("in");
     }
   };
   addEventListener("scroll", onScroll, { passive: true });
