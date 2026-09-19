@@ -12,6 +12,20 @@ const fetchPage = (path: string, headers: Record<string, string> = {}) =>
 const BROWSER = { accept: "text/html,application/xhtml+xml" };
 
 describe("every answer", () => {
+  test("negotiated 404s tell caches that Accept changes the answer", async () => {
+    const res = await fetchPage("/v1/missing", { accept: "application/json" });
+    expect(res.status).toBe(404);
+    expect(res.headers.get("vary")).toContain("accept");
+  });
+
+  test("documentation variants include User-Agent in their cache key", async () => {
+    for (const path of ["/", "/developers"]) {
+      for (const agent of ["curl/8", "Mozilla/5.0", "ChatGPT-User"]) {
+        const res = await fetchPage(path, { accept: "text/html", "user-agent": agent });
+        expect(res.headers.get("vary")).toContain("user-agent");
+      }
+    }
+  });
   test("insists on HTTPS, states its type, and keeps the path to itself", async () => {
     for (const path of ["/", "/privacy", "/openapi.json", "/llms.txt"]) {
       const res = await fetchPage(path);

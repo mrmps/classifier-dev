@@ -361,7 +361,7 @@ export function productServer(classify: ClassifyFn): McpServer {
       "and review_uncertain to pull out only the answers worth a human (or your own) look. " +
       "Reach for it when reading the inputs is the expensive part: forty search results, a thousand log lines, a backlog of tickets. " +
       "Under about five items you can already see, just decide yourself. Labels are free text; descriptive names classify better. " +
-      "No key is needed. Limits per IP: 3,000 classifications/min on fast, 200/min on smart; a 429 says how long to wait. " +
+      "No key is needed. Limits per IP: 3,000 classifications/min on fast, 200/min on smart. Public smart batches must contain at most 200 texts; a 429 says how long to wait. " +
       "Docs: https://classifier.dev — the docs are also an MCP server at https://classifier.dev/mcp/docs.",
     tools,
   };
@@ -521,7 +521,7 @@ export function docsServer(docs: Doc[]): McpServer {
           notes: "Works in Node 18+, Bun, Deno, Workers and browsers (CORS is open).",
         },
         python: {
-          code: `import requests\n\nr = requests.post("https://classifier.dev/v1/classify", json=${body})\nr.raise_for_status()\nfor item in r.json()["results"]:\n    print(item${multi ? '["labels"]' : '["label"], item["confidence"]'})`,
+          code: `import json\nimport requests\n\nr = requests.post("https://classifier.dev/v1/classify", json=json.loads(${JSON.stringify(body)}))\nr.raise_for_status()\nfor item in r.json()["results"]:\n    print(item${multi ? '["labels"]' : '["label"], item["confidence"]'})`,
           notes: "requests, httpx or urllib all work; there is no SDK to install.",
         },
         cli: {
@@ -535,7 +535,7 @@ export function docsServer(docs: Doc[]): McpServer {
           notes: "Streamable HTTP, stateless, no auth. Connect it in Claude, ChatGPT or Codex: https://classifier.dev/mcp-setup",
         },
       };
-      const ex = examples[client];
+      const ex = Object.hasOwn(examples, client) ? examples[client] : undefined;
       if (!ex) throw new InvalidParams(`client must be one of ${Object.keys(examples).join(", ")}`);
       return { text: `${ex.code}\n\n${ex.notes}`, structured: { client, code: ex.code, notes: ex.notes } };
     },

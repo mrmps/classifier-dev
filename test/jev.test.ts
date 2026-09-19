@@ -79,4 +79,54 @@ describe("a batch Jev refuses as too large", () => {
     fakeJev(0);
     await expect(jevClassify("key", ["one"], labels, undefined, false)).rejects.toThrow(/max_tokens_exceeded/);
   });
+
+  test("does not accept a successful response that omits an answer", async () => {
+    globalThis.fetch = (async () => Response.json({ model: "jev-test", answers: {} })) as typeof fetch;
+    await expect(jevClassify("key", ["one"], labels, undefined, false)).rejects.toThrow(/malformed response/);
+  });
+
+  test("treats a literal JSON null response as malformed", async () => {
+    globalThis.fetch = (async () => Response.json(null)) as typeof fetch;
+    await expect(jevClassify("key", ["one"], labels, undefined, false)).rejects.toThrow(/malformed response/);
+  });
+
+  test("does not accept a missing model", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json({ answers: { i0: { choice: "bug", confidence: 0.8, probabilities: { bug: 0.8, feature: 0.1, praise: 0.1 } } } });
+    }) as typeof fetch;
+    await expect(jevClassify("key", ["one"], labels, undefined, false)).rejects.toThrow(/malformed response/);
+    expect(calls).toBe(3);
+  });
+
+  test("does not accept malformed probabilities", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json({ model: "jev-test", answers: { i0: { choice: "bug", confidence: "certain", probabilities: {} } } });
+    }) as typeof fetch;
+    await expect(jevClassify("key", ["one"], labels, undefined, false)).rejects.toThrow(/malformed response/);
+    expect(calls).toBe(3);
+  });
+
+  test("retries a transient network failure", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) throw new Error("connection reset");
+      return Response.json({
+        model: "jev-test",
+        answers: { i0: { choice: "bug", confidence: 0.8, probabilities: { bug: 0.8, feature: 0.1, praise: 0.1 } } },
+      });
+    }) as typeof fetch;
+    const out = await jevClassify("key", ["one"], labels, undefined, false);
+    expect(calls).toBe(2);
+    expect(out[0].label).toBe("bug");
+  });
+
+  test("does not copy an arbitrary upstream error type into its error", async () => {
+    globalThis.fetch = (async () => Response.json({ error_type: "caller secret body" }, { status: 400 })) as typeof fetch;
+    await expect(jevClassify("key", ["one"], labels, undefined, false)).rejects.toThrow(/typesafe 400: upstream failure/);
+  });
 });

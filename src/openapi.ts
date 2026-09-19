@@ -485,7 +485,7 @@ export const OPENAPI = {
                   },
                 },
                 batch: {
-                  summary: "Up to 1,000 inputs, smart tier",
+                  summary: "Smart batch (up to 200 inputs without a partner key)",
                   value: {
                     inputs: ["refund never came", "love this app"],
                     labels: ["billing", "praise"],
@@ -708,7 +708,7 @@ export const OPENAPI = {
             type: "array",
             items: { type: "string" },
             maxItems: 1000,
-            description: "Up to 1,000 texts classified in one call, results in the same order.",
+            description: "Up to 1,000 texts classified in one call, results in the same order. Public smart requests accept at most 200 so the batch fits its per-minute quota.",
           },
           labels: {
             type: "array",

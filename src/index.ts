@@ -222,7 +222,7 @@ const API_VERSION = "v1";
 const markdown = (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
     status,
-    headers: { "content-type": "text/markdown; charset=utf-8", vary: "accept", ...CORS, ...SECURITY, ...extra },
+    headers: { "content-type": "text/markdown; charset=utf-8", vary: "accept, user-agent", ...CORS, ...SECURITY, ...extra },
   });
 
 /** RFC 8288 Link headers on the pages agents land on, so discovery needs no parsing. */
@@ -273,7 +273,7 @@ function notFound(req: Request, origin: string) {
     );
   }
   if (/\bapplication\/json\b/.test(accept) || req.method !== "GET") {
-    return json({ error: "Not found. The API is POST /v1/classify, GET /{labels}/{text} or GET /?labels=a,b&text=...", code: "not_found", see: pointers }, 404);
+    return json({ error: "Not found. The API is POST /v1/classify, GET /{labels}/{text} or GET /?labels=a,b&text=...", code: "not_found", see: pointers }, 404, { vary: "accept" });
   }
   return markdown(
     `# Not found\n\nThere is nothing at this path. The API is \`POST ${origin}/v1/classify\`, \`GET ${origin}/{labels}/{text}\` or \`GET ${origin}/?labels=a,b&text=...\`.\n\n` +
@@ -377,8 +377,8 @@ const html = async (body: string, status = 200, extra: Record<string, string> = 
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=300",
-      // The plain text and the page differ by Accept, so caches must vary on it.
-      vary: "accept",
+      // Representations depend on Accept and agent-specific User-Agent handling.
+      vary: "accept, user-agent",
       "content-security-policy": await pagePolicy(body),
       ...CORS,
       ...SECURITY,
@@ -424,12 +424,16 @@ function buildMultiPrompt(
     .join("\n");
 }
 
-/** Pull category numbers out of a free-text answer, in the label's own order. */
-function parseNumbers(answer: string, n: number, max?: number): number[] {
+/** Parse the exact number list the prompt asks for; prose is an invalid answer. */
+function parseNumbers(answer: string, n: number, max?: number): number[] | null {
+  const text = answer.trim();
+  if (/^none$/i.test(text)) return [];
+  if (!/^\d+(?:\s*,\s*\d+)*$/.test(text)) return null;
   const seen = new Set<number>();
-  for (const m of answer.matchAll(/\d+/g)) {
-    const v = Number.parseInt(m[0], 10);
-    if (v >= 1 && v <= n) seen.add(v);
+  for (const part of text.split(",")) {
+    const v = Number.parseInt(part, 10);
+    if (v < 1 || v > n) return null;
+    seen.add(v);
   }
   const picked = [...seen].sort((a, b) => a - b);
   return max && picked.length > max ? picked.slice(0, max) : picked;
@@ -447,14 +451,18 @@ function buildPrompt(labels: string[], instructions?: string) {
 }
 
 function scoresFrom(top: { token: string; logprob: number }[] | undefined, n: number) {
-  if (!top?.length) return null;
+  if (!Array.isArray(top) || !top.length) return null;
   const valid = LETTERS.slice(0, n);
   const p: Record<string, number> = Object.fromEntries(valid.map((l) => [l, 0]));
   let total = 0;
   for (const t of top) {
-    const c = t.token.trim().toUpperCase()[0];
+    if (!t || typeof t !== "object") continue;
+    const token = (t as { token?: unknown }).token;
+    const logprob = (t as { logprob?: unknown }).logprob;
+    if (typeof token !== "string" || typeof logprob !== "number" || !Number.isFinite(logprob) || logprob > 0) continue;
+    const c = token.trim().toUpperCase()[0];
     if (valid.includes(c)) {
-      const e = Math.exp(t.logprob);
+      const e = Math.exp(logprob);
       p[c] += e;
       total += e;
     }
@@ -466,13 +474,42 @@ function scoresFrom(top: { token: string; logprob: number }[] | undefined, n: nu
 
 function parseLetter(s: string, n: number) {
   const valid = LETTERS.slice(0, n);
-  const u = (s ?? "").toUpperCase();
-  for (let i = u.length - 1; i >= 0; i--) if (valid.includes(u[i])) return u[i];
-  return null;
+  const match = (s ?? "").match(/^\s*([A-Z])\s*[.!?)]?\s*$/i);
+  const letter = match?.[1]?.toUpperCase();
+  return letter && valid.includes(letter) ? letter : null;
 }
 
 type ModelCfg = { model: string; provider?: string; maxTokens: number; reasoning: boolean };
 type MultiOpts = { max?: number; strict?: boolean };
+type OpenRouterChoice = {
+  message?: { content?: unknown };
+  logprobs?: { content?: { top_logprobs?: { token: string; logprob: number }[] }[] };
+};
+type OpenRouterPayload = {
+  error?: unknown;
+  choices?: OpenRouterChoice[];
+  usage?: { cost?: number };
+};
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function errorKind(value: unknown) {
+  const error = recordValue(value);
+  const raw = error ? (typeof error.code === "string" ? error.code : typeof error.type === "string" ? error.type : "") : "";
+  const kind = raw.toLowerCase();
+  if (kind.includes("rate") || kind.includes("429")) return "rate_limit";
+  if (kind.includes("timeout") || kind.includes("timed_out")) return "timeout";
+  if (kind.includes("overload") || kind.includes("capacity") || kind.includes("unavailable")) return "overload";
+  return "provider_error";
+}
+
+function retryableModelFailure(status: number, malformedSuccess: boolean) {
+  return malformedSuccess || status === 408 || status === 425 || status === 429 || status >= 500;
+}
 
 async function callModel(
   env: Env,
@@ -523,33 +560,44 @@ async function callModel(
   }
 
   const started = Date.now();
-  let last = "";
+  let last = "upstream failure";
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-        "content-type": "application/json",
-        "http-referer": "https://classifier.dev",
-        "x-title": "classifier.dev",
-      },
-      body: JSON.stringify(body),
-    });
-    const payload = (await res.json()) as {
-      error?: { message?: string };
-      choices?: { message?: { content?: string }; logprobs?: { content?: { top_logprobs?: { token: string; logprob: number }[] }[] } }[];
-      usage?: { cost?: number };
-    };
-    if (res.ok && !payload.error) {
+    let res: Response;
+    try {
+      res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+          "content-type": "application/json",
+          "http-referer": "https://classifier.dev",
+          "x-title": "classifier.dev",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(cfg.reasoning ? 60_000 : 15_000),
+      });
+    } catch (e) {
+      const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+      last = timeout ? "upstream timeout" : "upstream network failure";
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
+      continue;
+    }
+    const parsed = await res.json().catch(() => null);
+    const payload = recordValue(parsed) as OpenRouterPayload | null;
+    const choice = payload?.choices?.[0];
+    const content = typeof choice?.message?.content === "string" ? choice.message.content : null;
+    const malformed = !payload || !Array.isArray(payload.choices) || !choice || content === null;
+    const providerError = !!payload?.error;
+    if (res.ok && !providerError && !malformed) {
       // Charged only for a call that answered; a failed attempt that falls
       // through to the next model in the chain is not billed here.
       addUsd(meter, payload.usage?.cost);
-      const choice = payload.choices?.[0];
       if (multi) {
-        const answer = choice?.message?.content ?? "";
-        const picked = /\bnone\b/i.test(answer) && !/\d/.test(answer)
-          ? []
-          : parseNumbers(answer, labels.length, multi.max);
+        const picked = parseNumbers(content, labels.length, multi.max);
+        if (!picked) {
+          last = "upstream malformed_response";
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
+          continue;
+        }
         return {
           label: labels[picked[0] - 1] ?? "",
           labels: picked.map((n) => labels[n - 1]),
@@ -560,7 +608,12 @@ async function callModel(
           model: cfg.model,
         };
       }
-      const letter = parseLetter(choice?.message?.content ?? "", labels.length);
+      const letter = parseLetter(content, labels.length);
+      if (!letter) {
+        last = "upstream malformed_response";
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
+        continue;
+      }
       const raw = scoresFrom(choice?.logprobs?.content?.[0]?.top_logprobs, labels.length);
       const idx = letter ? LETTERS.indexOf(letter) : -1;
       const label = idx >= 0 && idx < labels.length ? labels[idx] : labels[0];
@@ -584,11 +637,12 @@ async function callModel(
         model: cfg.model,
       };
     }
-    last = payload.error?.message ?? `upstream ${res.status}`;
-    if (!/429|rate|timeout|50\d|Provider returned error|overload/i.test(last)) break;
+    const kind = providerError ? errorKind(payload?.error) : malformed ? "malformed_response" : "provider_error";
+    last = `upstream ${res.status}: ${kind}`;
+    if (!retryableModelFailure(res.status, res.ok && (providerError || malformed)) || attempt >= 2) break;
     await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
   }
-  throw new Error(last || "upstream failure");
+  throw new Error(last);
 }
 
 /** Single-label and multi-label can run different models; smart shares one chain. */
@@ -678,7 +732,7 @@ async function classifyOne(
       }, meter);
       const keep = new Set(verified.labels ?? []);
       const narrowed = picked.filter((l) => keep.has(l));
-      if (narrowed.length) picked = narrowed;
+      picked = narrowed;
     } catch {
       // Verification is an improvement, not a requirement; keep the sweep.
     }
@@ -735,6 +789,7 @@ async function llmClassifyMany(
       while (next < inputs.length) {
         const i = next++;
         const r = await classifyOne(env, inputs[i], labels, tier, instructions, asMulti, meter);
+        if (!multi && !r.label) throw new Error("upstream malformed_response");
         out[i] = multi ? r : { ...r, labels: undefined };
       }
     }),
@@ -869,7 +924,7 @@ function upstreamReason(msg: string): ErrorCode {
     const code = m.match(/typesafe (\d{3})/);
     return code ? `typesafe_${Number(code[1])}` : "typesafe";
   }
-  const openrouter = m.match(/^upstream (\d{3})$/);
+  const openrouter = m.match(/\bupstream (\d{3})(?:\b|:)/);
   if (openrouter) return `openrouter_${Number(openrouter[1])}`;
   if (m.includes("all models failed")) return "chain_exhausted";
   if (m.includes("batch classification is temporarily unavailable")) return "batch_unavailable";
@@ -1103,16 +1158,12 @@ const worker = {
     // section at a time can walk it with a cursor instead of reading 30k chars.
     if (req.method === "GET" && path === "v1/docs") {
       const all = docSections();
-      const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 10, 1), 50);
+      const limit = Math.min(Math.max(Math.trunc(Number(url.searchParams.get("limit")) || 10), 1), 50);
       const cursor = url.searchParams.get("cursor") ?? "";
-      let start = 0;
-      if (cursor) {
-        start = all.findIndex((s) => s.id === cursor);
-        if (start < 0) return json({ error: `unknown cursor "${cursor}"; omit it to start from the first section`, code: "bad_cursor" }, 400);
-      }
       const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
       const pool = q ? all.filter((s) => `${s.doc} ${s.heading} ${s.text}`.toLowerCase().includes(q)) : all;
-      const from = q ? Math.max(0, pool.findIndex((s) => s.id === cursor)) : start;
+      const from = cursor ? pool.findIndex((s) => s.id === cursor) : 0;
+      if (from < 0) return json({ error: "cursor does not belong to this documentation filter; omit it to start again", code: "bad_cursor" }, 400);
       const page = pool.slice(from, from + limit);
       const next = pool[from + limit]?.id ?? null;
       return json(
@@ -1147,7 +1198,7 @@ const worker = {
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
       if (pageWantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey }));
-      return text(pg.doc, 200, { vary: "accept", ...CACHE_HOUR });
+      return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
     }
 
     // ---- agent feedback, to the feedback.now protocol ----------------------
@@ -1157,7 +1208,6 @@ const worker = {
     if (path === "api/v1/policy") return json(feedback.POLICY);
 
     if (path.startsWith("api/v1/")) {
-      const bearer = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
       const readBody = async () => {
         try {
           return await readJsonObject(req);
@@ -1167,7 +1217,7 @@ const worker = {
       };
       try {
         if (path === "api/v1/feedback" && req.method === "POST") {
-          const accepted = await feedback.submitFeedback(env, ctx, await readBody(), ip, bearer);
+          const accepted = await feedback.submitFeedback(env, ctx, await readBody(), ip);
           const rid = (accepted as { receipt?: { id?: string } }).receipt?.id;
           return json(accepted, 202, rid ? { location: `${origin}/api/v1/receipts/${rid}` } : {});
         }
@@ -1265,7 +1315,7 @@ const worker = {
         return html(unfurlHtml(), 200, { "cache-control": "public, max-age=3600", ...link });
       }
       if (wantsHtml) return html(homeHtml(), 200, link);
-      return text(DOCS, 200, { vary: "accept", ...link });
+      return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
       if (url.searchParams.get("format") === "json" || (/\bapplication\/json\b/.test(accept) && !wantsHtml)) {
@@ -1423,7 +1473,7 @@ const worker = {
     // How the labels read back in an error: enough to recognise, never the whole
     // text. Anything can be in the list at this point, so it is stringified first.
     const shown = (ls: unknown[]) =>
-      ls.slice(0, 5).map((v) => { const l = String(v); return `"${l.length > 40 ? l.slice(0, 37) + "..." : l}"`; }).join(", ") + (ls.length > 5 ? ", ..." : "");
+      ls.slice(0, 5).map((v) => { const l = typeof v === "string" ? v : JSON.stringify(v) ?? ""; return `"${l.length > 40 ? l.slice(0, 37) + "..." : l}"`; }).join(", ") + (ls.length > 5 ? ", ..." : "");
     /** true, "true", 1 and "1" all mean yes; a boolean field should not fail silently on a string. */
     const truthy = (v: unknown) => v === true || v === 1 || (typeof v === "string" && /^(1|true|yes|on)$/i.test(v.trim()));
 
@@ -1498,6 +1548,8 @@ const worker = {
     if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be at most ${MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
 
     const rpm = TIERS[tier].rpm;
+    // Waiting cannot make a batch larger than the entire window fit.
+    if (!enterprise && inputs.length > rpm) return fail(`Maximum ${rpm} inputs per public ${tier} request; split the batch to fit the per-minute quota`, 400, "too_many_inputs");
     const gate = enterprise
       ? { limited: false, remaining: -1 }
       : await limited(env, tier, ip, inputs.length);

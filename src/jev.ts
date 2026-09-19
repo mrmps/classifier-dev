@@ -32,6 +32,7 @@ const MODEL = "jev-latest";
 const TOKEN_BUDGET = 48_000;
 const MAX_ITEMS = 1000;
 const CONCURRENCY = 8;
+const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
  * Tokens in a string, estimated. ASCII runs at about 3.5 characters a token;
@@ -74,6 +75,41 @@ type Question =
   | { type: "noul"; instructions: string };
 
 type Packed = { start: number; items: { id: string; text: string }[]; questions: Record<string, Question> };
+type JevBody = { state: { id: string; text: string }[]; model: string; questions: Record<string, Question> };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function safeErrorType(value: unknown) {
+  return typeof value === "string" && /^[a-zA-Z0-9_:-]{1,80}$/.test(value) ? value : "";
+}
+
+/** Do not turn a partial or malformed upstream response into a confident answer. */
+function validAnswer(answer: unknown, question: Question): boolean {
+  if (!isRecord(answer)) return false;
+  if (question.type === "noul") return isProbability(answer.noul);
+  if (typeof answer.choice !== "string" || !isProbability(answer.confidence) || !isRecord(answer.probabilities)) return false;
+  const probabilities = answer.probabilities;
+  if (!Object.prototype.hasOwnProperty.call(question.criteria, answer.choice)) return false;
+  return Object.keys(question.criteria).every(
+    (label) => Object.prototype.hasOwnProperty.call(probabilities, label) && isProbability(probabilities[label]),
+  );
+}
+
+function validPayload(payload: unknown, body: JevBody): payload is {
+  model: string;
+  answers: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>;
+  usage?: { input_tokens?: number };
+} {
+  if (!isRecord(payload) || typeof payload.model !== "string" || !payload.model || !isRecord(payload.answers)) return false;
+  const answers = payload.answers;
+  return Object.entries(body.questions).every(([id, question]) => validAnswer(answers[id], question));
+}
 
 function questionsFor(id: string, labels: string[], instructions: string | undefined, multi: boolean) {
   const extra = instructions ? ` ${instructions.trim()}` : "";
@@ -123,33 +159,46 @@ export function pack(inputs: string[], labels: string[], instructions: string | 
   return out;
 }
 
-async function post(key: string, body: unknown, meter?: Meter) {
+async function post(key: string, body: JevBody, meter?: Meter) {
   let last: Error = new Error("typesafe: no attempt made");
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(API, {
-      method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const payload = (await res.json().catch(() => ({}))) as {
+    let res: Response;
+    try {
+      res = await fetch(API, {
+        method: "POST",
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
+    } catch (e) {
+      const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+      last = new JevError(`typesafe ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
+      continue;
+    }
+    const rawPayload = await res.json().catch(() => null);
+    const payload = (isRecord(rawPayload) ? rawPayload : {}) as {
       model?: string;
       answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>;
       usage?: { input_tokens?: number };
       detail?: unknown;
       error_type?: string;
+      error?: unknown;
     };
-    if (res.ok && payload.answers) {
+    if (res.ok && !payload.error && validPayload(payload, body)) {
       // Only a call that answered is billed; a retried 429 is not.
       addJevCost(meter, payload.usage?.input_tokens);
-      return payload as Required<Pick<typeof payload, "model" | "answers">>;
+      return payload;
     }
+    const errorType = res.ok ? "malformed_response" : safeErrorType(payload.error_type);
     last = new JevError(
-      `typesafe ${res.status}: ${JSON.stringify(payload.detail ?? payload).slice(0, 200)}`,
+      `typesafe ${res.status}: ${res.ok ? "malformed response" : errorType || "upstream failure"}`,
       res.status,
-      typeof payload.error_type === "string" ? payload.error_type : "",
+      errorType,
     );
     // 429 and 529 are the documented "back off and retry" statuses.
-    if (res.status !== 429 && res.status !== 529 && res.status < 500) break;
+    const retryable = res.status === 408 || res.status === 425 || res.status === 429 || res.status === 529 || res.status >= 500 || res.ok;
+    if (!retryable || attempt >= 2) break;
     await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
   }
   throw last;

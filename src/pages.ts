@@ -306,7 +306,7 @@ FREE TIER
   Price                    $0
   Fast tier                3,000 classifications a minute, 20,000 a day, per IP
   Smart tier               200 a minute, 2,000 a day, per IP
-  Inputs per request       up to 1,000
+  Inputs per request       up to 1,000 fast; 200 smart
   Labels per request       2 to 100
   Sign-up                  none
   Support                  GitHub issues, https://github.com/mrmps/classifier-dev/issues

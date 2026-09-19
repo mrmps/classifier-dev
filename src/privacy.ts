@@ -74,9 +74,13 @@ export async function callerId(env: PrivacyEnv, ip: string): Promise<string> {
 /** Order and case never distinguished two classifiers, so neither does this. */
 export function normalizeLabels(labels: string[]): string {
   return [...labels]
-    .map((l) => String(l).toLowerCase().trim())
+    .filter((l) => typeof l === "string")
+    .map((l) => l.toLowerCase().trim())
     .filter(Boolean)
     .sort()
+    // Keep existing fingerprints for ordinary labels; escape delimiter-bearing
+    // labels so ["a|b", "c"] and ["a", "b|c"] are different classifiers.
+    .map((l) => l.replace(/\\/g, "\\\\").replace(/\|/g, "\\|"))
     .join("|");
 }
 

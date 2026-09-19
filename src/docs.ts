@@ -234,7 +234,9 @@ LIMITS
   Limits are counted per IP address in classifications, not requests, so a
   batch of a thousand inputs spends a thousand of them. The fast tier allows
   3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
-  per day.
+  per day. A batch must fit the remaining quota in full. Public smart
+  requests accept at most 200 inputs; larger batches return 400 so callers
+  can split them. Operator and partner keys retain the 1,000-input ceiling.
 
   Each input is capped at 32,000 characters, and a request may carry up to a
   thousand inputs. Every classification response carries RateLimit-Limit and
