@@ -41,13 +41,14 @@ function mockApi() {
   return new Promise((resolve) => server.listen(0, () => resolve({ server, requests, url: `http://127.0.0.1:${server.address().port}` })));
 }
 
-function run(args, stdin = "", env = {}) {
+function run(args, stdin = "", env = {}, timeoutMs = 0) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [BIN, ...args], { env: { ...process.env, CLASSIFY_NO_UPDATE_CHECK: "1", ...env } });
+    const timer = timeoutMs ? setTimeout(() => p.kill(), timeoutMs) : null;
     let out = "", err = "";
     p.stdout.on("data", (c) => (out += c));
     p.stderr.on("data", (c) => (err += c));
-    p.on("close", (code) => resolve({ code, out, err }));
+    p.on("close", (code) => { clearTimeout(timer); resolve({ code, out, err }); });
     p.stdin.end(stdin);
   });
 }
@@ -335,5 +336,57 @@ test("retries are announced on stderr, and a 5xx is retried", async () => {
     assert.equal(r.code, 0, r.err);
     assert.match(r.err, /upstream down, retrying in 0\.5s \(2\/5\)/);
     assert.equal(calls, 2);
+  } finally { server.close(); }
+});
+
+test("malformed NDJSON fails before sending any input to the API", async () => {
+  const { server, requests, url } = await mockApi();
+  try {
+    for (const tail of ["broken json", "42", "null"]) {
+      const r = await run(["bug,praise", "--endpoint", url, "--field", "title", "--id", "id"],
+        '{"title":"The app crashes","id":7}\n' + tail);
+      assert.equal(r.code, 1, `accepted malformed NDJSON: ${tail}`);
+      assert.equal(r.out, "");
+      assert.match(r.err, /could not read input/);
+    }
+    assert.equal(requests.length, 0, "invalid input never reaches the classifier");
+  } finally { server.close(); }
+});
+
+test("daily quota exhaustion exits immediately instead of sleeping for a day", async () => {
+  let calls = 0;
+  const server = createServer((req, res) => {
+    calls++;
+    req.resume();
+    res.writeHead(429, { "content-type": "application/json", "retry-after": "86400" });
+    res.end(JSON.stringify({ code: "rate_limit_day", error: "Daily limit reached: 20000 fast classifications per IP per day." }));
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const r = await run(["bug,praise", "The app crashes", "--endpoint", `http://127.0.0.1:${server.address().port}`], "", {}, 1500);
+    assert.equal(r.code, 1, r.err);
+    assert.equal(r.out, "");
+    assert.match(r.err, /Daily limit reached/);
+    assert.doesNotMatch(r.err, /retrying/);
+    assert.equal(calls, 1);
+  } finally { server.close(); }
+});
+
+test("exhausted retries exit without sleeping after the final response", async () => {
+  let calls = 0;
+  const server = createServer((req, res) => {
+    calls++;
+    req.resume();
+    res.writeHead(429, { "content-type": "application/json", "retry-after": calls === 5 ? "60" : "0.001" });
+    res.end(JSON.stringify({ code: "rate_limit_minute", error: "Minute limit reached" }));
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const r = await run(["bug,praise", "The app crashes", "--endpoint", `http://127.0.0.1:${server.address().port}`], "", {}, 1500);
+    assert.equal(r.code, 1, r.err);
+    assert.equal(calls, 5);
+    assert.equal((r.err.match(/retrying/g) || []).length, 4);
+    assert.match(r.err, /Minute limit reached/);
+    assert.equal(r.out, "");
   } finally { server.close(); }
 });

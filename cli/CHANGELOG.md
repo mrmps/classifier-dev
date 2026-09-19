@@ -3,8 +3,15 @@
 All notable changes to the `classify` CLI. Semver; the API it talks to is
 versioned separately at https://classifier.dev.
 
-## Unreleased
+## 0.1.2 — 2026-09-19
 
+- A daily quota error exits immediately with the API's explanation instead of
+  sleeping for 24 hours. Minute limits still retry after the server's delay.
+- After the last failed attempt, the error is reported immediately instead of
+  silently waiting through one more retry delay.
+- Once the first line identifies NDJSON, malformed later lines fail before any
+  request is sent; they no longer turn the whole file into plain text and lose
+  the selected fields and IDs.
 - An empty pipe on stdin prints nothing and exits 0, instead of the help text
   on stdout with exit 2: `grep ... | classify a,b | sort` stays empty when the
   grep matched nothing. The help still appears when stdin is a terminal.
