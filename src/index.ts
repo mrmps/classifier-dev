@@ -1307,7 +1307,7 @@ const worker = {
         }
         const started = Date.now();
         try {
-          const outcome = await skills.submit(env, ctx, body, ip, origin, meter);
+          const outcome = await skills.submit(env, ctx, body, ip, origin, meter, enterprise);
           const ms = Date.now() - started;
           if (outcome.accepted) {
             return json({ accepted: true, url: outcome.url, raw: `${outcome.url}.md`, skill: skills.skillJson(outcome.skill, origin), ms }, 201, { location: outcome.url, "cache-control": "no-store" });

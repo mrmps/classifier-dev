@@ -15,6 +15,7 @@ on:
       - "AGENTS.md"
       - "LICENSE"
       - "eval/**"
+      - "skills/**"
       - ".github/workflows/publish-cli.yml"
   workflow_dispatch:
 

@@ -441,7 +441,12 @@ async function freeSlug(env: Env, name: string) {
 
 // ---------------------------------------------------------------- the pipeline
 
-export async function submit(env: Env, ctx: ExecutionContext, body: Record<string, unknown>, ip: string, origin: string, meter?: Meter): Promise<Outcome> {
+/**
+ * `unmetered` is a caller on a partner key: the hourly and daily budgets are
+ * for anonymous traffic, and a key that lifts the classifier's limits lifts
+ * these too. The global cap still bounds what a day of reviews can cost.
+ */
+export async function submit(env: Env, ctx: ExecutionContext, body: Record<string, unknown>, ip: string, origin: string, meter?: Meter, unmetered = false): Promise<Outcome> {
   const sub = parseSubmission(body);
 
   // 1. The cleaners. Free, deterministic, and the end of the road for a block.
@@ -454,7 +459,7 @@ export async function submit(env: Env, ctx: ExecutionContext, body: Record<strin
   const seen = await env.STATS?.get(hashKey(hash)).catch(() => null);
   if (seen) throw new Duplicate(seen);
 
-  const b = await budget(env, ip);
+  const b = unmetered ? { over: false as const } : await budget(env, ip);
   if (b.over) throw new OverBudget(b.scope, b.resetIn);
 
   // 2. The decision model, which cannot be asked nicely.
