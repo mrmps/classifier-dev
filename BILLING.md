@@ -41,8 +41,16 @@ SETUP
    https://classifier.dev/v1/billing/callback; for local development add the
    callback under your BILLING_ORIGIN (http://localhost:8787/v1/billing/callback
    by default).
-6. Merge/deploy the Worker with the BILLING binding and v2-billing migration
+6. Configure STRIPE_WEBHOOK_SECRET and STRIPE_PRO_PRODUCT_ID using Wrangler.
+   The signing secret belongs to a Stripe endpoint at
+   https://classifier.dev/v1/billing/stripe-webhook listening to invoice.paid.
+   The product ID limits notifications to Pro on the shared Stripe account.
+   Notifications use the existing RESEND_API_KEY and private REPORT_TO setting.
+   No Stripe API key is needed. Missing webhook configuration returns 503;
+   test-mode events are accepted and ignored.
+7. Merge/deploy the Worker with the BILLING binding and v2-billing migration
    from wrangler.example.toml. Secrets are kept outside git and survive deploys.
+   Notifications add no binding and no migration: they reuse BILLING.
 
 LOCAL DEVELOPMENT
 
@@ -64,6 +72,17 @@ returns to GET /v1/billing/callback, which establishes the session cookie and
 sends the browser back to /pro. Session cookies are HttpOnly, Secure and
 scoped to the billing routes; lifetime and rotation follow the backend's WorkOS
 session configuration. Mutations require an exact same-origin Origin header.
+
+POST /v1/billing/stripe-webhook is Stripe's, not a browser's: it carries no
+cookie and no Origin header, so it skips the session and Origin guards while
+still being served only on the canonical origin. It verifies the Stripe
+signature over the raw body — HMAC-SHA256 over `<t>.<body>`, every v1 in the
+header tried so a secret rotation keeps working, a 300-second tolerance in both
+directions — before parsing anything, and reads at most 256 KiB. An invalid,
+missing, stale or future signature is 400; an oversized body 413; the wrong
+method 405; unset configuration or a storage failure 503, which is Stripe's cue
+to retry. Valid events it ignores are 200. Nothing is logged and no error says
+why beyond a generic message.
 
 Authenticated browser routes:
   GET  /v1/billing/account   email, active, plan, hasKey
@@ -92,6 +111,39 @@ email; neither receives classification content.
 Classification analytics continue using the existing daily caller fingerprints;
 no billing customer ID or email is included in analytics or the newsletter DB.
 
+OPERATOR NOTIFICATIONS
+
+Completed WorkOS sign-ins and new paid Pro subscriptions email REPORT_TO.
+The internal sender is classifier.dev <onboarding@resend.dev>; replies go to
+contact@classifier.dev. Messages contain billing identity and provider IDs,
+plus the amount and payment time for subscriptions. Classification traffic,
+labels and API keys are never included.
+
+A sign-in queues once per WorkOS session after the callback resolves an
+account. Failed callbacks and refused first-time account links send nothing;
+refreshes and account reads do not notify. The callback waits for durable
+storage, never for Resend. A storage failure fails the callback so the user can
+sign in again; email-provider failures are retried independently.
+
+Paid notifications require a live invoice.paid event, status paid, a positive
+amount, billing_reason subscription_create, and a positive line for the Pro
+product. Renewals, zero invoices, unpaid events and other products are ignored.
+Asynchronous payments notify when the paid invoice arrives. Both modern
+parent/pricing fields and legacy subscription/price fields are supported.
+The payment timestamp comes from paid_at, falling back to event.created.
+
+One BILLING instance per session or subscription stores its outbox and alarm
+atomically. The full email payload, including the private recipient, is frozen
+in billing storage before delivery and discarded after Resend accepts it.
+A retry alarm is persisted before each attempt, so a crash between provider
+acceptance and the sent marker can retry safely. Failures, including missing
+email configuration, back off from 30 seconds to one hour across restarts.
+The sent marker remains to suppress later duplicate events.
+
+Retries use the same Resend idempotency key and body. Resend retains keys for
+24 hours: an ambiguous acceptance followed by a retry after that window can
+produce a duplicate. A known successful send remains deduplicated indefinitely.
+
 Only an active, non-past-due Pro subscription grants access. Scheduled
 cancellation remains active through expires_at. Positive access is cached for
 at most 60 seconds, bounded by any known expiry; inactive access for 5 seconds.
@@ -101,6 +153,15 @@ Anonymous requests continue to work during billing-provider outages.
 VERIFICATION
 
 Run `npm test`, `npx tsc --noEmit`, and `cd cli && node --test`.
+The notification tests sign webhook bodies with real HMAC and drive the outbox
+through fixture storage and alarms; they send no mail and touch no account.
+Production verification on 2026-09-19 confirmed inbox receipt for a fresh
+WorkOS sign-in and the existing paid $20 Pro invoice. A locally signed replay
+of that real invoice received 200; repeating it sent no duplicate email.
+The live Stripe invoice.paid endpoint is enabled. A Stripe-originated replay
+remains unverified because the CLI key lacks webhook_write and accessing the
+existing full-access key requires a fresh phone verification. No new payment
+was made for this check.
 In sandbox, verify WorkOS sign-in, checkout for $20/month, key creation, REST
 and MCP headers, key replacement, portal cancellation and expiry. Confirm
 that repeated checkout requests reuse the pending checkout rather than creating
