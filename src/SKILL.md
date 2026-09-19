@@ -54,9 +54,27 @@ Each result also names the model that answered it. At the batch level,
 `modelsUsed` lists every serving model and `model` is `mixed` when more than one
 model answered the batch.
 
-From a shell, the same thing is `npm i -g classifier-dev` then
-`classify relevant,"not relevant" < snippets.txt` — one `label\tconfidence\ttext`
-line per input; `--review 0.7` prints only the unsure ones; `--help` has the rest.
+## From a shell
+
+When the text is already in files, or the answer feeds another command, the CLI
+saves you writing the batching and the JSON:
+
+```
+npm i -g classifier-dev
+
+classify bug,feature,praise < feedback.txt          # label<TAB>confidence<TAB>text, input order
+classify relevant,"not relevant" --review 0.7 < snippets.txt   # only the unsure ones
+classify db,web,ml --count < titles.txt             # a histogram instead of rows
+classify a,b --json < items.txt | jq -c 'select(.confidence < 0.8)'
+```
+
+It batches a thousand inputs per request, four requests at a time, and streams
+rows as they land, so `| head` on a large file returns at once. Retries 429 and
+5xx with backoff. `--help` has the rest.
+
+Reach for the HTTP API instead when the text is already in memory, when you
+need the full score map per item, or when you are inside a language runtime
+where one `fetch` is simpler than a subprocess.
 
 ## Parameters
 

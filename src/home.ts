@@ -14,6 +14,7 @@ const HOME_CSS = `
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
+.k{color:var(--blue)}
 .block{position:relative}
 .block>.row{margin-top:4px}
 h2{scroll-margin-top:24px}
@@ -173,6 +174,25 @@ export function homeHtml(): string {
       cls: "dim",
       icon: COPY_ICON,
       attrs: ' data-copy="1" data-text="curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone"',
+    })}</p></div>
+  </section>
+
+  <section>
+    <h2><span class="syn">## </span>Install the CLI</h2>
+    <div class="block"><pre>npm i -g classifier-dev</pre>
+    <p class="row">${btn("copy", {
+      cls: "dim",
+      icon: COPY_ICON,
+      attrs: ' data-copy="1" data-text="npm i -g classifier-dev"',
+    })}</p></div>
+    <p>Then sort a file, one <span class="k">label &#8677; confidence &#8677; text</span> line per
+      input, in input order — a thousand lines a request, and rows appear as they land:</p>
+    <div class="block"><pre>classify bug,feature,praise &lt; feedback.txt
+classify relevant,"not relevant" --review 0.7 &lt; snippets.txt   <span class="out"># only the unsure ones</span></pre>
+    <p class="row">${btn("copy", {
+      cls: "dim",
+      icon: COPY_ICON,
+      attrs: ' data-copy="1" data-text="classify bug,feature,praise &lt; feedback.txt"',
     })}</p></div>
   </section>
 

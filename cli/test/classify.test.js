@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseInput, formatRows, formatCount, newer } from "../classify.js";
+import { parseInput, formatRows, formatRow, formatCount, newer, classifyAll, makeProgress } from "../classify.js";
 
 const BIN = fileURLToPath(new URL("../classify.js", import.meta.url));
 
@@ -135,3 +135,67 @@ if (process.env.CLASSIFY_E2E) {
     assert.equal(r.out, "spam\n");
   });
 }
+
+
+// ---------------------------------------------------------------- streaming
+
+test("classifyAll hands results to onReady in input order", async () => {
+  const { server, url } = await mockApi();
+  try {
+    // Three batches, finishing out of order at concurrency 4; the caller must
+    // still see 0,1,2,... because that is what every downstream tool assumes.
+    const items = Array.from({ length: 25 }, (_, i) => ({ text: `item ${i} alpha` }));
+    const seen = [];
+    const out = await classifyAll(
+      { endpoint: url, labels: ["alpha", "beta"] },
+      items,
+      (i) => seen.push(i),
+    );
+    assert.deepEqual(seen, items.map((_, i) => i));
+    assert.equal(out.length, items.length);
+  } finally {
+    server.close();
+  }
+});
+
+test("classifyAll reports progress as batches land", async () => {
+  const { server, url } = await mockApi();
+  try {
+    const items = Array.from({ length: 10 }, (_, i) => ({ text: `item ${i} alpha` }));
+    const seen = [];
+    await classifyAll({ endpoint: url, labels: ["alpha", "beta"] }, items, null, (done, total) =>
+      seen.push([done, total]),
+    );
+    assert.ok(seen.length >= 1);
+    assert.deepEqual(seen.at(-1), [items.length, items.length]);
+  } finally {
+    server.close();
+  }
+});
+
+test("formatRow returns null when --review filters the row out", () => {
+  const o = { review: 0.5, multi: false, json: false, quiet: false, labels: ["a", "b"] };
+  const confident = formatRow(o, { text: "x" }, { label: "a", confidence: 0.9 }, 0);
+  const unsure = formatRow(o, { text: "y" }, { label: "a", confidence: 0.2 }, 1);
+  assert.equal(confident, null, "a confident row is not under review");
+  assert.ok(unsure && unsure.startsWith("a\t0.20"), "an unsure row is kept");
+});
+
+test("formatRows and formatRow agree", () => {
+  const o = { review: null, multi: false, json: false, quiet: false, labels: ["a", "b"] };
+  const items = [{ text: "one" }, { text: "two" }];
+  const results = [{ label: "a", confidence: 1 }, { label: "b", confidence: 0.4 }];
+  assert.deepEqual(
+    formatRows(o, items, results),
+    items.map((it, i) => formatRow(o, it, results[i], i)),
+  );
+});
+
+test("progress stays silent when disabled", () => {
+  const p = makeProgress(false);
+  const writes = [];
+  const real = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (c) => { writes.push(c); return true; };
+  try { p.update(1, 2); p.clear(); } finally { process.stderr.write = real; }
+  assert.deepEqual(writes, [], "nothing is written when stderr is not a terminal");
+});

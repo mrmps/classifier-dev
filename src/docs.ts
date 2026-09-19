@@ -46,9 +46,12 @@ CLI
     npm i -g classifier-dev
     classify bug,feature,praise < feedback.txt
     classify relevant,"not relevant" --review 0.7 < snippets.txt   # the unsure ones
+    classify db,web,ml --count < titles.txt                        # a histogram
 
   Plain lines, JSON or NDJSON in; label, confidence and text out. Batches of a
-  thousand per request. classify --help has the rest. Source in cli/ at
+  thousand per request, four at a time, and rows stream as they land, so piping
+  to head returns at once on a large file. Retries rate limits and upstream
+  failures on its own. classify --help has the rest. Source in cli/ at
   https://github.com/mrmps/classifier-dev
 
 
