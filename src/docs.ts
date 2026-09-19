@@ -8,9 +8,8 @@ labels, you get back the label that fits and how sure the model is. There is no
 API key and no account, so the example below works the moment you paste it.
 
 
-If you are an agent or a code generator, the machine-readable description of
-this API lives at https://classifier.dev/openapi.json (OpenAPI 3.1), with a
-short index at https://classifier.dev/llms.txt
+Agents: the OpenAPI 3.1 description is at https://classifier.dev/openapi.json
+and a short index at https://classifier.dev/llms.txt
 
 
 AGAINST THE MODEL IT RUNS ON
@@ -20,15 +19,13 @@ ${vsJevText(false)}
 
 WHEN THIS IS WORTH A NETWORK CALL
 
-  If you are a language model, you can already classify any text you can see,
-  for free. The question is whether you want the text in your context at all.
+  A language model can classify anything it can see. The question is whether
+  you want the text in your context at all. Call this when reading the input
+  is the expensive part:
 
-  This is worth calling when reading the input is the expensive part:
-
-  Filtering before reading. You have forty search results and want the six worth
-  opening. Judging them yourself means pulling all forty into context first,
-  which is the cost you were trying to avoid. One call returns forty labels and
-  you read only the survivors.
+  Filtering before reading. Forty search results, six worth opening. Judging
+  them yourself pulls all forty into context first. One call returns forty
+  labels and you read only the survivors.
 
   Cascade pre-filtering. Drop the obvious no's cheaply, then spend real
   reasoning on what is left.
@@ -40,9 +37,8 @@ WHEN THIS IS WORTH A NETWORK CALL
   same input on every run, instead of drifting with a model's reasoning.
 
   All four are the same move: classify ten thousand things without reading
-  them yourself. A thousand inputs go in one request and come back in about a
-  second. Below about five items, skip it. You have already paid the context
-  cost, so just decide.
+  them. A thousand inputs go in one request and come back in about a second.
+  Below five or so items, skip it: you have already paid the context cost.
 
 
 CLI
@@ -87,13 +83,13 @@ AGENT SKILL
 
     npx skills add https://classifier.dev
 
-  It is served straight from this domain over RFC 8615 well-known discovery,
-  so there is no repository in the middle:
+  Served from this domain over RFC 8615 well-known discovery, with no
+  repository in between:
 
     /.well-known/agent-skills/index.json   the discovery document
     /skill.md                              the skill itself, readable as-is
 
-  Agents without a skills runtime can simply fetch /skill.md and follow it.
+  An agent without a skills runtime can fetch /skill.md and follow it.
 
 
 SKILLS
@@ -267,13 +263,11 @@ LIMITS
   requests accept at most 200 inputs; larger batches return 400 so callers
   can split them. Operator and partner keys retain the 1,000-input ceiling.
 
-  Each input is capped at 32,000 characters, and a request may carry up to a
-  thousand inputs. Every classification response carries RateLimit-Limit and
-  RateLimit-Policy, and RateLimit-Remaining once the limiter has been consulted
-  (every 200 and every 429; a request rejected before that, such as a 400,
-  never reached it). The older X-RateLimit-Limit and X-RateLimit-Remaining pair
-  is sent as well. Exceeding a limit returns 429 with a Retry-After header.
-  Nothing is slowed down or silently dropped.
+  Every classification response carries RateLimit-Limit and RateLimit-Policy,
+  plus RateLimit-Remaining once the limiter has been consulted (every 200 and
+  429; a 400 never reached it). The older X-RateLimit-Limit and
+  X-RateLimit-Remaining pair is sent too. Over the limit is a 429 with
+  Retry-After; nothing is slowed down or silently dropped.
 
 
 ERRORS
@@ -299,19 +293,19 @@ ERRORS
   The full list, in the shape a client can validate against, is
   components.schemas.Error in https://classifier.dev/openapi.json
 
-  If you need more than this, or you want a classifier tuned to your own data,
-  the fastest path is a short call: https://cal.com/michaelsf/coffee
+  For higher limits, or a classifier tuned to your own data, book a short
+  call: https://cal.com/michaelsf/coffee
 
 
 ${roadmapDoc()}
 
 PRIVACY
 
-  The text you send is never stored or logged here. It is forwarded to the
-  model provider for the classification and nothing else. What is recorded is
-  a keyed fingerprint of the label set, never the labels themselves, plus
-  which tier ran, which model answered, the latency, the response status and
-  a coarse country. The usage counts on this service are built from those.
+  The text you send is never stored or logged. It goes to the model provider
+  for the classification and nowhere else. What is recorded: a keyed
+  fingerprint of the label set, never the labels, plus the tier, the model,
+  the latency, the status and a coarse country. The usage counts are built
+  from those.
 
 
 Built by @michael_chomsky — https://x.com/michael_chomsky

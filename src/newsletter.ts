@@ -95,8 +95,7 @@ export function roadmapDoc(): string {
 
 ${rows}
 
-  Subscribe from anywhere you can make a request, naming what you would use
-  first so the order of work can follow the asking:
+  Subscribe with a request, naming what you would use first:
 
     curl -X POST https://classifier.dev/${SUBSCRIBE_PATH} \\
       -H "content-type: application/json" \\
@@ -105,15 +104,13 @@ ${rows}
   "wants" is optional. It takes any of:
     ${ROADMAP_KEYS.join(", ")}
 
-  Check your inbox and confirm before updates start. Agents can POST the
-  emailed token as {"token":"..."} to /subscribe/confirm without a browser.
-  Links expire within 24 hours. Submit again for a new link; repeat requests
-  within the hour send at most one confirmation email.
+  Confirm from the email before updates start; an agent can POST the emailed
+  token as {"token":"..."} to /subscribe/confirm instead. Links last 24
+  hours, and repeat requests within the hour send one email.
 
-  One mail when something on that list ships, and nothing in between. The list
-  keeps your address, what you ticked, the signup source and the subscription
-  dates in a separate database, with no classification traffic. Unsubscribing
-  is a reply.
+  One mail when something on that list ships, nothing in between. Your
+  address and what you ticked are kept apart from API traffic. Unsubscribe by
+  replying.
 `;
 }
 
@@ -179,8 +176,8 @@ export async function requestConfirmation(env: Env, email: string, wants: Readon
       text: [
         "Confirm that you want classifier.dev product updates:", link, "",
         ...(names.length ? [`You ticked: ${names.join(", ")}.`, ""] : []),
-        "Open the link and press Confirm subscription. It expires within 24 hours.",
-        "If you did not request updates, ignore this email. You have not been added to the list.", "",
+        "Open the link and press Confirm subscription. The link lasts 24 hours.",
+        "If you did not ask for this, ignore it. You are not on the list.", "",
         "Agents can confirm without a browser:",
         "POST https://classifier.dev/subscribe/confirm",
         "Content-Type: application/json",

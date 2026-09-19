@@ -251,9 +251,8 @@ function updatesSection() {
         <span class="said" role="status" aria-live="polite" data-say="1"></span>
       </div>
     </form>
-    <p class="terms">Confirm your email to join. One mail when something on that list ships, and nothing in between.
-      The list keeps your address, what you ticked, the signup source and the subscription dates
-      in a separate database, with no classification traffic. Unsubscribing is a reply.</p>
+    <p class="terms">Confirm by email. One mail when something on that list ships, nothing in between.
+      Your address and what you ticked are kept apart from API traffic. Unsubscribe by replying.</p>
   </section>`;
 }
 

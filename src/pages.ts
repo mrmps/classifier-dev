@@ -131,9 +131,8 @@ PROTOCOL NOTES
 
 export const DEVELOPERS = `classifier.dev developers
 
-Everything a developer or an agent needs to go from reading this to a first
-classification, with no account, key, or sign-up in between. The API is free
-within per-IP limits; production is the sandbox.
+From reading this to a first classification, with no account, key or sign-up
+in between. The API is free within per-IP limits; production is the sandbox.
 
 
 QUICKSTART
@@ -153,8 +152,7 @@ QUICKSTART
 
 COMING SOON
 
-  Two things are being built on the same call shape, and both are worth a
-  conversation before they ship:
+  Two things are being built on the same call shape:
 
     Image classification   Labels in, one calibrated answer out, for images
                            instead of text.
@@ -209,10 +207,9 @@ ENDPOINTS
 
 AUTHENTICATION
 
-  None. Do not send a key; there is nothing to send. Every endpoint above
-  answers anonymous requests, which is also what /.well-known/oauth-protected-resource
-  and https://classifier.dev/auth.md say. Partners hold a bearer key that only
-  lifts the per-IP limits: Authorization: Bearer <key>.
+  None. Every endpoint above answers anonymous requests, as
+  /.well-known/oauth-protected-resource and https://classifier.dev/auth.md also
+  say. A partner key only lifts the per-IP limits: Authorization: Bearer <key>.
 
 
 EXAMPLES
@@ -272,9 +269,9 @@ KEYS AND LIMITS
 SANDBOX
 
   There is no separate test environment because there is nothing to protect:
-  the API stores no inputs and has no per-account state, so calling production
-  is the sandbox. Use the fast tier and a handful of inputs while you build;
-  the examples on this page are safe to run as many times as you like.
+  no stored inputs, no per-account state. Production is the sandbox. Build
+  against the fast tier with a handful of inputs; every example on this page
+  is safe to run again and again.
 
 
 ERRORS
@@ -369,19 +366,12 @@ WHAT COUNTS
 
 COMPARED WITH DOING IT YOURSELF
 
-  Calling the underlying model directly costs about $0.005 per thousand
-  classifications and needs a TypeSafe key. A general LLM prompted to classify
-  costs $0.002 to $0.04 per thousand and 0.7 to 3.4 seconds per item, with no
-  calibrated confidence. Numbers and method on
-  https://classifier.dev/benchmark.
-
-
-WHAT IT COSTS TO RUN
-
   The model behind the fast tier costs about $0.005 per thousand
-  classifications; the smart tier adds about $0.70 per thousand escalated
-  answers. Those are the numbers on https://classifier.dev/benchmark, from the
-  providers' own usage accounting, so you can see what the free tier is worth.
+  classifications and needs a TypeSafe key; the smart tier adds about $0.70
+  per thousand escalated answers. A general LLM prompted to classify costs
+  $0.002 to $0.04 per thousand and 0.7 to 3.4 seconds per item, with no
+  calibrated confidence. Numbers and method, from the providers' own usage
+  accounting: https://classifier.dev/benchmark.
 `;
 
 export const ABOUT = `About classifier.dev
@@ -482,10 +472,9 @@ WHAT IS SENT WHERE
 
   The texts and labels you send are forwarded to the model provider that
   answers the request — TypeSafe for the decision model, and for the smart
-  tier's re-asked items, the reasoning model's provider via OpenRouter. They
-  are processed to produce the answer and are not written to disk by this
-  service. Which provider handled a request is in the response (model,
-  modelsUsed) so you always know.
+  tier's re-asked items, the reasoning model's provider via OpenRouter. This
+  service does not write them to disk. The response says which provider
+  answered (model, modelsUsed).
 
 
 WHAT IS LOGGED
@@ -493,42 +482,37 @@ WHAT IS LOGGED
   Per request, for rate limiting and operations: which tier ran, which model
   answered, the latency, the response status, a coarse request-country and a
   client family derived from the User-Agent (curl, python, browser, MCP, ...).
-  Not the input text, and not the labels: what is kept is a keyed fingerprint
-  of the label set, which counts how many distinct classifiers are in use
-  without recording anybody's wording. The caller is a keyed hash of the IP
-  that changes every day, so the record cannot be read back to an address and
-  cannot be followed from one day to the next. The address itself is used for
+  Not the text and not the labels: a keyed fingerprint of the label set counts
+  the distinct classifiers in use without recording anyone's wording. The
+  caller is a keyed hash of the IP that changes daily, so a record cannot be
+  read back to an address or followed across days. The address itself serves
   the per-IP limits while the request is in flight and is not written down.
-  These records power the usage counts and the alerting that keeps the service
-  up, and are kept for 90 days in Cloudflare Analytics Engine.
+  These records feed the usage counts and the alerting, and are kept for 90
+  days in Cloudflare Analytics Engine.
 
 
 IF YOU ASK FOR UPDATES
 
-  The form at the foot of the home page keeps three things: the address you
-  typed, the date it arrived and which of the listed items you ticked. They
-  live in a separate database with no other table in it, and the row holds
-  no IP, no user agent and no request id.
-  There is nothing an address could be joined on, here or later. Your IP gates
-  that form the way it gates the API, and is not stored beside the address.
+  The updates form keeps the address you typed, the date, the signup source
+  and what you ticked, in a separate database with no other table in it. The
+  row holds no IP, user agent or request id, so there is nothing an address
+  could be joined on. Your IP gates the form as it gates the API and is not
+  stored beside the address.
 
-  The bar that floats at the foot of the home page remembers one thing, in
-  your browser's local storage and nowhere else: that you closed it, so it
-  stays closed. That flag never leaves the browser and is not an identifier.
+  The updates bar on the home page keeps one flag in your browser's local
+  storage: that you closed it. It never leaves the browser.
 
-  The address is used to send occasional news about this service and for
-  nothing else. It is never sold, never shared, and never passed to an
-  advertiser. Unsubscribing is a reply to any mail that arrives; ask at
+  The address gets the updates and nothing else: never sold, shared or passed
+  to an advertiser. Unsubscribe by replying to any mail, or ask at
   ${SITE.email} and the row is deleted, not flagged.
 
 
 WHAT IS NOT COLLECTED
 
-  No accounts, no cookies on any page you can reach, no third-party analytics
-  or tracking scripts on any page, no advertising. These pages load nothing
-  from anywhere else at all — no fonts, no scripts, no images — and they say
-  so in a Content-Security-Policy header a browser will hold them to. The only thing kept in your browser
-  is the flag above, and it is written only if you close the updates bar.
+  No accounts, no cookies, no analytics or tracking scripts, no advertising.
+  The pages load one file from elsewhere, the syntax highlighter from
+  cdnjs.cloudflare.com, and the Content-Security-Policy header lets a browser
+  load nothing else. The only thing kept in your browser is the flag above.
 
 
 AGENTS AND THE MCP SERVERS

@@ -102,7 +102,7 @@ describe("the printed roadmap", () => {
   });
 
   it("tells the reader what is kept", () => {
-    expect(roadmapDoc()).toContain("your address, what you ticked, the signup source and the subscription");
+    expect(roadmapDoc()).toContain("what you ticked are kept apart from API traffic");
   });
 });
 
