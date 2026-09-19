@@ -15,7 +15,7 @@ import { ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
 import { headingTitle, isCommandBlock, isHeading, isPreBlock } from "./pages";
 import { chatPanel, CHAT_CSS, CHAT_SCRIPT } from "./chatui";
 
-const HOME_CSS = `${HL_CSS}${CHAT_CSS}
+export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
@@ -274,7 +274,7 @@ function renderBlocks(body: string[]): string {
  * richer HTML form than their plain text — the section keeps its place in the
  * document, so the order a reader sees matches `curl classifier.dev`.
  */
-function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string> = {}) {
+export function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string> = {}) {
   const lines = doc.split("\n");
   const out: string[] = [];
   let i = 0;
@@ -314,7 +314,7 @@ const AGENT_PROMPT =
   "Set up the classifier.dev skill: run `npx skills add https://classifier.dev`, " +
   "then read https://classifier.dev/skill.md and follow it all the way through.";
 
-const META = (title: string, desc: string, path = "/") => `<meta name="description" content="${esc(desc)}">
+export const META = (title: string, desc: string, path = "/") => `<meta name="description" content="${esc(desc)}">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://classifier.dev${path === "/" ? "/" : path}">
 <link rel="alternate" type="text/markdown" href="https://classifier.dev${path === "/" ? "/index.md" : `${path}.md`}" title="Markdown">
@@ -498,7 +498,7 @@ const WEBMCP_SCRIPT = `<script>
 })();
 </script>`;
 
-const COPY_SCRIPT = `<script>
+export const COPY_SCRIPT = `<script>
 // Every [ copy ] control copies the block it belongs to; the prompt button
 // carries its own text.
 for (const b of document.querySelectorAll("[data-copy]")) {
@@ -615,8 +615,8 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
 const navLink = (label: string, href: string, here: string, key: string) =>
   btn(label, { href, cls: here === key ? "on" : "", attrs: here === key ? ' aria-current="page"' : "" });
 
-const NAV = (here: string) =>
-  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
+export const NAV = (here: string) =>
+  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${navLink("skills", "/skills", here, "skills")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
     href: "/skill.md",
     cls: "dim",
   })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
@@ -624,7 +624,7 @@ const NAV = (here: string) =>
     cls: "dim",
   })}</p></nav>`;
 
-const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
+export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
 
 export function homeHtml(o: { chat?: boolean } = {}): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";

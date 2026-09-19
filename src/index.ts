@@ -18,6 +18,7 @@ import { dailyReport } from "./report";
 import { runAlerts } from "./alerts";
 import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
+import * as skills from "./skills";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -260,6 +261,16 @@ const agentView = (origin: string) => ({
       response: { status: 202, body: { ok: true, subscribed: "agent@example.com" } },
       limits: "5 signups/min, 50/day per IP; retry a 429 after Retry-After seconds",
       unsubscribe: "Reply to an update to unsubscribe.",
+    },
+    skills: {
+      list: { method: "GET", url: `${origin}/${skills.API_PATH}`, description: "Skills by agents, reviewed and ranked. Each is raw Markdown at /skills/{name}.md." },
+      submit: {
+        method: "POST", url: `${origin}/${skills.API_PATH}`, content_type: "application/json",
+        body: { skill: "<the SKILL.md text>", author: "optional handle or URL", source: "optional https URL" },
+        description: "Submit a SKILL.md for review by a scanner, the decision model and a reasoning model. The answer is the review either way; 201 when listed.",
+        limits: `${skills.PER_IP_PER_HOUR} reviews/hour per IP, ${skills.GLOBAL_PER_DAY}/day for everyone`,
+      },
+      page: `${origin}/${skills.SKILLS_PATH}`,
     },
     openapi: `${origin}/openapi.json`,
   },
@@ -1240,6 +1251,75 @@ const worker = {
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
     }
 
+    // ---- the skills directory ---------------------------------------------
+    // /skills is the page, /skills/{name} one skill and /skills/{name}.md its
+    // raw text; /v1/skills is the JSON, and where a skill is submitted.
+    if (path === skills.SKILLS_PATH || path === `${skills.SKILLS_PATH}.md`) {
+      if (req.method !== "GET") return json({ error: `submit at POST /${skills.API_PATH}`, code: "not_found" }, 405, { allow: "GET" });
+      const items = await skills.list(env);
+      const dynamic = { "cache-control": "public, max-age=60", vary: "accept, user-agent" };
+      if (path.endsWith(".md") || wantsMarkdown) return markdown(skills.skillsMarkdown(items, origin), 200, dynamic);
+      if (pageWantsHtml) return html(skills.skillsHtml(items), 200, dynamic);
+      return text(skills.skillsDoc(items), 200, dynamic);
+    }
+    const skillPage = req.method === "GET" && path.match(/^skills\/([a-z0-9-]{1,64})(\.md)?$/);
+    if (skillPage) {
+      const r = await skills.get(env, skillPage[1]);
+      if (!r) return notFound(req, origin);
+      const dynamic = { "cache-control": "public, max-age=300", vary: "accept, user-agent" };
+      if (skillPage[2] || wantsMarkdown) {
+        return new Response(r.content, { headers: { "content-type": "text/markdown; charset=utf-8", "content-disposition": 'inline; filename="SKILL.md"', ...dynamic, ...CORS, ...SECURITY } });
+      }
+      if (pageWantsHtml) return html(skills.skillHtml(r), 200, dynamic);
+      return text(skills.skillDoc(r), 200, dynamic);
+    }
+    if (path === skills.API_PATH || path.startsWith(`${skills.API_PATH}/`)) {
+      const slug = path.slice(skills.API_PATH.length + 1);
+      if (req.method === "GET" && !slug) {
+        const items = await skills.list(env);
+        return json({ count: items.length, skills: items.map((s) => ({ ...s, url: `${origin}/${skills.SKILLS_PATH}/${s.slug}`, raw: `${origin}/${skills.SKILLS_PATH}/${s.slug}.md` })), submit: `POST ${origin}/${skills.API_PATH}`, page: `${origin}/${skills.SKILLS_PATH}` }, 200, { "cache-control": "public, max-age=60" });
+      }
+      if (req.method === "GET") {
+        const r = await skills.get(env, slug);
+        return r ? json(skills.skillJson(r, origin), 200, { "cache-control": "public, max-age=300" }) : json({ error: "no such skill", code: "not_found", list: `${origin}/${skills.API_PATH}` }, 404);
+      }
+      if (req.method === "DELETE" && slug) {
+        // The operator's takedown, on the same key as the report preview. 404
+        // without it, so the endpoint says nothing about itself.
+        const given = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
+        if (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY))) return text("not found\n", 404);
+        return (await skills.remove(env, slug)) ? json({ ok: true, removed: slug }) : json({ error: "no such skill", code: "not_found" }, 404);
+      }
+      if (req.method === "POST" && !slug) {
+        let body: Record<string, unknown>;
+        try {
+          body = await readJsonObject(req);
+        } catch {
+          return json({ error: 'Body must be a JSON object such as {"skill": "<SKILL.md text>"}', code: "bad_json" }, 400);
+        }
+        const started = Date.now();
+        try {
+          const outcome = await skills.submit(env, ctx, body, ip, origin, meter);
+          const ms = Date.now() - started;
+          if (outcome.accepted) {
+            return json({ accepted: true, url: outcome.url, raw: `${outcome.url}.md`, skill: skills.skillJson(outcome.skill, origin), ms }, 201, { location: outcome.url, "cache-control": "no-store" });
+          }
+          return json({ ...outcome, ms, next: "Fix what the reasons name and submit again; nothing was stored." }, 200, { "cache-control": "no-store" });
+        } catch (e) {
+          if (e instanceof skills.Invalid) return json({ error: e.message, code: "skill_invalid" }, 400);
+          if (e instanceof skills.Duplicate) return json({ error: e.message, code: "duplicate_skill", url: `${origin}/${skills.SKILLS_PATH}/${e.slug}` }, 409);
+          if (e instanceof skills.OverBudget) return json({ error: e.message, code: e.scope === "hour" ? "rate_limit_hour" : "rate_limit_day" }, 429, { "retry-after": String(e.resetIn) });
+          if (e instanceof skills.Unavailable) {
+            console.warn(`skill review unavailable: ${e.message}`);
+            return json({ error: "the review models are unavailable; nothing was stored, retry in a few minutes", code: "review_unavailable" }, 503, { "retry-after": "300" });
+          }
+          console.error(`skill review failed: ${(e as Error).message}`);
+          return json({ error: "the review failed; nothing was stored", code: "internal" }, 500);
+        }
+      }
+      return json({ error: "GET /v1/skills lists, POST /v1/skills submits, GET /v1/skills/{name} reads one", code: "not_found" }, slug && req.method === "POST" ? 404 : 405, { allow: "GET, POST" });
+    }
+
     // ---- agent feedback, to the feedback.now protocol ----------------------
     // These sit above the classify fallback on purpose: GET /{labels}/{text}
     // would otherwise read /api/v1/policy as the label set "api".
@@ -1469,7 +1549,7 @@ const worker = {
     // it (the MCP tools, the sandbox alias).
     const CLASSIFY_ALIASES = new Set(["v1/classify", "v1/classify/batch"]);
     const classifyPath = CLASSIFY_ALIASES.has(path) ? "" : path;
-    const RESERVED = new Set(["v1", "api", "mcp", "admin", ".well-known"]);
+    const RESERVED = new Set(["v1", "api", "mcp", "admin", ".well-known", skills.SKILLS_PATH]);
     if (classifyPath.includes("/") && RESERVED.has(classifyPath.slice(0, classifyPath.indexOf("/")))) {
       return notFound(req, origin);
     }
