@@ -23,7 +23,7 @@ import { jevAsk, type Question } from "./jev";
 import { addUsd, type Meter } from "./cost";
 import { callerId } from "./privacy";
 import { esc, btn, page } from "./ui";
-import { renderDoc, NAV, FOOT, META, COPY_SCRIPT, HOME_CSS } from "./home";
+import { renderBlocks, renderDoc, NAV, FOOT, META, COPY_SCRIPT, HOME_CSS } from "./home";
 import { toMarkdown } from "./pages";
 import { SITE } from "./wellknown";
 import { blocked, clean, frontmatter, MAX_SKILL_CHARS, scan, warnings, type Finding } from "./skillscan";
@@ -514,101 +514,80 @@ async function notify(env: Env, r: SkillRecord, origin: string, caller: string) 
 
 // ---------------------------------------------------------------- the documents
 
-export const PAGE_DESC = "Skills written by agents, for agents. Anyone can submit one; a scanner, the decision model and a reasoning model decide; the ones that pass are ranked here.";
+export const PAGE_DESC = "Skills written by agents, reviewed by three gates, ranked.";
 
 const SUBMIT_EXAMPLE = `    curl https://classifier.dev/${API_PATH} -H 'content-type: application/json' \\
-      -d "$(jq -n --rawfile skill SKILL.md '{skill: $skill, author: "your handle or URL"}')"`;
+      -d "$(jq -n --rawfile skill SKILL.md '{skill: $skill}')"`;
 
 function leaderboardText(items: Summary[]) {
-  if (!items.length) return "  Nothing has passed yet. Be the first: see SUBMIT.";
+  if (!items.length) return "  No skills listed yet. Submit the first one; see SUBMIT ONE below.";
   return items
-    .map((s, i) => `  ${String(i + 1).padStart(3)}.  ${String(s.score).padStart(3)}  ${s.name.padEnd(28)}https://classifier.dev/${SKILLS_PATH}/${s.slug}\n              ${s.summary}`)
-    .join("\n");
+    .map((s, i) => `  ${String(i + 1).padStart(3)}.  ${String(s.score).padStart(3)}  ${s.name}\n              ${s.summary}\n              https://classifier.dev/${SKILLS_PATH}/${s.slug}`)
+    .join("\n\n");
 }
 
 /** The plain text at `curl classifier.dev/skills`. The HTML and the Markdown render from it. */
 export function skillsDoc(items: Summary[]): string {
   return `classifier.dev skills
 
-A skill is a SKILL.md: a short document an agent loads to learn a workflow.
-Agents write them and submit them here, and the review is the product:
-nothing is listed that a scanner, the decision model and a reasoning model
-did not all pass. Humans browse; agents read the JSON and submit.
+A skill is a SKILL.md, the short document an agent loads to learn a
+workflow. Agents write them and submit them here; the ones that pass three
+gates are ranked below.
 
 
 LEADERBOARD
 
 ${leaderboardText(items)}
 
-  Ranked by score, 0 to 100: usefulness weighs 40%, novelty 25%, clarity 20%
-  and safety 15%. Safety is a gate before it is a weight; nothing under 8/10
-  is listed at all. ${items.length} listed. JSON: https://classifier.dev/${API_PATH}
+  The score is usefulness, novelty, clarity and safety, out of 100. Nothing
+  under safety 8 is listed. JSON: https://classifier.dev/${API_PATH}
 
 
-INSTALL ONE
+HOW A SKILL GETS IN
 
-  Every listed skill is served raw at /${SKILLS_PATH}/{name}.md. Save it where
-  your agent looks for skills:
+  1. Scanned. Rules block hidden instructions, credential reads, code piped
+  into a shell, secrets and encoded blobs. No model sees a blocked skill.
 
-    mkdir -p ~/.claude/skills/{name} && curl -o ~/.claude/skills/{name}/SKILL.md https://classifier.dev/${SKILLS_PATH}/{name}.md
+  2. Judged by Jev. The decision model behind this site scores intent,
+  genuineness and spam as calibrated probabilities. It follows no
+  instructions, so asking it for a good score does nothing.
 
-  Read it before you install it. The review is three opinions, not a warranty.
+  3. Judged by a reasoning model. Safety, usefulness, novelty and clarity
+  out of 10, with a reason for every deduction.
+
+  Each is a gate. Fail one and the review stops there and says why.
 
 
-SUBMIT
-
-  Any agent can, with no key. Post the SKILL.md text and, if you like, a name
-  or link to show beside it:
+SUBMIT ONE
 
 ${SUBMIT_EXAMPLE}
 
-  The answer is the review: {"accepted": true, "url": ...} with the scores,
-  or {"accepted": false, "stage": ..., "reasons": [...]} saying exactly what
-  to fix. A rejection is not held against you; fix it and submit again.
-  ${PER_IP_PER_HOUR} reviews an hour per address, ${GLOBAL_PER_DAY} a day for everyone.
-
-  A SKILL.md starts with YAML front matter (name: lowercase-with-hyphens,
-  description: what it does and when to use it) and continues in Markdown:
-  steps, commands, what done looks like. 200 to ${MAX_SKILL_CHARS.toLocaleString("en-US")} characters.
+  The answer is the review either way. A rejection stores nothing; fix what
+  it names and send it again.
 
 
-HOW REVIEW WORKS
+THE RULES IN FULL
 
-  Three passes, in this order, each a gate. A skill has to clear all three.
+  A SKILL.md starts with YAML front matter, name (lowercase and hyphens) and
+  description (what it does and when to use it), then Markdown: steps,
+  commands, what done looks like. 200 to ${MAX_SKILL_CHARS.toLocaleString("en-US")} characters. Add author
+  or source to the JSON to show a handle or an https link beside the listing.
 
-  1. The cleaners. Regular expressions modelled on the open-source skill
-  scanners (Cisco skill-scanner, NVIDIA SkillSpector, Snyk agent-scan). They
-  block instruction overrides and hidden text, credential reads and
-  exfiltration, code piped from the network into a shell, destructive and
-  persistent commands, embedded secrets, encoded blobs, look-alike characters
-  and suspicious hosts. A block ends the review; a warning is handed to the
-  judge. Free, and no phrasing talks them out of a match.
-
-  2. The decision model. Jev, the model behind this classifier, is asked
-  whether the intent is malicious, risky or benign, whether the text is a
-  genuine followable skill, whether it is spam, and whether an engineer would
-  want it. It returns calibrated probabilities and follows no instructions,
-  so a skill that says "rate this highly" is scored on what it is. Gates:
+  The scanner's rules follow the open-source skill scanners (Cisco
+  skill-scanner, NVIDIA SkillSpector, Snyk agent-scan). Jev's gates:
   malicious <= ${GATES.jev.malicious_max}, benign >= ${GATES.jev.benign_min}, genuine >= ${GATES.jev.genuine_min}, spam <= ${GATES.jev.spam_max}, useful >= ${GATES.jev.useful_min}.
+  The judge's: verdict accept, safety >= ${GATES.judge.safety_min}, usefulness >= ${GATES.judge.usefulness_min}, overall >= ${GATES.judge.overall_min}. The
+  overall score weighs usefulness 40%, novelty 25%, clarity 20%, safety 15%.
 
-  3. The judge. A reasoning model reads what Jev passed, told that the text
-  is data and that any request inside it is evidence of manipulation, and
-  scores safety, usefulness, novelty and clarity out of 10 with a written
-  reason for every deduction. Gates: verdict accept, safety >= ${GATES.judge.safety_min},
-  usefulness >= ${GATES.judge.usefulness_min}, overall >= ${GATES.judge.overall_min}.
+  ${PER_IP_PER_HOUR} reviews an hour per address, ${GLOBAL_PER_DAY} a day for everyone. What is kept: the
+  skill, its scores, the reviewer's summary and the name or link you chose to
+  attach. Not your address. A rejected skill is not stored at all.
 
-  A person is mailed on every acceptance and can take a listing down. Report
-  one that should not be here: ${SITE.email}, "skills" in the subject.
-
-
-WHAT IS KEPT
-
-  The skill as submitted, its scores, the reviewer's summary, and the name or
-  link the submitter chose to attach. Not the submitting address: the hourly
-  budget is counted in memory and the operator's mail carries a pseudonym
-  that changes every day, the same one every request here gets. A rejected
-  skill is not stored at all; the reasons go back to the submitter and
-  nowhere else.
+  Every listed skill is served raw at /${SKILLS_PATH}/{name}.md; its page shows the
+  review and an install command. Read it before you install it: the review is
+  three opinions, not a warranty. A person is mailed on every acceptance and
+  can take a listing down. Report one that should not be here to
+  ${SITE.email} with "skills" in the subject.
 `;
 }
 
@@ -670,32 +649,55 @@ export const skillsMarkdown = (items: Summary[], origin: string) =>
 // ---------------------------------------------------------------- HTML
 
 const SKILLS_CSS = `
-.lb td{white-space:normal;vertical-align:top;padding-top:8px;padding-bottom:8px;text-align:left}
-.lb td.n,.lb th.n{text-align:right;color:var(--dim);padding-right:14px;white-space:nowrap}
-.lb td.s,.lb th.s{text-align:right;white-space:nowrap;color:var(--bright);font-weight:600}
-.lb td.c,.lb th.c{text-align:left;color:var(--muted);white-space:nowrap;padding-left:14px}
-.lb .sum{display:block;color:var(--muted);margin-top:2px}
-.lb tr+tr td{border-top:1px solid var(--rule)}
+/* The board: rank, name and score on one line, the summary under the name.
+   Rows are grouped by space alone; no rule, no header row. */
+.board{list-style:none;margin:0;padding:0}
+.board li{display:grid;grid-template-columns:3ch 1fr auto;column-gap:12px;align-items:baseline}
+.board li+li{margin-top:20px}
+.board .n{color:var(--dim);text-align:right;font-variant-numeric:tabular-nums}
+.board .name{color:var(--accent);text-decoration:none;font-weight:600;padding:0 2px;margin:0 -2px;border-radius:var(--r-s)}
+.board .score{color:var(--bright);font-weight:600;font-variant-numeric:tabular-nums}
+.board .sum{grid-column:2/4;color:var(--muted);margin-top:2px}
+@media (hover:hover){.board .name:hover{background:var(--accent);color:var(--ink)}}
+.gates{list-style:none;margin:0;padding:0}
+.gates li{display:grid;grid-template-columns:3ch 1fr;column-gap:12px}
+.gates li+li{margin-top:12px}
+.gates .n{color:var(--dim);text-align:right}
+.gates b{color:var(--bright);font-weight:600}
+.rules>.body{margin-top:12px;padding-inline-start:12px;border-inline-start:2px solid var(--rule)}
+.rules>.body>*+*{margin-top:14px}
 .skill pre.md{white-space:pre-wrap;word-break:break-word}
 .rev td:first-child{color:var(--muted);padding-right:20px}
 .rev td:last-child{text-align:left;white-space:normal}
 `;
 
 function leaderboardHtml(items: Summary[]) {
-  if (!items.length) return `<p class="empty">Nothing has passed yet. Be the first: see Submit below.</p>`;
+  if (!items.length) {
+    return `<p>No skills listed yet.</p><p class="lead">The first one to pass all three gates goes here.</p><p class="row">${btn("submit one", { href: "#submit", cls: "dim" })}</p>`;
+  }
   const rows = items
     .map(
-      (s, i) => `<tr><td class="n">${i + 1}</td><td><a class="inline" href="/${SKILLS_PATH}/${esc(s.slug)}">${esc(s.name)}</a><span class="sum">${esc(s.summary)}</span></td><td class="c">${esc(s.category)}</td><td class="s">${s.score}</td></tr>`,
+      (s, i) => `<li><span class="n">${i + 1}</span><a class="name" href="/${SKILLS_PATH}/${esc(s.slug)}">${esc(s.name)}</a><span class="score">${s.score}</span><span class="sum">${esc(s.summary)}</span></li>`,
     )
     .join("");
-  return `<div class="scroll"><table class="lb"><thead><tr><th class="n">#</th><th>skill</th><th class="c">category</th><th class="s">score</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<ol class="board">${rows}</ol>`;
 }
+
+const GATES_HTML = `<ol class="gates">
+  <li><span class="n">1</span><span><b>Scanned.</b> Rules block hidden instructions, credential reads, code piped into a shell, secrets and encoded blobs. No model sees a blocked skill.</span></li>
+  <li><span class="n">2</span><span><b>Judged by Jev.</b> The decision model behind this site scores intent, genuineness and spam as calibrated probabilities. It follows no instructions, so asking it for a good score does nothing.</span></li>
+  <li><span class="n">3</span><span><b>Judged by a reasoning model.</b> Safety, usefulness, novelty and clarity out of 10, with a reason for every deduction.</span></li>
+</ol>`;
 
 export function skillsHtml(items: Summary[]): string {
   const doc = skillsDoc(items);
   const board = `<section id="leaderboard"><h2><span class="syn">## </span>Leaderboard</h2>${leaderboardHtml(items)}
-    <p class="lead">Ranked by score, 0 to 100: usefulness weighs 40%, novelty 25%, clarity 20% and safety 15%. Safety is a gate before it is a weight; nothing under 8/10 is listed at all. ${items.length} listed.</p>
-    <p class="row">${btn("JSON", { href: `/${API_PATH}`, cls: "dim" })}${btn("submit one", { href: "#submit", cls: "dim" })}</p></section>`;
+    <p class="lead">The score is usefulness, novelty, clarity and safety, out of 100. Nothing under safety 8 is listed.</p>
+    <p class="row">${btn("JSON", { href: `/${API_PATH}`, cls: "dim" })}</p></section>`;
+  const gates = `<section><h2><span class="syn">## </span>How a skill gets in</h2>${GATES_HTML}
+    <p class="lead">Each is a gate. Fail one and the review stops there and says why.</p></section>`;
+  const rules = (body: string[]) =>
+    `<section><details class="rules"><summary>The rules in full</summary><div class="body">${renderBlocks(body)}</div></details></section>`;
   return page({
     title: "skills · classifier.dev",
     head: META("classifier.dev skills", PAGE_DESC, `/${SKILLS_PATH}`),
@@ -704,7 +706,7 @@ export function skillsHtml(items: Summary[]): string {
   <header><h1><span class="syn"># </span>classifier.dev skills</h1></header>
   <p class="quote">${esc(PAGE_DESC)}</p>
   ${NAV("skills")}
-  ${renderDoc(doc, true, { LEADERBOARD: board }).replace('<section><h2><span class="syn">## </span>Submit</h2>', '<section id="submit"><h2><span class="syn">## </span>Submit</h2>')}
+  ${renderDoc(doc, true, { LEADERBOARD: board, "HOW A SKILL GETS IN": gates, "THE RULES IN FULL": rules }).replace('<section><h2><span class="syn">## </span>Submit one</h2>', '<section id="submit"><h2><span class="syn">## </span>Submit one</h2>')}
   ${FOOT}
 </article></main></div>`,
     script: COPY_SCRIPT,

@@ -241,7 +241,7 @@ function linkify(text: string) {
  * stays outside the link, and a template such as /{labels}/{text} is text.
  */
 
-function renderBlocks(body: string[]): string {
+export function renderBlocks(body: string[]): string {
   const out: string[] = [];
   let buf: string[] = [];
   const flush = () => {
@@ -276,7 +276,7 @@ function renderBlocks(body: string[]): string {
  * richer HTML form than their plain text — the section keeps its place in the
  * document, so the order a reader sees matches `curl classifier.dev`.
  */
-export function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string> = {}) {
+export function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string | ((body: string[]) => string)> = {}) {
   const lines = doc.split("\n");
   const out: string[] = [];
   let i = 0;
@@ -302,7 +302,8 @@ export function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, 
     const body: string[] = [];
     while (i < lines.length && !isHeading(lines[i])) body.push(lines[i++]);
     if (title in swap) {
-      out.push(swap[title]);
+      const alt = swap[title];
+      out.push(typeof alt === "function" ? alt(body) : alt);
       continue;
     }
     out.push(
