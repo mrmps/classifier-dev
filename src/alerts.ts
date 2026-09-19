@@ -38,6 +38,74 @@ const T = {
   quietBaselinePerHour: 20,
 };
 
+/**
+ * Is the Jev key still good?
+ *
+ * TypeSafe publishes no credits or balance endpoint — its API is /v1/systemone
+ * and /v1/models, nothing else — so there is no number to watch. What there is
+ * is a cheap authenticated call, and a key that has run out stops working. This
+ * asks /v1/models every fifteen minutes and reports whatever TypeSafe says
+ * back, rather than guessing which status means "out of credit".
+ *
+ * The value of probing rather than waiting for traffic: it fires at 3am on a
+ * quiet host, before a single user meets the fallback chain.
+ */
+async function probeJev(env: Env): Promise<Alert | null> {
+  if (!env.TYPESAFE_API_KEY) return null;
+  let res: Response;
+  try {
+    res = await fetch("https://api.typesafe.ai/v1/models", {
+      headers: { authorization: `Bearer ${env.TYPESAFE_API_KEY}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (e) {
+    return {
+      id: "jev_unreachable",
+      severity: "warning",
+      title: "cannot reach TypeSafe",
+      detail:
+        `api.typesafe.ai did not answer: ${(e as Error).message}.\n\nIf this persists, every request is ` +
+        `being served by the LLM fallback chain at much lower accuracy.`,
+    };
+  }
+  if (res.ok) return null;
+
+  // Report TypeSafe's own words: it is the only thing that actually knows
+  // whether this is a dead key, an exhausted balance or a suspended account.
+  let said = (await res.text().catch(() => "")).slice(0, 300);
+  try {
+    const j = JSON.parse(said) as { detail?: { error_type?: string; message?: string } };
+    if (j.detail?.message) said = `${j.detail.error_type ?? "error"}: ${j.detail.message}`;
+  } catch { /* not JSON, use the raw text */ }
+
+  if (res.status === 429) {
+    return {
+      id: "jev_unreachable",
+      severity: "warning",
+      title: "TypeSafe is rate limiting us",
+      detail: `/v1/models returned 429.\n\n${said}`,
+    };
+  }
+  if (res.status === 401 || res.status === 402 || res.status === 403) {
+    return {
+      id: "jev_credentials",
+      severity: "critical",
+      title: `TypeSafe is refusing the key (${res.status})`,
+      detail:
+        `TypeSafe says:\n  ${said}\n\nA ${res.status} here means the key is out of credit, revoked, or ` +
+        `wrong. Until it is fixed every classification is answered by the LLM fallback chain, which is ` +
+        `markedly less accurate and costs more — and callers get an answer either way, so nothing else ` +
+        `will tell you.\n\nCheck the balance and the key, then: npx wrangler secret put TYPESAFE_API_KEY`,
+    };
+  }
+  return {
+    id: "jev_unreachable",
+    severity: "warning",
+    title: `TypeSafe returned ${res.status}`,
+    detail: `/v1/models is failing.\n\n${said}`,
+  };
+}
+
 export type Alert = {
   id: string;
   severity: "critical" | "warning";
@@ -52,6 +120,9 @@ const num = (v: unknown) => {
 };
 
 export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: boolean; note: string }> {
+  const probed = await probeJev(env).catch(() => null);
+  const pre: Alert[] = probed ? [probed] : [];
+
   let recent: Row[] = [];
   let baseline: Row[] = [];
   let note = "";
@@ -73,6 +144,7 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
     // from here, so it is reported rather than silently treated as healthy.
     return {
       alerts: [
+        ...pre,
         {
           id: "analytics",
           severity: "warning",
@@ -102,7 +174,7 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
   const daySpend = num(baseline[0]?.usd);
   const perHour = dayRequests / 24;
 
-  const alerts: Alert[] = [];
+  const alerts: Alert[] = [...pre];
   const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
   // The failure this service has actually had: the primary vanishes upstream

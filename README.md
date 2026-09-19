@@ -135,11 +135,21 @@ A cron at 15:00 UTC queries it and emails a digest via Resend.
 ### Alerts
 
 A separate cron runs every fifteen minutes and stays silent unless something
-fires. It only watches conditions with an action attached: Jev not answering
-(the fallback chain serving quietly, which has happened), 5xx rates, smart-tier
-escalations failing (the shape an exhausted `OPENROUTER_API_KEY` takes), mean
-latency, a spend spike against the trailing day, and traffic stopping outright.
-4xx is ignored — that is scanners probing for `/wp-admin`, not a fault.
+fires. It only watches conditions with an action attached: the Jev key being
+refused, Jev not answering (the fallback chain serving quietly, which has
+happened), 5xx rates, smart-tier escalations failing (the shape an exhausted
+`OPENROUTER_API_KEY` takes), mean latency, a spend spike against the trailing
+day, and traffic stopping outright. 4xx is ignored — that is scanners probing
+for `/wp-admin`, not a fault.
+
+**Jev credits.** TypeSafe publishes no balance endpoint — its API is
+`/v1/systemone` and `/v1/models`, nothing else — so there is no number to
+watch. Instead the check calls `/v1/models` with the key every fifteen
+minutes and reports back whatever TypeSafe says: a 401, 402 or 403 there means
+out of credit, revoked or wrong, and raises a critical alert quoting TypeSafe's
+own message rather than guessing which status means what. Because it probes
+rather than waiting for traffic, it fires on a quiet host before any caller
+meets the fallback chain, and it runs even when Analytics Engine is down.
 
 Each condition emails once when it starts, again every six hours while it
 lasts, and once when it clears, with the state in KV under `alert:`. Thresholds
