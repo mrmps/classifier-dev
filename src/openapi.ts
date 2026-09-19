@@ -56,7 +56,7 @@ const errors = (plain: boolean) => ({
   "403": err("Pro subscription is not active. Manage billing at https://classifier.dev/pro."),
   "503": err("Pro subscription verification is temporarily unavailable. Retry later."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
-  "429": err("Free per-IP or Pro per-account limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day.", {
+  "429": err("Free per-IP or Pro per-account limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day; a free-tier 429 also carries `upgrade`, the URL of the plan that lifts it.", {
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
     ...RATE_LIMIT_HEADERS,
   }, plain),
@@ -1073,6 +1073,7 @@ export const OPENAPI = {
               "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable.",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
+          upgrade: { type: "string", format: "uri", description: "On a free-tier 429: the page where a plan lifts this limit (https://classifier.dev/pro). Absent on Pro and partner keys." },
           usage: { type: "string", description: "GET forms only, on a 400: the two URL shapes." },
           try: { type: "string", format: "uri", description: "GET forms only, on a 400: a URL built from what was sent that would have worked." },
         },

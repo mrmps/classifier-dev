@@ -296,7 +296,9 @@ ERRORS
 
   The GET forms answer plain text (error:, usage:, try: lines, the last a URL
   that would have worked) unless ?verbose=1 or Accept: application/json asks
-  for the JSON object.
+  for the JSON object. A 429 on the free limits names the plan that lifts
+  them and carries its URL as upgrade, so an agent that runs out of room can
+  hand its person the link rather than a wait.
 
   400 codes: no_input, too_many_inputs, too_few_labels, too_many_labels,
   empty_label, duplicate_labels, empty_input, input_too_long, bad_tier,

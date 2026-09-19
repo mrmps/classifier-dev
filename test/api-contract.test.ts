@@ -224,12 +224,17 @@ describe("the rate-limit headers", () => {
     } as unknown as Env;
     const res = await worker.fetch(new Request("https://classifier.dev/", { method: "POST", body: '{"input":"x","labels":["a","b"]}' }), limited, ctx);
     expect(res.status).toBe(429);
-    expect(await code(res)).toBe("rate_limit_minute");
+    const body = await res.json() as { error: string; code: string; upgrade?: string };
+    expect(body.code).toBe("rate_limit_minute");
     expect(res.headers.get("retry-after")).toBe("17");
     expect(res.headers.get("ratelimit-remaining")).toBe("0");
     expect(res.headers.get("x-ratelimit-remaining")).toBe("0");
     expect(res.headers.get("ratelimit-limit")).toBe("3000");
     expect(res.headers.get("ratelimit-policy")).toBe("3000;w=60, 20000;w=86400");
+    // Out of room is the moment to say where more is: the plan that lifts this
+    // limit, named in the message and carried as a field an agent can act on.
+    expect(body.upgrade).toBe("https://classifier.dev/pro");
+    expect(body.error).toContain("30000 for $20/month");
   });
 
   test("a 400 carries the limit and the policy, and RateLimit-Remaining only where the limiter was asked", async () => {

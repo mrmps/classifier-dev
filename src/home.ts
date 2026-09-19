@@ -734,7 +734,7 @@ const navLink = (label: string, href: string, here: string, key: string) =>
   btn(label, { href, cls: here === key ? "on" : "", attrs: here === key ? ' aria-current="page"' : "" });
 
 export const NAV = (here: string) =>
-  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${navLink("skills", "/skills", here, "skills")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
+  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${navLink("skills", "/skills", here, "skills")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${navLink("pro", "/pro", here, "pro")}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
     href: "/skill.md",
     cls: "dim",
   })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
@@ -811,7 +811,7 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt</code>   <span c
     })}</p></div>
   </section>
 
-  ${renderDoc(DOCS, true, { UPDATES: updatesSection() })}
+  ${renderDoc(DOCS, true, { UPDATES: updatesSection(), LIMITS: limitsSection })}
 
   ${FOOT}
 </article></main></div>
@@ -822,7 +822,21 @@ ${chatPanel(!!o.chat)}`,
 }
 
 /** Any other plain-text document, rendered the same way the home page is. */
-export function docHtml(o: { title: string; desc: string; doc: string; path: string; here: string }): string {
+/**
+ * The one place a plan is offered on a documentation page. The label is the
+ * thing you get, not a verb that presumes you already have a plan to move up
+ * from; the price sits beside it so nobody clicks to find out. On the pricing
+ * page it is the page's action and is filled; elsewhere it is a quiet link
+ * beside the limits it lifts, with the full comparison one click away.
+ */
+export const proRow = (primary = false) =>
+  `<p class="row">${btn("get pro · $20/mo", { href: "/pro", cls: primary ? "cta" : "" })}${primary ? "" : btn("all plans", { href: "/pricing", cls: "dim" })}</p>`;
+
+/** The LIMITS section of the home doc, with the way past the limits beside them. */
+const limitsSection = (body: string[]) =>
+  `<section><h2><span class="syn">## </span>Limits</h2>${renderBlocks(body)}${proRow()}</section>`;
+
+export function docHtml(o: { title: string; desc: string; doc: string; path: string; here: string; swap?: Record<string, string | ((body: string[]) => string)> }): string {
   return page({
     title: `${o.title} · classifier.dev`,
     head: META(o.title, o.desc, o.path) + HL_HEAD,
@@ -831,7 +845,7 @@ export function docHtml(o: { title: string; desc: string; doc: string; path: str
   <header><h1><span class="syn"># </span>${esc(o.doc.split("\n")[0].trim())}</h1></header>
   <p class="quote">${esc(o.desc)}</p>
   ${NAV(o.here)}
-  ${renderDoc(o.doc, true)}
+  ${renderDoc(o.doc, true, o.swap ?? {})}
   ${FOOT}
 </article></main></div>
 ${chatPanel()}`,

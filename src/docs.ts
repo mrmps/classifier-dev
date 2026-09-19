@@ -325,7 +325,9 @@ ERRORS
   400   bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels,
         empty_label, duplicate_labels, empty_input, input_too_long, bad_tier
   404   not_found
-  429   rate_limit_minute, rate_limit_day, with Retry-After
+  429   rate_limit_minute, rate_limit_day, with Retry-After; on the free
+        tier the body also carries upgrade, the URL of the plan that lifts
+        the limit (https://classifier.dev/pro)
   502   typesafe or typesafe_<status> when the decision model failed;
         openrouter_<status>, chain_exhausted or timeout when the fallback
         chain did; batch_unavailable for more than twenty inputs while the

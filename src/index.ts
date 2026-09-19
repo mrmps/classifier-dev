@@ -4,7 +4,7 @@ import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
-import { homeHtml, benchmarkHtml, docHtml } from "./home";
+import { homeHtml, benchmarkHtml, docHtml, proRow, renderBlocks } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
 import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, TERMS, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
@@ -1320,7 +1320,9 @@ const worker = {
       const pg = PAGE_DOCS[pageKey];
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
-      if (pageWantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey }));
+      // The pricing page is where the plan is chosen, so its Pro section ends in the button the others only point at.
+      const swap = pageKey === "pricing" ? { PRO: (body: string[]) => `<section><h2><span class="syn">## </span>Pro</h2>${renderBlocks(body)}${proRow(true)}</section>` } : undefined;
+      if (pageWantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey, swap }));
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
     }
 
@@ -1700,14 +1702,14 @@ const worker = {
       if (idem) h["idempotency-key"] = idem.slice(0, 255);
       return h;
     };
-    const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1) => {
+    const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, string> = {}) => {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
       const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
-      if (wantJson) return json({ error: msg, code: reason, ...hint }, status, headers);
-      return text(`error: ${msg}\n` + (hint ? `usage: ${hint.usage}\ntry:   ${hint.try}\n` : ""), status, headers);
+      if (wantJson) return json({ error: msg, code: reason, ...hint, ...more }, status, headers);
+      return text(`error: ${msg}\n` + (hint ? `usage: ${hint.usage}\ntry:   ${hint.try}\n` : "") + Object.entries(more).map(([k, v]) => `${k}: ${v}\n`).join(""), status, headers);
     };
     // How the labels read back in an error: enough to recognise, never the whole
     // text. Anything can be in the list at this point, so it is stringified first.
@@ -1814,10 +1816,17 @@ const worker = {
       : await limited(env, tier, quotaOwner, decisions, multiplier);
     if (gate.limited) {
       const perDay = gate.scope === "day";
+      // The moment someone runs out of room is the moment to say where more is.
+      // A free caller is told the plan that lifts this exact limit and gets its
+      // URL as a field an agent can act on; a Pro caller is already on it and
+      // is pointed at the arrangement above it instead.
+      const way = pro
+        ? "For more, email contact@classifier.dev or see https://classifier.dev/pricing"
+        : `Pro lifts this to ${(perDay ? TIERS[tier].daily : TIERS[tier].rpm) * 10} for $20/month: https://classifier.dev/pro`;
       return fail(
         perDay
-          ? `Daily limit reached: ${TIERS[tier].daily * multiplier} ${tier} classifications ${quotaScope} per day. See https://classifier.dev/pricing`
-          : `Rate limit: ${rpm} ${tier} classifications/minute ${quotaScope}. See https://classifier.dev/pricing`,
+          ? `Daily limit reached: ${TIERS[tier].daily * multiplier} ${tier} classifications ${quotaScope} per day. ${way}`
+          : `Rate limit: ${rpm} ${tier} classifications/minute ${quotaScope}. ${way}`,
         429,
         perDay ? "rate_limit_day" : "rate_limit_minute",
         {
@@ -1826,6 +1835,7 @@ const worker = {
         },
         0,
         0,
+        pro ? {} : { upgrade: "https://classifier.dev/pro" },
       );
     }
 
