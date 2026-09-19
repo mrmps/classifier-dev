@@ -14,9 +14,11 @@ SETUP
 2. Connect that organization's live Stripe account in Autumn. Autumn owns
    Stripe webhook processing, including payment confirmation, renewals,
    cancellation and payment failure. Do not activate access from a redirect.
-   A Stripe account already connected to another Autumn organization cannot
-   be reused without disconnecting that organization. Do not disconnect a
-   working integration as part of this setup.
+   OAuth rejects a Stripe account already connected to another Autumn
+   organization. Autumn's separate Secret Key connection supports sharing
+   that account with a dedicated per-organization webhook. Use a persistent
+   restricted Stripe key, not the expiring Stripe CLI key. Verify the new
+   webhook is enabled; do not disconnect the existing integration.
 3. Create restricted runtime keys in Autumn's API Keys dashboard, with
    Customers Write and Billing Write (the dashboard includes their Read
    scopes). CLI login keys manage the catalog but omit billing:write, so they
