@@ -6,7 +6,7 @@ import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
-import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, isHeading, toMarkdown } from "./pages";
+import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, TERMS, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
 import { chatStream, parseMessages } from "./chat";
@@ -58,6 +58,12 @@ export interface Env extends BillingEnv {
    * to what when it is unset.
    */
   PRIVACY_SALT?: string;
+  /**
+   * The token OpenAI's plugin portal issues when a draft claims this domain;
+   * served verbatim at /.well-known/openai-apps-challenge until the claim is
+   * checked. A Wrangler secret, never in the repository.
+   */
+  OPENAI_APPS_CHALLENGE?: string;
   /**
    * Postgres for the updates list, and nothing else. A separate Neon project on
    * purpose: the addresses share a database with no other data, so there is
@@ -290,7 +296,7 @@ const agentView = (origin: string) => ({
   skill: { install: `npx skills add ${origin}`, url: `${origin}/skill.md` },
   limits: { fast: "3,000 classifications/min, 20,000/day per IP", smart: "200/min, 2,000/day per IP", headers: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Policy", "Retry-After"] },
   pricing: { price: 0, currency: "USD", url: `${origin}/pricing` },
-  docs: { llms: `${origin}/llms.txt`, developers: `${origin}/developers`, benchmark: `${origin}/benchmark`, privacy: `${origin}/privacy`, contact: `${origin}/contact` },
+  docs: { llms: `${origin}/llms.txt`, developers: `${origin}/developers`, benchmark: `${origin}/benchmark`, privacy: `${origin}/privacy`, terms: `${origin}/terms`, contact: `${origin}/contact` },
   discovery: [`${origin}/.well-known/ard.json`, `${origin}/.well-known/agent-card.json`, `${origin}/.well-known/api-catalog`, `${origin}/.well-known/agent-skills/index.json`, `${origin}/sitemap.xml`],
 });
 
@@ -323,6 +329,7 @@ const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = 
   about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
   contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },
   privacy: { doc: PRIVACY, title: "privacy", desc: "Inputs are not stored. What is logged, and what is not collected." },
+  terms: { doc: TERMS, title: "terms", desc: "Free within the limits, offered as is; what you agree to by using it." },
 };
 
 const DOCS_MCP = docsServer([
@@ -336,6 +343,7 @@ const DOCS_MCP = docsServer([
   { id: "auth", title: "Authentication", url: "https://classifier.dev/auth.md", text: AUTH_MD },
   { id: "agents", title: "For agents: when and how to use classifier.dev", url: "https://classifier.dev/agents.md", text: AGENTS_MD },
   { id: "privacy", title: "Privacy", url: "https://classifier.dev/privacy", text: PRIVACY },
+  { id: "terms", title: "Terms", url: "https://classifier.dev/terms", text: TERMS },
   { id: "about", title: "About", url: "https://classifier.dev/about", text: ABOUT },
   { id: "contact", title: "Contact", url: "https://classifier.dev/contact", text: CONTACT },
 ]);
@@ -346,7 +354,7 @@ function docSections() {
   const src: [string, string, string][] = [
     ["api", DOCS, "https://classifier.dev/"], ["developers", DEVELOPERS, "https://classifier.dev/developers"],
     ["mcp-setup", MCP_SETUP, "https://classifier.dev/mcp-setup"], ["benchmark", BENCHMARK, "https://classifier.dev/benchmark"],
-    ["pricing", PRICING, "https://classifier.dev/pricing"], ["privacy", PRIVACY, "https://classifier.dev/privacy"],
+    ["pricing", PRICING, "https://classifier.dev/pricing"], ["privacy", PRIVACY, "https://classifier.dev/privacy"], ["terms", TERMS, "https://classifier.dev/terms"],
     ["about", ABOUT, "https://classifier.dev/about"], ["contact", CONTACT, "https://classifier.dev/contact"],
   ];
   for (const [doc, text, url] of src) {
@@ -1235,6 +1243,11 @@ const worker = {
       return new Response(sitemapXml(origin), { headers: { "content-type": "application/xml; charset=utf-8", ...CORS, ...SECURITY, ...CACHE_HOUR } });
     }
     if (path === ".well-known/mcp-registry-auth") return text(MCP_REGISTRY_AUTH + "\n", 200, CACHE_HOUR);
+    if (path === ".well-known/openai-apps-challenge") {
+      // Domain verification for the ChatGPT plugin directory: the token must be the whole body.
+      const token = (env.OPENAI_APPS_CHALLENGE ?? "").trim();
+      return token ? text(token, 200, { "cache-control": "no-store" }) : notFound(req, origin);
+    }
     if (path === ".well-known/security.txt" || path === "security.txt") {
       return text(securityTxt(origin), 200, CACHE_HOUR);
     }

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "classifier": {
+      "type": "http",
+      "url": "https://classifier.dev/mcp"
+    },
+    "classifier-docs": {
+      "type": "http",
+      "url": "https://classifier.dev/mcp/docs"
+    }
+  }
+}

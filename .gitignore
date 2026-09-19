@@ -10,7 +10,8 @@ sdk/python/dist/
 sdk/python/*.egg-info/
 
 # UI review skills (npx skills add jakubkrehel/skills); vendored, not source.
-.agents/
+.agents/*
+!.agents/plugins/
 .claude/
 skills-lock.json
 

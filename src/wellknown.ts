@@ -39,6 +39,7 @@ export const PAGES: { path: string; priority: number; changefreq: string }[] = [
   { path: "/about", priority: 0.5, changefreq: "monthly" },
   { path: "/contact", priority: 0.5, changefreq: "monthly" },
   { path: "/privacy", priority: 0.5, changefreq: "monthly" },
+  { path: "/terms", priority: 0.5, changefreq: "monthly" },
   { path: "/auth.md", priority: 0.5, changefreq: "monthly" },
   { path: "/agents.md", priority: 0.7, changefreq: "monthly" },
   { path: "/llms.txt", priority: 0.6, changefreq: "weekly" },
@@ -312,6 +313,7 @@ export function oauthProtectedResource(origin: string) {
     scopes_supported: [],
     resource_documentation: `${origin}/auth.md`,
     resource_policy_uri: `${origin}/privacy`,
+    resource_tos_uri: `${origin}/terms`,
     // Not part of RFC 9728; states in plain words what the empty lists mean.
     anonymous_access: true,
     note: "Classification and docs support anonymous access. Optional Pro bearer keys give 10x rate limits per billing account. Partner keys remain supported. Billing endpoints require a signed-in session.",

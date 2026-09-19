@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "classifier",
+  "version": "1.0.0",
+  "description": "Sort up to 1,000 texts into your own labels in one call, with a calibrated confidence per answer. No API key.",
+  "author": {
+    "name": "Michael Ryaboy",
+    "email": "contact@classifier.dev",
+    "url": "https://classifier.dev"
+  },
+  "homepage": "https://classifier.dev/mcp-setup",
+  "repository": "https://github.com/mrmps/classifier-dev/tree/main/plugins/classifier",
+  "license": "MIT",
+  "keywords": [
+    "classification",
+    "triage",
+    "filtering",
+    "routing",
+    "labels",
+    "zero-shot"
+  ],
+  "mcpServers": "./.mcp.json"
+}

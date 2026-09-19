@@ -1,0 +1,44 @@
+{
+  "name": "classifier",
+  "version": "1.0.0",
+  "description": "Sort up to 1,000 texts into your own labels in one call, with a calibrated confidence per answer. No API key.",
+  "author": {
+    "name": "Michael Ryaboy",
+    "email": "contact@classifier.dev",
+    "url": "https://classifier.dev"
+  },
+  "homepage": "https://classifier.dev/mcp-setup",
+  "repository": "https://github.com/mrmps/classifier-dev",
+  "license": "MIT",
+  "keywords": [
+    "classification",
+    "triage",
+    "filtering",
+    "routing",
+    "labels",
+    "zero-shot"
+  ],
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "classifier.dev",
+    "shortDescription": "Sort texts into your labels",
+    "longDescription": "classifier.dev sorts text into categories you name, up to 1,000 texts per call, with a calibrated confidence on every answer. Paste tickets, reviews, log lines, search results, headlines or any list of texts, name the labels, and get a label and a confidence for each one in about a second. Four tools: classify_texts for one label per text, classify_multi_label when several labels can apply, count_labels for a histogram over a whole corpus, and review_uncertain to pull out only the answers worth a second look. A docs server answers questions about the API. Every tool is read-only: nothing is stored, no account is needed and no key is issued. Texts are forwarded to the model that answers and are not written down; see the privacy policy. Free within per-IP limits (3,000 classifications a minute on the fast tier).",
+    "developerName": "Michael Ryaboy",
+    "category": "Data & Analytics",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://classifier.dev",
+    "privacyPolicyURL": "https://classifier.dev/privacy",
+    "termsOfServiceURL": "https://classifier.dev/terms",
+    "defaultPrompt": [
+      "Sort these reviews into positive, negative and mixed, then count each.",
+      "Triage these tickets by team and urgency and flag the unsure ones.",
+      "Which of these headlines are about AI regulation? Show only those."
+    ],
+    "brandColor": "#A98CFF",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.png"
+  }
+}
