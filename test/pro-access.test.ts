@@ -144,6 +144,41 @@ describe("Pro classification access", () => {
     expect(new Set(f.quotaCalls.map(call => call.owner))).toEqual(new Set([`fast:pro:${customer}`]));
     expect(f.authCalls[2].secret).toBe("c".repeat(64));
   });
+  test("dimensions spend item × dimension decisions with Pro quotas and unchanged free limits", async () => {
+    const f = fixture();
+    const matrix = (count: number, token?: string) => worker.fetch(new Request("https://classifier.dev/v1/classify", {
+      method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": "192.0.2.1", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ items: Array(count).fill("A positive billing example"), dimensions: { sentiment: ["positive", "negative"], team: ["billing", "support"] }, tier: "smart" }),
+    }), f.env, ctx);
+
+    const pro = await matrix(500, key);
+    expect(pro.status).toBe(200);
+    const result = await pro.json();
+    expect(result.results).toHaveLength(500);
+    expect(result.usage).toMatchObject({ items: 500, dimensions: 2, classifications: 1000 });
+    expect(result.results[0].dimensions).toHaveProperty("sentiment");
+    expect(result.results[0].dimensions).toHaveProperty("team");
+    expect(f.quotaCalls[0]).toEqual({ owner: `smart:pro:${customer}`, limit: 2000, daily: 20000, cost: 1000 });
+    expect(pro.headers.get("ratelimit-policy")).toBe("2000;w=60, 20000;w=86400");
+    expect(pro.headers.get("ratelimit-remaining")).toBe("1000");
+
+    const free = await matrix(100);
+    expect(free.status).toBe(200);
+    expect((await free.json()).usage).toMatchObject({ items: 100, dimensions: 2, classifications: 200 });
+    expect(f.quotaCalls[1]).toEqual({ owner: "smart:192.0.2.1", limit: 200, daily: 2000, cost: 200 });
+    expect(free.headers.get("ratelimit-policy")).toBe("200;w=60, 2000;w=86400");
+    expect(free.headers.get("ratelimit-remaining")).toBe("0");
+
+    const callsBeforeRejected = upstreamCalls;
+    const oversizedFree = await matrix(101);
+    expect(oversizedFree.status).toBe(400);
+    expect((await oversizedFree.json()).code).toBe("too_many_decisions");
+    const oversizedPro = await matrix(501, key);
+    expect(oversizedPro.status).toBe(400);
+    expect((await oversizedPro.json()).code).toBe("too_many_decisions");
+    expect(f.quotaCalls).toHaveLength(2);
+    expect(upstreamCalls).toBe(callsBeforeRejected);
+  });
   test("MCP forwards the Pro credential to the shared classification handler", async () => {
     const f = fixture();
     const response = await worker.fetch(new Request("https://classifier.dev/mcp", {
