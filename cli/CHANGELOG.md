@@ -3,7 +3,7 @@
 All notable changes to the `classify` CLI. Semver; the API it talks to is
 versioned separately at https://classifier.dev.
 
-## Unreleased
+## 0.1.3 — 2026-09-19
 
 - Public smart batches are capped at 200 inputs and run through one worker;
   partner-key smart calls keep the configured batch size and concurrency.
