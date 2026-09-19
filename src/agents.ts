@@ -44,7 +44,8 @@ about five items you can already see, just decide yourself.
     curl "https://classifier.dev/?labels=spam,not+spam&text=Win+a+free+iPhone"   # same call, query form
     spam
 
-    curl https://classifier.dev/v1/classify -d '{"inputs":["...","..."],"labels":["bug","praise","feature"]}'
+    curl https://classifier.dev/v1/classify -d '{"inputs":["...","..."],
+                                                 "labels":["bug","praise","feature"]}'
     {"results":[{"label":"bug","confidence":0.99,"scores":{...}}, ...]}
 
 - \`inputs\`: 1 to 1,000 texts. \`labels\`: 2 to 100 names — descriptive names classify better.
