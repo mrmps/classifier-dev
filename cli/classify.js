@@ -14,6 +14,9 @@ const PKG = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), 
 const ENDPOINT = process.env.CLASSIFIER_ENDPOINT || "https://classifier.dev";
 const BATCH = Number(process.env.CLASSIFY_BATCH) || 1000; // the API's per-request ceiling
 const CONCURRENCY = 4;
+// A request that never answers should not hang the pipeline forever. Generous,
+// because a thousand inputs on the smart tier is legitimately slow.
+const TIMEOUT_MS = (Number(process.env.CLASSIFY_TIMEOUT) || 180) * 1000;
 
 const HELP = `classify ${PKG.version} — sort text into your own labels, with a confidence you can act on.
 
@@ -158,9 +161,14 @@ async function post(o, inputs) {
   for (let attempt = 0; attempt < 5; attempt++) {
     let res;
     try {
-      res = await fetch(o.endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+      res = await fetch(o.endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
     } catch (e) {
-      last = `network error: ${e.message}`;
+      last = e.name === "TimeoutError" ? `no answer in ${TIMEOUT_MS / 1000}s` : `network error: ${e.message}`;
       await sleep(500 * 2 ** attempt);
       continue;
     }
@@ -183,48 +191,87 @@ async function post(o, inputs) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function classifyAll(o, items) {
+/**
+ * Classify everything, handing results to `onReady` in input order as soon as
+ * they are contiguous. Batches finish out of order at concurrency 4, so a
+ * result is held only until the ones before it arrive — which keeps `| head`
+ * fast on a large file instead of waiting for the whole run.
+ */
+export async function classifyAll(o, items, onReady, onProgress) {
   const out = new Array(items.length);
+  const done = new Array(items.length).fill(false);
   const batches = [];
   for (let i = 0; i < items.length; i += BATCH) batches.push(i);
   let next = 0;
+  let flushed = 0;
+  let completed = 0;
+
+  const flush = () => {
+    while (flushed < items.length && done[flushed]) {
+      onReady?.(flushed, out[flushed]);
+      flushed++;
+    }
+  };
+
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
       while (next < batches.length) {
         const start = batches[next++];
         const slice = items.slice(start, start + BATCH);
         const results = await post(o, slice.map((it) => it.text));
-        results.forEach((r, k) => { out[start + k] = r; });
+        results.forEach((r, k) => { out[start + k] = r; done[start + k] = true; });
+        completed += results.length;
+        onProgress?.(completed, items.length);
+        flush();
       }
     }),
   );
+  flush();
   return out;
+}
+
+/**
+ * A counter on stderr, so a long run is not an unexplained pause. Only when
+ * stderr is a terminal: piped or redirected output stays clean.
+ */
+export function makeProgress(enabled) {
+  let shown = false;
+  return {
+    update(done, total) {
+      if (!enabled) return;
+      shown = true;
+      process.stderr.write(`\rclassify: ${done.toLocaleString()}/${total.toLocaleString()}`);
+    },
+    clear() {
+      if (enabled && shown) process.stderr.write("\r\u001b[K");
+    },
+  };
 }
 
 // ---------------------------------------------------------------- output
 
 const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r?\n/g, "\\n");
 
+/** One output row, or null when --review filters it out. */
+export function formatRow(o, it, r, i) {
+  const label = o.multi ? (r.labels || []).join(",") : r.label;
+  // Multi-label answers have no single confidence; use the weakest kept label,
+  // so --review surfaces items whose last label was a stretch.
+  const confidence = o.multi
+    ? (r.labels || []).length ? Math.min(...r.labels.map((l) => r.scores?.[l] ?? 0)) : 0
+    : r.confidence;
+  if (o.review !== null && !(confidence === null || confidence < o.review)) return null;
+  if (o.json) return JSON.stringify({ i, ...(it.id !== undefined ? { id: it.id } : {}), text: it.text, ...r });
+  if (o.quiet) return label;
+  const c = confidence === null ? "-" : Number(confidence).toFixed(2);
+  return `${label}\t${c}\t${(it.id !== undefined ? esc(it.id) + "\t" : "")}${esc(it.text)}`;
+}
+
 export function formatRows(o, items, results) {
   const rows = [];
   items.forEach((it, i) => {
-    const r = results[i];
-    const label = o.multi ? (r.labels || []).join(",") : r.label;
-    // Multi-label answers have no single confidence; use the weakest kept label,
-    // so --review surfaces items whose last label was a stretch.
-    const confidence = o.multi
-      ? (r.labels || []).length ? Math.min(...r.labels.map((l) => r.scores?.[l] ?? 0)) : 0
-      : r.confidence;
-    if (o.review !== null && !(confidence === null || confidence < o.review)) return;
-    if (o.json) {
-      const obj = { i, ...(it.id !== undefined ? { id: it.id } : {}), text: it.text, ...r };
-      rows.push(JSON.stringify(obj));
-    } else if (o.quiet) {
-      rows.push(label);
-    } else {
-      const c = confidence === null ? "-" : Number(confidence).toFixed(2);
-      rows.push(`${label}\t${c}\t${(it.id !== undefined ? esc(it.id) + "\t" : "")}${esc(it.text)}`);
-    }
+    const row = formatRow(o, it, results[i], i);
+    if (row !== null) rows.push(row);
   });
   return rows;
 }
@@ -292,18 +339,48 @@ export async function main(argv) {
     if (!items.length) { process.stdout.write(HELP); return 2; }
   }
 
-  let results;
-  try { results = await classifyAll(o, items); }
-  catch (e) { fail(e.message); }
+  // --count needs every answer before it can tally; a single text is one row.
+  // Everything else streams, so `| head` on a large file returns immediately.
+  const single = o.text !== null && !o.json;
+  const streaming = !o.count && !single;
 
-  let lines;
-  if (o.count) lines = formatCount(o, results);
-  else if (o.text !== null && !o.json) {
-    // One text: the answer and nothing else, like the GET endpoint.
-    const r = results[0];
-    lines = o.multi ? [(r.labels || []).join("\n")] : [r.label];
-  } else lines = formatRows(o, items, results);
-  if (lines.length) process.stdout.write(lines.join("\n") + "\n");
+  // The counter would fight the rows for the same terminal, so it only appears
+  // when stdout is going somewhere else — a file, a pipe — or prints nothing.
+  const progress = makeProgress(
+    !process.env.CLASSIFY_NO_PROGRESS && !process.env.CI &&
+    process.stderr.isTTY && (!process.stdout.isTTY || o.count) && items.length > 50,
+  );
+  process.on("SIGINT", () => {
+    progress.clear();
+    process.stderr.write("classify: interrupted\n");
+    process.exit(130);
+  });
+  // `| head` closes the pipe while rows are still being written. That is a
+  // normal end to a stream, not a failure, so it must not raise.
+  process.stdout.on("error", (e) => { if (e.code === "EPIPE") process.exit(0); });
+
+  let results;
+  try {
+    results = await classifyAll(
+      o,
+      items,
+      streaming
+        ? (i, r) => {
+            const row = formatRow(o, items[i], r, i);
+            if (row !== null) process.stdout.write(row + "\n");
+          }
+        : null,
+      (done, total) => progress.update(done, total),
+    );
+  } catch (e) { progress.clear(); fail(e.message); }
+  progress.clear();
+
+  if (!streaming) {
+    const lines = o.count
+      ? formatCount(o, results)
+      : o.multi ? [(results[0].labels || []).join("\n")] : [results[0].label];
+    if (lines.length) process.stdout.write(lines.join("\n") + "\n");
+  }
 
   const h = await hint;
   if (h) process.stderr.write(h);
