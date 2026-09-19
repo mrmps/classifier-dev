@@ -1,0 +1,103 @@
+# Deploy the Worker when main moves.
+#
+# Squash-merging a pull request pushes to main, so a merge deploys. Secrets set
+# with `wrangler secret put` are stored separately from the script and survive a
+# deploy, so nothing here needs to know them.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    # Files that cannot change what the Worker serves. Everything the site says
+    # is generated from src/, so src/** is deliberately not on this list.
+    paths-ignore:
+      - "README.md"
+      - "AGENTS.md"
+      - "LICENSE"
+      - "eval/**"
+      - ".github/workflows/publish-cli.yml"
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one that is mid-flight.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: npm ci
+
+      # The same three checks AGENTS.md asks for before a deploy.
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Worker tests
+        run: npm test
+      - name: CLI tests
+        run: node --test
+        working-directory: cli
+
+      # A missing secret should say which one, not fail later inside wrangler
+      # with an authentication error that names nothing.
+      - name: Check the secrets are set
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STATS_KV_ID: ${{ secrets.STATS_KV_ID }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+        run: |
+          missing=
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STATS_KV_ID REPORT_TO; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Repository secrets not set:$missing"
+            echo "Set them under Settings > Secrets and variables > Actions, or:"
+            for name in $missing; do echo "  gh secret set $name"; done
+            echo
+            echo "CLOUDFLARE_API_TOKEN comes from dash.cloudflare.com > My Profile >"
+            echo "API Tokens > Create Token > the \"Edit Cloudflare Workers\" template."
+            exit 1
+          fi
+
+      # wrangler.toml is gitignored, so CI builds it from the example.
+      - name: Write wrangler.toml
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STATS_KV_ID: ${{ secrets.STATS_KV_ID }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+        run: node .github/render-wrangler.mjs
+
+      # The repo's own pinned wrangler, so CI deploys with the version a
+      # maintainer deploys with locally.
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
+
+      # A deploy that uploads and then serves a broken Worker should fail here
+      # rather than in somebody's terminal.
+      - name: Check what is live
+        run: |
+          sleep 5
+          health=$(curl --fail --silent --show-error --retry 5 --retry-delay 3 \
+            --retry-all-errors https://classifier.dev/v1/health)
+          echo "$health"
+          echo "$health" | grep -q '"ok": true'
+          label=$(curl --fail --silent --show-error https://classifier.dev/spam,not+spam/Win+a+free+iPhone)
+          echo "classify -> $label"
+          test "$label" = "spam"

@@ -75,6 +75,13 @@ are broken, so it must work when they do not.
 
 ## Deploy
 
+Merging to `main` deploys. `.github/workflows/deploy.yml` typechecks, runs the
+Worker and CLI tests, runs `wrangler deploy`, and then asks the live service for
+`/v1/health` and one classification, so a deploy that uploads a broken Worker
+fails in CI rather than in somebody's terminal.
+
+By hand, to try something before it is merged:
+
     cp wrangler.example.toml wrangler.toml     # once, then fill in your own ids
     npx wrangler deploy
 
@@ -83,6 +90,22 @@ Cloudflare account: `account_id`, and the `STATS` KV namespace id that
 `npx wrangler kv namespace create STATS` hands back. The tracked
 `wrangler.example.toml` carries everything else — crons, bindings, migrations —
 so the deployment shape is in the repository and only the identifiers are not.
+
+CI has no `wrangler.toml`, so `.github/render-wrangler.mjs` writes one from the
+example and three repository secrets. That makes the example the deployed shape
+rather than a copy of it: change a binding in `wrangler.toml` alone and CI keeps
+deploying the old one.
+
+Repository secrets the deploy needs:
+
+    CLOUDFLARE_API_TOKEN    dash.cloudflare.com > My Profile > API Tokens >
+                            Create Token > "Edit Cloudflare Workers"
+    CLOUDFLARE_ACCOUNT_ID   the account_id from wrangler.toml
+    STATS_KV_ID             the STATS namespace id from wrangler.toml
+    REPORT_TO               where the daily digest goes
+
+Secrets set with `wrangler secret put` live on the Worker, not in the script
+bundle, so a deploy leaves them alone and CI never needs to know them.
 
 Secrets the Worker reads: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`,
 `RESEND_API_KEY`, `CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `ADMIN_PASSWORD`,
