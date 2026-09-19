@@ -341,11 +341,31 @@ PARTNER
   Price                    by arrangement
   Limits                   lifted, on a bearer key
   For                      teams past 20,000 classifications a day, or who need a contract
-  How                      https://cal.com/michaelsf/coffee
+  How                      email ${SITE.email} or book https://cal.com/michaelsf/coffee
 
   There is no self-serve paid tier yet because the free one is not metered per
   account. If you need more than a single IP's allowance, book a call; keys are
   issued the same day.
+
+
+ON REQUEST
+
+  The public service is one shared deployment. These are available by
+  arrangement, for teams whose data or latency budget cannot go through it:
+
+  Dedicated deployment     the service in your own cloud account: AWS, GCP
+                           or another
+  Private inference        end-to-end encrypted, so the texts are readable
+                           only inside your deployment
+  Higher accuracy          a model tuned to your labels and your data
+  Lower latency            served closer to your traffic, on capacity that
+                           is yours
+
+  Ask by email, ${SITE.email}, or book a call at
+  https://cal.com/michaelsf/coffee. Say which of the four you need and
+  roughly how many classifications a day; the answer comes back with a
+  price, and the accuracy or latency you are buying is measured on your
+  own data before you commit.
 
 
 WHAT COUNTS
@@ -437,8 +457,13 @@ BUGS AND FEATURE REQUESTS
 
 HIGHER LIMITS, PARTNERSHIPS, ANYTHING COMMERCIAL
 
-  Book a call: https://cal.com/michaelsf/coffee. Partner keys that lift the
-  per-IP limits are issued the same day.
+  Email ${SITE.email} or book a call: https://cal.com/michaelsf/coffee.
+  Partner keys that lift the per-IP limits are issued the same day.
+
+  On request, by arrangement: a dedicated deployment in your own cloud
+  (AWS, GCP or another), private end-to-end encrypted inference, and higher
+  accuracy or lower latency than the public service gives, measured on your
+  own data first. Details on https://classifier.dev/pricing.
 
 
 EVERYTHING ELSE

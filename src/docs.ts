@@ -293,8 +293,19 @@ ERRORS
   The full list, in the shape a client can validate against, is
   components.schemas.Error in https://classifier.dev/openapi.json
 
-  For higher limits, or a classifier tuned to your own data, book a short
-  call: https://cal.com/michaelsf/coffee
+  For higher limits, book a short call: https://cal.com/michaelsf/coffee
+
+
+ON REQUEST
+
+  The public service is one shared deployment. By arrangement, for teams
+  whose data or latency budget cannot go through it: a dedicated deployment
+  in your own cloud (AWS, GCP or another), private end-to-end encrypted
+  inference, and higher accuracy or lower latency, from a model tuned to
+  your labels and served on capacity that is yours. Email
+  contact@classifier.dev or book a call at https://cal.com/michaelsf/coffee;
+  the numbers are measured on your own data before you commit. Terms on
+  https://classifier.dev/pricing.
 
 
 ${roadmapDoc()}
