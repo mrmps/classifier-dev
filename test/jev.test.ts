@@ -27,6 +27,17 @@ describe("the token estimate", () => {
     // Every input is in exactly one request, in order.
     expect(zh.flatMap((b) => b.items.map((it) => it.id))).toEqual(Array.from({ length: 60 }, (_, i) => `i${i}`));
   });
+
+  test("keeps state plus the longest question below the separate 32k context limit", () => {
+    const inputs = Array(70).fill(english.repeat(4));
+    for (const multi of [false, true]) {
+      for (const batch of pack(inputs, labels, undefined, multi)) {
+        const state = batch.items.reduce((n, item) => n + estimateTokens(item.text) + 20, 0);
+        const question = Math.max(...Object.values(batch.questions).map(q => estimateTokens(JSON.stringify(q))));
+        expect(state + question).toBeLessThan(32000);
+      }
+    }
+  });
 });
 
 describe("a batch Jev refuses as too large", () => {
@@ -36,13 +47,14 @@ describe("a batch Jev refuses as too large", () => {
   });
 
   /** A fake Jev that refuses any request over `limit` items and answers the rest. */
-  const fakeJev = (limit: number) => {
+  const fakeJev = (limit: number, nested = false) => {
     const calls: number[] = [];
     globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { state: { id: string }[]; questions: Record<string, unknown> };
       calls.push(body.state.length);
       if (body.state.length > limit) {
-        return new Response(JSON.stringify({ error_type: "max_tokens_exceeded" }), { status: 400 });
+        const error = { error_type: "max_tokens_exceeded" };
+        return Response.json(nested ? { detail: error } : error, { status: 400 });
       }
       const answers: Record<string, unknown> = {};
       for (const qid of Object.keys(body.questions)) {
@@ -74,6 +86,14 @@ describe("a batch Jev refuses as too large", () => {
     const out = await jevClassify({ typesafe: "key" }, ["a", "b", "c", "d"], labels, undefined, true);
     expect(out).toHaveLength(4);
     out.forEach((r) => expect(r.scores).toEqual({ bug: 0.9, feature: 0.9, praise: 0.9 }));
+  });
+
+  test("recognizes TypeSafe's live nested error and splits instead of failing the batch", async () => {
+    const calls = fakeJev(3, true);
+    const out = await jevClassify({ typesafe: "key" }, Array(25).fill("broken checkout"), labels, undefined, false);
+    expect(out).toHaveLength(25);
+    expect(out.every(r => r.label === "bug" && r.model === "jev-test")).toBe(true);
+    expect(calls.filter(n => n <= 3).reduce((a, b) => a + b, 0)).toBe(25);
   });
 
   test("a single input that is still too large is a real failure", async () => {
