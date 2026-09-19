@@ -278,9 +278,9 @@ PRIVACY
 
   The text you send is never stored or logged here. It is forwarded to the
   model provider for the classification and nothing else. What is recorded is
-  the label names, which tier ran, which model answered, the latency, the
-  response status and a coarse country. The usage counts on this service are
-  built from those.
+  a keyed fingerprint of the label set, never the labels themselves, plus
+  which tier ran, which model answered, the latency, the response status and
+  a coarse country. The usage counts on this service are built from those.
 
 
 Built by @michael_chomsky — https://x.com/michael_chomsky

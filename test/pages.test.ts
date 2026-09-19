@@ -81,10 +81,10 @@ describe("links in a rendered document", () => {
 /** A block a reader would paste into a shell gets a copy control, whatever the shell tool. */
 test("command blocks carry a copy button", async () => {
   const setup = await html("/mcp-setup");
-  expect(setup).toMatch(/<pre>claude mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
-  expect(setup).toMatch(/<pre>codex mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
+  expect(setup).toMatch(/<pre>(?:<code[^>]*>)?claude mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
+  expect(setup).toMatch(/<pre>(?:<code[^>]*>)?codex mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
   const dev = await html("/developers");
-  expect(dev).toMatch(/<pre>curl <a class="inline" href="https:\/\/classifier\.dev\/spam[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
+  expect(dev).toMatch(/<pre>(?:<code[^>]*>)?curl <a class="inline" href="https:\/\/classifier\.dev\/spam[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
 });
 
 /**
