@@ -201,16 +201,17 @@ export async function jevClassify(
         b.items.forEach((item, k) => {
           const i = b.start + k;
           if (multi) {
-            const scores: Record<string, number> = {};
-            labels.forEach((l, li) => {
-              scores[l] = Number((res.answers[`${item.id}_${li}`]?.noul ?? 0).toFixed(4));
-            });
+            // Define own properties so labels such as __proto__ remain data.
+            const scores = Object.fromEntries(labels.map((l, li) => [
+              l, Number((res.answers[`${item.id}_${li}`]?.noul ?? 0).toFixed(4)),
+            ]));
             const best = labels.reduce((a, l) => (scores[l] > scores[a] ? l : a), labels[0]);
             out[i] = { label: best, confidence: scores[best], scores, model: res.model };
           } else {
             const a = res.answers[item.id];
-            const scores: Record<string, number> = {};
-            for (const l of labels) scores[l] = Number((a?.probabilities?.[l] ?? 0).toFixed(4));
+            const scores = Object.fromEntries(labels.map((l) => [
+              l, Number((a?.probabilities?.[l] ?? 0).toFixed(4)),
+            ]));
             out[i] = {
               label: a?.choice && labels.includes(a.choice) ? a.choice : labels[0],
               confidence: Number((a?.confidence ?? 0).toFixed(4)),
