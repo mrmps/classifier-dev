@@ -40,6 +40,9 @@ export interface Env extends BillingEnv {
    * refuses (see src/jev.ts). Either key alone is enough to run the fast tier.
    */
   AI_GATEWAY_API_KEY?: string;
+  /** Operational rollback: keep the key but send Jev directly to TypeSafe. */
+  AI_GATEWAY_DISABLED?: string;
+  JEV_AE?: AnalyticsEngineDataset;
   /** context.dev, for the chat's web search and page reads only. Never served. */
   CONTEXT_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;
