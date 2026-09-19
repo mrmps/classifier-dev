@@ -19,6 +19,7 @@ import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
 import { adminResponse } from "./admin";
+import { hasClassifyQuery, readGet, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
 
 export interface Env {
@@ -172,7 +173,7 @@ const agentView = (origin: string) => ({
   authentication: { required: false, optional_bearer: "partner key lifts per-IP limits", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
-    classify_one: { method: "GET", url: `${origin}/{labels}/{text}` },
+    classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
     openapi: `${origin}/openapi.json`,
   },
   mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
@@ -190,16 +191,16 @@ function notFound(req: Request, origin: string) {
   const pointers = { docs: `${origin}/`, llms: `${origin}/llms.txt`, openapi: `${origin}/openapi.json`, sitemap: `${origin}/sitemap.xml` };
   if (/\btext\/markdown\b/.test(accept)) {
     return markdown(
-      `# Not found\n\nThere is nothing at this path. The API is \`POST ${origin}/v1/classify\` or \`GET ${origin}/{labels}/{text}\`. ` +
+      `# Not found\n\nThere is nothing at this path. The API is \`POST ${origin}/v1/classify\`, \`GET ${origin}/{labels}/{text}\` or \`GET ${origin}/?labels=a,b&text=...\`. ` +
         `Start at [llms.txt](${pointers.llms}), the [documentation](${pointers.docs}), the [OpenAPI spec](${pointers.openapi}) or the [sitemap](${pointers.sitemap}).\n`,
       404,
     );
   }
   if (/\bapplication\/json\b/.test(accept) || req.method !== "GET") {
-    return json({ error: "Not found. The API is POST /v1/classify or GET /{labels}/{text}.", code: "not_found", see: pointers }, 404);
+    return json({ error: "Not found. The API is POST /v1/classify, GET /{labels}/{text} or GET /?labels=a,b&text=...", code: "not_found", see: pointers }, 404);
   }
   return markdown(
-    `# Not found\n\nThere is nothing at this path. The API is \`POST ${origin}/v1/classify\` or \`GET ${origin}/{labels}/{text}\`.\n\n` +
+    `# Not found\n\nThere is nothing at this path. The API is \`POST ${origin}/v1/classify\`, \`GET ${origin}/{labels}/{text}\` or \`GET ${origin}/?labels=a,b&text=...\`.\n\n` +
       `Start at ${pointers.llms}, the documentation at ${pointers.docs}, the OpenAPI spec at ${pointers.openapi} or the sitemap at ${pointers.sitemap}.\n`,
     404,
   );
@@ -840,6 +841,8 @@ const worker = {
     }
 
     const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    // GET /?labels=a,b&text=... is a classification, not the front page. See query.ts.
+    const classifyByQuery = req.method === "GET" && hasClassifyQuery(url);
     // Browsers announce text/html; curl sends */* and agents ask for text or
     // markdown. Only the first gets the rendered page — `curl classifier.dev`
     // prints exactly what it always did. ?format=text opts out by hand.
@@ -969,7 +972,7 @@ const worker = {
       }
       return json({ error: "no such endpoint", discovery: "/.well-known/agent-feedback.json" }, 404);
     }
-    if (req.method === "GET" && (path === "" || path === "index.html" || path === "index.md")) {
+    if (req.method === "GET" && !classifyByQuery && (path === "" || path === "index.html" || path === "index.md")) {
       const link = { link: LINKS(origin) };
       const wantsJson = /\bapplication\/json\b/.test(accept) && !wantsHtml;
       if (url.searchParams.get("mode") === "agent" || url.searchParams.get("format") === "json" || wantsJson) return json(agentView(origin), 200, link);
@@ -1088,6 +1091,8 @@ const worker = {
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
     let wantJson = req.method === "POST";
+    // Set for GET so a failed request can be answered with a URL that would have worked.
+    let getReq: GetRequest | undefined;
 
     if (req.method === "POST") {
       let body: Record<string, unknown>;
@@ -1111,22 +1116,15 @@ const worker = {
         multi = { max: max && max > 0 ? Math.floor(max) : undefined };
       }
     } else {
-      // GET /{labels}/{text}
-      const slash = path.indexOf("/");
-      if (slash <= 0) return notFound(req, origin);
-      labels = path
-        .slice(0, slash)
-        .split(",")
-        .map((l) => l.replace(/\+/g, " ").trim())
-        .filter(Boolean);
-      inputs = [path.slice(slash + 1).replace(/\+/g, " ").trim()];
-      if (url.searchParams.get("tier") === "smart") tier = "smart";
-      instructions = url.searchParams.get("instructions") ?? undefined;
-      wantJson = url.searchParams.get("verbose") === "1";
-      const maxParam = Number.parseInt(url.searchParams.get("max_labels") ?? "", 10);
-      if (url.searchParams.get("multi") === "1" || maxParam > 0) {
-        multi = { max: maxParam > 0 ? maxParam : undefined };
-      }
+      // GET /{labels}/{text}, GET /?labels=a,b&text=..., or a mix of the two.
+      getReq = readGet(path, url);
+      if (getReq.nothing) return notFound(req, origin);
+      labels = getReq.labels;
+      inputs = [getReq.text];
+      tier = getReq.tier;
+      instructions = getReq.instructions;
+      multi = getReq.multi;
+      wantJson = getReq.verbose;
     }
 
     // Every API answer, success or not, says which version answered, how much
@@ -1153,12 +1151,34 @@ const worker = {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0 });
       const headers = { ...apiHeaders(), ...extra };
-      return wantJson ? json({ error: msg, code: reason }, status, headers) : text(`error: ${msg}\n`, status, headers);
+      // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
+      const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
+      if (wantJson) return json({ error: msg, code: reason, ...hint }, status, headers);
+      return text(`error: ${msg}\n` + (hint ? `usage: ${hint.usage}\ntry:   ${hint.try}\n` : ""), status, headers);
     };
+    // How the labels read back in an error: enough to recognise, never the whole text.
+    const shown = (ls: string[]) =>
+      ls.slice(0, 5).map((l) => `"${l.length > 40 ? l.slice(0, 37) + "..." : l}"`).join(", ") + (ls.length > 5 ? ", ..." : "");
 
-    if (!inputs.length || !inputs[0]) return fail("Provide text to classify. See https://classifier.dev", 400, "no_input");
+    if (!inputs.length || !inputs[0]) {
+      return fail(
+        getReq && labels.length
+          ? `No text to classify. Got ${labels.length} label${labels.length === 1 ? "" : "s"} (${shown(labels)}) and no text.`
+          : "Provide text to classify. See https://classifier.dev",
+        400,
+        "no_input",
+      );
+    }
     if (inputs.length > MAX_INPUTS) return fail(`Maximum ${MAX_INPUTS} inputs per request`, 400, "too_many_inputs");
-    if (labels.length < 2) return fail("Provide at least 2 labels", 400, "too_few_labels");
+    if (labels.length < 2) {
+      return fail(
+        labels.length
+          ? `Provide at least 2 labels; got ${labels.length} (${shown(labels)}).` + (getReq ? " Separate labels with commas." : "")
+          : "Provide at least 2 labels; none given." + (getReq ? " Put them in ?labels=a,b or as the first path segment." : ""),
+        400,
+        "too_few_labels",
+      );
+    }
     if (labels.length > MAX_LABELS) return fail(`Maximum ${MAX_LABELS} labels`, 400, "too_many_labels");
     if (labels.some((l) => typeof l !== "string" || !l.trim())) return fail("Labels must be non-empty strings", 400, "empty_label");
     if (new Set(labels).size !== labels.length) return fail("Labels must be distinct", 400, "duplicate_labels");

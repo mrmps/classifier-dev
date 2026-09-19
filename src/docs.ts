@@ -100,6 +100,7 @@ AGENT SKILL
 USAGE
 
   GET  https://classifier.dev/{labels}/{text}
+  GET  https://classifier.dev/?labels={a,b}&text={text}
   POST https://classifier.dev  {"input":"...","labels":["...","..."]}
   POST https://classifier.dev  {"inputs":["...", ...up to 1000],"labels":[...]}
 
@@ -116,6 +117,15 @@ EXAMPLES
   contradiction
 
   Spaces can be written as + or %20, and labels are separated by commas.
+
+  The same request as query parameters, for code that builds URLs:
+
+  curl "https://classifier.dev/?labels=spam,not+spam&text=Win+a+free+iPhone+now"
+  spam
+
+  input, q, classes and categories are read as text and labels too, and the
+  two forms mix: /spam,not+spam?text=... is the same call. Every option below
+  works on both. A malformed GET answers with a URL that would have worked.
 
 
 PARAMETERS

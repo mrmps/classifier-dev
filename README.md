@@ -6,6 +6,9 @@ confidence out. No key, no signup. Up to a thousand texts per request.
     curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone
     spam
 
+    curl "https://classifier.dev/?labels=spam,not+spam&text=Win+a+free+iPhone"   # same call, query form
+    spam
+
 Single Cloudflare Worker. No database, no framework, no build step beyond esbuild.
 
 ## CLI
@@ -22,6 +25,7 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
 ## Layout
 
     src/index.ts    routing, validation, tiers, LLM fallback chain, analytics
+    src/query.ts    the GET query form, read and written with nuqs; the URL an error suggests
     src/jev.ts      TypeSafe's Jev: packs inputs into requests, reads probabilities
     src/limiter.ts  Durable Object: per-IP rate limiting
     src/report.ts   digest — Analytics Engine SQL -> Resend, flags model fallbacks

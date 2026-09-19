@@ -18,5 +18,8 @@
     "@cloudflare/workers-types": "^5.20260813.1",
     "typescript": "^7.0.2",
     "wrangler": "^4.122.0"
+  },
+  "dependencies": {
+    "nuqs": "^2.10.1"
   }
 }

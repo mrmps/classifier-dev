@@ -240,6 +240,24 @@ export const OPENAPI = {
         summary: "The documentation: plain text by default, Markdown or HTML by Accept, JSON index for application/json.",
         description: "Content negotiation on Accept: text/plain (default, what curl prints), text/markdown, text/html, or application/json for the same machine-readable index as GET /api.",
         tags: ["docs"],
+        parameters: [
+          {
+            name: "labels",
+            in: "query",
+            required: false,
+            description: "With `text`, classifies instead of returning the docs: comma-separated categories, 2 to 100. Takes the same options as GET /{labels}/{text}.",
+            schema: { type: "string" },
+            example: "spam,not+spam",
+          },
+          {
+            name: "text",
+            in: "query",
+            required: false,
+            description: "The text to classify, up to 32,000 characters.",
+            schema: { type: "string" },
+            example: "Win+a+free+iPhone",
+          },
+        ],
         responses: {
           ...ERRORS,
           "200": {
@@ -302,7 +320,9 @@ export const OPENAPI = {
         description:
           "The quickest possible call: labels comma-separated in the first path segment, " +
           "the text in the rest. Spaces may be written as + or %20. " +
-          "Add ?verbose=1 for JSON including calibrated confidence and per-label scores.",
+          "Add ?verbose=1 for JSON including calibrated confidence and per-label scores. " +
+          "The same request works as query parameters on the root, GET /?labels=spam,not+spam&text=Win+a+free+iPhone, " +
+          "with the same options; a malformed request answers with a URL that would have worked.",
         parameters: [
           {
             name: "labels",
@@ -609,6 +629,11 @@ export const LLMS_TXT = `# classifier.dev
 Quickest possible call:
 
     curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone+now
+    spam
+
+Same call as query parameters:
+
+    curl "https://classifier.dev/?labels=spam,not+spam&text=Win+a+free+iPhone+now"
     spam
 
 JSON, many at once:

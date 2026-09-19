@@ -40,6 +40,11 @@ One text, bare label back:
     curl "https://classifier.dev/relevant,not+relevant/Redis+beats+Postgres+for+queues"
     relevant
 
+The same call as query parameters, when code is building the URL:
+
+    curl "https://classifier.dev/?labels=relevant,not+relevant&text=Redis+beats+Postgres+for+queues"
+    relevant
+
 Many texts, one call — **this is the path that matters**:
 
     curl https://classifier.dev -d '{
@@ -88,6 +93,12 @@ where one `fetch` is simpler than a subprocess.
 | `multi`        | Return every label that applies, with a score per label.              |
 | `max_labels`   | Cap on how many multi-label answers come back.                        |
 | `verbose=1`    | On GET, returns JSON instead of a bare label.                         |
+| `text`         | On GET, the text as a query parameter: `/?labels=a,b&text=...`. `input` and `q` work too; `classes` and `categories` for labels. |
+
+On GET every option goes in the query string, whichever form carries the
+labels and text; the two forms mix (`/a,b?text=...`). If a GET is malformed
+the error comes with `usage:` and `try:` — `try` is a URL built from what you
+sent that would have worked. Follow it rather than re-reading the docs.
 
 Labels are read semantically, so name them in words: `urgent bug` classifies
 better than `p0`.
