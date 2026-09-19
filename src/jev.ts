@@ -32,7 +32,31 @@ const MODEL = "jev-latest";
 const TOKEN_BUDGET = 48_000;
 const MAX_ITEMS = 1000;
 const CONCURRENCY = 8;
-const est = (s: string) => Math.ceil(s.length / 3.5) + 1;
+
+/**
+ * Tokens in a string, estimated. ASCII runs at about 3.5 characters a token;
+ * everything else is counted at two tokens a character, which is what CJK
+ * text costs on the tokenizers this is modelled on and a safe overcount for
+ * accented Latin. The old estimate divided every character by 3.5, so a
+ * batch of Chinese text packed to 20k estimated tokens carried 80k real
+ * ones, Jev answered 400 max_tokens_exceeded, and the request fell to the
+ * LLM fallback (slow) or, past FALLBACK_MAX_INPUTS, to a 502. Overcounting
+ * only costs an extra request, which runs concurrently.
+ */
+export function estimateTokens(s: string) {
+  let ascii = 0;
+  let other = 0;
+  for (let i = 0; i < s.length; i++) (s.charCodeAt(i) < 128 ? ascii++ : other++);
+  return Math.ceil(ascii / 3.5) + other * 2 + 1;
+}
+const est = estimateTokens;
+
+/** A refusal from Jev, with the status and the error_type the API gives. */
+export class JevError extends Error {
+  constructor(message: string, readonly status: number, readonly errorType: string) {
+    super(message);
+  }
+}
 
 /** Below this a multi-label yes/no does not count. 0.7 maximised F1 on the eval set. */
 export const MULTI_THRESHOLD = 0.7;
@@ -73,8 +97,8 @@ function questionsFor(id: string, labels: string[], instructions: string | undef
   return out;
 }
 
-/** Greedy packing: fill each request up to the token budget, in input order. */
-function pack(inputs: string[], labels: string[], instructions: string | undefined, multi: boolean): Packed[] {
+/** Greedy packing: fill each request up to the token budget, in input order. Exported for the tests. */
+export function pack(inputs: string[], labels: string[], instructions: string | undefined, multi: boolean): Packed[] {
   const labelTokens = labels.reduce((n, l) => n + est(l), 0);
   const instrTokens = instructions ? est(instructions) : 0;
   const perItemQuestions = multi
@@ -100,7 +124,7 @@ function pack(inputs: string[], labels: string[], instructions: string | undefin
 }
 
 async function post(key: string, body: unknown, meter?: Meter) {
-  let last = "";
+  let last: Error = new Error("typesafe: no attempt made");
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(API, {
       method: "POST",
@@ -112,18 +136,37 @@ async function post(key: string, body: unknown, meter?: Meter) {
       answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>;
       usage?: { input_tokens?: number };
       detail?: unknown;
+      error_type?: string;
     };
     if (res.ok && payload.answers) {
       // Only a call that answered is billed; a retried 429 is not.
       addJevCost(meter, payload.usage?.input_tokens);
       return payload as Required<Pick<typeof payload, "model" | "answers">>;
     }
-    last = `typesafe ${res.status}: ${JSON.stringify(payload.detail ?? payload).slice(0, 200)}`;
+    last = new JevError(
+      `typesafe ${res.status}: ${JSON.stringify(payload.detail ?? payload).slice(0, 200)}`,
+      res.status,
+      typeof payload.error_type === "string" ? payload.error_type : "",
+    );
     // 429 and 529 are the documented "back off and retry" statuses.
     if (res.status !== 429 && res.status !== 529 && res.status < 500) break;
     await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
   }
-  throw new Error(last);
+  throw last;
+}
+
+/** Two halves of a packed request, each addressed to its own slice of the inputs. */
+function halve(b: Packed): [Packed, Packed] {
+  const mid = Math.ceil(b.items.length / 2);
+  const part = (items: Packed["items"], start: number): Packed => {
+    const ids = new Set(items.map((it) => it.id));
+    const questions: Packed["questions"] = {};
+    for (const [qid, q] of Object.entries(b.questions)) {
+      if (ids.has(qid.replace(/_\d+$/, "")) || ids.has(qid)) questions[qid] = q;
+    }
+    return { start, items, questions };
+  };
+  return [part(b.items.slice(0, mid), b.start), part(b.items.slice(mid), b.start + mid)];
 }
 
 export async function jevClassify(
@@ -142,7 +185,19 @@ export async function jevClassify(
     Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
       while (next < batches.length) {
         const b = batches[next++];
-        const res = await post(key, { state: b.items, model: MODEL, questions: b.questions }, meter);
+        let res: Awaited<ReturnType<typeof post>>;
+        try {
+          res = await post(key, { state: b.items, model: MODEL, questions: b.questions }, meter);
+        } catch (e) {
+          // The estimate undercounted this batch. Halve it and let the loop
+          // pick both halves up; a single item that is still too large is a
+          // real failure and falls back like any other.
+          if (e instanceof JevError && e.errorType === "max_tokens_exceeded" && b.items.length > 1) {
+            batches.push(...halve(b));
+            continue;
+          }
+          throw e;
+        }
         b.items.forEach((item, k) => {
           const i = b.start + k;
           if (multi) {

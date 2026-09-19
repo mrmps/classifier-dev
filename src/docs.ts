@@ -166,10 +166,10 @@ CONFIDENCE
 
   It is not out-of-distribution detection. It says which of your labels fits
   best, not whether any of them fit. "The weather is nice today" against
-  bug / feature / praise is "praise" at 0.97. If none-of-the-above is a real
-  outcome, add it as a label: the same text against those three plus
-  "none of these" picks "none of these" at 0.78. That works; hoping for a low
-  score does not.
+  bug / feature / praise comes back "praise", with a confidence that looks
+  like any other answer's. If none-of-the-above is a real outcome, add it as
+  a label: the same text against those three plus "none of these" picks
+  "none of these". That works; hoping for a low score does not.
 
   It is withheld for input that is not language. A forced choice on
   "asdkjfhaskdjfh" still lands somewhere, so the label ships with confidence

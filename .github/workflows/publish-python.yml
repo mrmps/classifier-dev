@@ -1,0 +1,28 @@
+name: publish python
+on:
+  push:
+    tags: ["python-v*"]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Trusted publishing: PyPI accepts this workflow's OIDC token, so there is
+    # no API token to store. One-time setup on pypi.org: add a pending
+    # publisher for project `classifier-dev`, owner `mrmps`, repository
+    # `classifier-dev`, workflow `publish-python.yml`, environment blank.
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --with pytest python -m pytest -q test_classifier_dev.py
+      - run: |
+          test "python-v$(uv run python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')" = "${GITHUB_REF_NAME}" \
+            || { echo "tag ${GITHUB_REF_NAME} does not match pyproject.toml"; exit 1; }
+      - run: uv build --out-dir dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist
