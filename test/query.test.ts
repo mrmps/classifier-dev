@@ -113,6 +113,13 @@ describe("path form", () => {
 describe("the hint on a malformed request", () => {
   const origin = "https://classifier.dev";
 
+  it("preserves punctuation inside individual labels when suggesting a path", () => {
+    const request = { labels: ["C++", "and/or", "a,b"], text: "C++ and/or a,b", form: "path" as const };
+    const r = get(suggest(origin, request).slice(origin.length));
+    expect(r.labels).toEqual(request.labels);
+    expect(r.text).toBe(request.text);
+  });
+
   it("is a URL in the spelling the caller used, keeping what they sent", () => {
     expect(suggest(origin, get("/?labels=spam,not+spam"))).toBe("https://classifier.dev/?labels=spam,not+spam&text=Win+a+free+iPhone");
     expect(suggest(origin, get("/spam,not+spam"))).toBe("https://classifier.dev/spam,not+spam/Win+a+free+iPhone");

@@ -144,7 +144,7 @@ export function readGet(path: string, url: URL): GetRequest {
 
 export const USAGE = "GET /{labels}/{text}  or  GET /?labels={a,b}&text={text}";
 
-const pathSegment = (s: string) => encodeURIComponent(s).replace(/%20/g, "+").replace(/%2C/g, ",");
+const pathSegment = (s: string) => encodeURIComponent(s).replace(/%20/g, "+");
 
 /**
  * A URL that would have worked, built from what the caller sent. Missing
@@ -157,5 +157,5 @@ export function suggest(origin: string, req: Pick<GetRequest, "labels" | "text" 
   else if (labels.length === 1) labels = [labels[0], `not ${labels[0]}`];
   const text = req.text.length > 0 && req.text.length <= 200 ? req.text : "Win a free iPhone";
   if (req.form === "query") return serialize(`${origin}/`, { labels, text });
-  return `${origin}/${pathSegment(labels.join(","))}/${pathSegment(text)}`;
+  return `${origin}/${labels.map(pathSegment).join(",")}/${pathSegment(text)}`;
 }
