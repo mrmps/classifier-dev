@@ -12,7 +12,7 @@ const root = join(import.meta.dir);
 const files = args.length
   ? args
   : readdirSync(root)
-      .filter((d) => statSync(join(root, d)).isDirectory())
+      .filter((d) => !d.startsWith("_") && statSync(join(root, d)).isDirectory())
       .map((d) => join(root, d, "SKILL.md"));
 
 let bad = 0;

@@ -120,6 +120,14 @@ no marketing. Say when not to use the skill. The site's own voice is in
 run against the live API before the skill was submitted, and where it shows
 output, the output is real.
 
+## Rejected
+
+`_rejected/` keeps the drafts the live judge refused and the scripts skip. Two
+are there because they classify the agent's own transcript and tool-call
+arguments, and the judge holds that such text should not leave the machine
+even redacted. The verdict stands; the drafts stay so the reasoning is on
+record.
+
 ## Check and submit
 
 ```
