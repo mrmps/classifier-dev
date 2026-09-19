@@ -56,6 +56,9 @@ export interface Env {
    * nothing they could be joined against.
    */
   NEWSLETTER_DATABASE_URL?: string;
+  NEWSLETTER_CONFIRMATION_SECRET?: string;
+  NEWSLETTER_FROM?: string;
+  NEWSLETTER_RESEND_API_KEY?: string;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -253,8 +256,9 @@ const agentView = (origin: string) => ({
       method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
       content_type: "application/json", body: { email: "agent@example.com" },
       description: "Subscribe your own inbox to product updates. Use an address you control, or one whose owner explicitly requested updates. No API key or browser needed.",
-      confirmation_required: false,
-      response: { status: 202, body: { ok: true, subscribed: "agent@example.com" } },
+      confirmation_required: true,
+      confirm: { method: "POST", url: `${origin}/${newsletter.CONFIRM_PATH}`, body: { token: "token from the confirmation email" } },
+      response: { status: 202, body: { ok: true, status: "pending_confirmation" } },
       limits: "5 signups/min, 50/day per IP; retry a 429 after Retry-After seconds",
       unsubscribe: "Reply to an update to unsubscribe.",
     },
@@ -1251,6 +1255,30 @@ const worker = {
       }
       return json({ error: "no such endpoint", code: "not_found", discovery: "/.well-known/agent-feedback.json" }, 404);
     }
+    if (path === newsletter.CONFIRM_PATH) {
+      const privateHeaders = { "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow" };
+      const form = (req.headers.get("content-type") ?? "").includes("form-");
+      if (req.method !== "GET" && req.method !== "POST") return json({ error: "Use GET to preview or POST to confirm" }, 405, { ...privateHeaders, allow: "GET, POST" });
+      const body = req.method === "GET" ? { token: url.searchParams.get("token") }
+        : form ? await req.formData().then(data => Object.fromEntries(data)).catch(() => ({}))
+        : await readJsonObject(req).catch(() => ({}));
+      const token = (body as Record<string, unknown>).token;
+      try {
+        const email = await newsletter.verifyToken(env, token);
+        if (!email) return req.method === "GET" || form
+          ? html(newsletter.resultPage(false, "This confirmation link is invalid or expired. Subscribe again for a new link."), 400, privateHeaders)
+          : json({ error: "invalid or expired confirmation token; subscribe again" }, 400, privateHeaders);
+        if (req.method === "GET") return html(newsletter.confirmationPage(token as string), 200, privateHeaders);
+        const added = await newsletter.subscribe(env, email, form ? "form" : "api");
+        if (added) ctx.waitUntil(newsletter.notify(env, email, form ? "form" : "api").catch(() => console.error("subscription notification failed")));
+        return form ? html(newsletter.resultPage(true, "Email confirmed. Your request has been recorded."), 200, privateHeaders)
+          : json({ ok: true, status: "confirmed" }, 200, privateHeaders);
+      } catch {
+        return req.method === "GET" || form
+          ? html(newsletter.resultPage(false, "Could not confirm just now. Try this link again shortly."), 503, privateHeaders)
+          : json({ error: "could not confirm; retry shortly" }, 503, privateHeaders);
+      }
+    }
     if (path === newsletter.SUBSCRIBE_PATH) {
       if (req.method !== "POST") {
         return json(
@@ -1293,21 +1321,17 @@ const worker = {
       }
 
       try {
-        await newsletter.subscribe(env, email, form ? "form" : "api");
+        await newsletter.requestConfirmation(env, email);
       } catch (e) {
-        console.error(`subscribe failed: ${(e as Error).message}`);
+        console.error(e instanceof newsletter.Unavailable ? e.message : "confirmation email failed");
         return form
-          ? html(newsletter.resultPage(false, "Could not save that just now. Try again shortly."), 503)
-          : json({ error: "could not record that address; try again shortly" }, 503);
+          ? html(newsletter.resultPage(false, "Could not send confirmation just now. Try again shortly."), 503)
+          : json({ error: "could not send confirmation; try again shortly" }, 503);
       }
 
-      ctx.waitUntil(
-        newsletter.notify(env, email, form ? "form" : "api").catch((e) => console.error(`subscribe notify failed: ${(e as Error).message}`)),
-      );
-
       return form
-        ? html(newsletter.resultPage(true, "You are on the list."))
-        : json({ ok: true, subscribed: email }, 202);
+        ? html(newsletter.resultPage(true, "Check your inbox to confirm your subscription."), 202, { "cache-control": "no-store" })
+        : json({ ok: true, status: "pending_confirmation" }, 202, { "cache-control": "no-store" });
     }
 
     if (req.method === "GET" && !classifyByQuery && (path === "" || path === "index.html" || path === "index.md")) {

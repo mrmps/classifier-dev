@@ -156,29 +156,38 @@ weeks at F1 0.546 without anything saying so.
 
 ## Updates list
 
-The form at the foot of the home page posts to `POST /subscribe`, which appends
-the address to Postgres in its own Neon project (`classifier-newsletter`; the
-id is in `.secrets.env`, or from `neonctl projects list`). The table has four
-columns and no others: the address, where it came from, when it arrived, and a
-column for unsubscribing.
-There is deliberately no IP and no request id, so there is no column an address
-could be joined on. `on conflict (email) do nothing` makes a repeat submission a
-no-op, which also stops the response being used to test whether an address is
-already on the list.
+The form and `POST /subscribe` send a confirmation email through Resend.
+The API returns `202 {"ok":true,"status":"pending_confirmation"}`. Nothing is
+written to the newsletter database until the emailed token is submitted to
+`POST /subscribe/confirm` as `{"token":"..."}` (or with the confirmation form).
+GET only renders the form, so mail scanners cannot confirm subscriptions.
 
-    npx wrangler secret put NEWSLETTER_DATABASE_URL
+Tokens are signed with `NEWSLETTER_CONFIRMATION_SECRET`, expire within 24 hours,
+and are never returned from signup. Resend's idempotency key deduplicates repeat
+requests for the same inbox within each clock hour. Existing per-IP limits also
+apply. Signing-key rotation invalidates outstanding links.
 
-The Worker writes over Neon's HTTP SQL endpoint rather than a Postgres driver:
-a Worker has no TCP, and this is one parameterised INSERT.
+Apply `migrations/001-newsletter-confirmation.sql` to the separate newsletter
+Neon project before deploying. Existing subscribers remain unconfirmed; do not
+backfill `confirmed_at` or send them updates until they confirm. An existing
+unsubscribe is never cleared by confirmation or by replaying an old token.
 
-Read the list:
+Required Worker secrets: `NEWSLETTER_DATABASE_URL`, `NEWSLETTER_RESEND_API_KEY`, and a
+random `NEWSLETTER_CONFIRMATION_SECRET` of at least 32 bytes. `NEWSLETTER_FROM`
+in `wrangler.example.toml` must use a verified Resend sending domain. `REPORT_TO`
+is the reply address and receives notifications only for newly confirmed rows.
 
-    neonctl connection-string --project-id "$NEWSLETTER_PROJECT_ID" \
-      --role-name neondb_owner --database-name neondb \
-      | xargs -I{} psql {} -c "select email, created_at from subscriber order by id"
+The database holds email, source, signup/confirmation/unsubscribe dates, and an
+internal id. It holds no IP, request id, or classification traffic. Pending
+signups are not stored. Tokens and mail-provider error bodies must not be logged.
 
-The Worker connects as `newsletter_writer`, which is granted `INSERT` on that
-one table and nothing else. Do not read more into that than it deserves: Neon
+Read only confirmed, active recipients when sending updates:
+
+    SELECT email FROM subscriber
+    WHERE confirmed_at IS NOT NULL AND unsubscribed_at IS NULL;
+
+The Worker connects as `newsletter_writer`, which can insert and update
+confirmation state on that one table. Do not read more into that than it deserves: Neon
 puts every role it creates into `neon_superuser`, which can read any table
 whatever the grants say, and neither the project owner nor `ALTER ROLE` can
 revoke that membership. So the connection string can in fact read the list.

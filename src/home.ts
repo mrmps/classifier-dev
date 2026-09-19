@@ -184,9 +184,9 @@ function updatesSection() {
       ${btn("subscribe", { cls: "cta", type: "submit" })}
       <span class="said" role="status" aria-live="polite" data-say="1"></span>
     </form>
-    <p class="terms">One mail when something on that list ships, and nothing in between.
-      The list holds the address and the date it arrived, in a database with no other
-      table, so there is nothing to join it to. Unsubscribing is a reply.</p>
+    <p class="terms">Confirm your email to join. One mail when something on that list ships, and nothing in between.
+      The list keeps your address, signup source, and subscription dates in a separate
+      database, with no classification traffic. Unsubscribing is a reply.</p>
   </section>`;
 }
 
@@ -593,7 +593,7 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         input.value = "";
-        say.textContent = "on the list.";
+        say.textContent = "check your inbox to confirm.";
         if (f.closest(".dock")) setTimeout(retire, 2400);
       } else {
         say.classList.add("bad");
