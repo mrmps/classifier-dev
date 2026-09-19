@@ -29,9 +29,10 @@ const SETS: { key: string; name: string; about: string }[] = [
   { key: "ag_news", name: "AG News", about: "four-way topic" },
   { key: "emotion", name: "emotion", about: "six-way, genuinely hard" },
 ];
+// The fast tier is Jev itself, so the table shows one row for both, carrying
+// the direct measurement; the fast run stays in the data and in the prose.
 const RUNS: { key: string; name: string }[] = [
-  { key: "jev", name: "jev alone" },
-  { key: "fast", name: "classifier.dev fast" },
+  { key: "jev", name: "jev alone = classifier.dev fast" },
   { key: "smart", name: "classifier.dev smart" },
 ];
 
@@ -75,12 +76,13 @@ export function smartGain() {
 export function vsJevText(full: boolean): string {
   const ss = sets();
   const n = VS_JEV.summary[ss[0].key].n;
-  const W = 22; // one set = "all" (8) + "unsure(n)" (14)
-  const head1 = `  ${"".padEnd(24)}${ss.map((s) => s.name.padStart(Math.ceil((W + s.name.length) / 2)).padEnd(W)).join("")}`.trimEnd();
-  const head2 = `  ${"".padEnd(24)}${ss.map((s) => "all".padStart(8) + `unsure(${VS_JEV.summary[s.key].unsure})`.padStart(14)).join("")}`;
-  const rule = `  ${"-".repeat(24 + ss.length * W)}`;
+  const L = 33; // label column
+  const W = 20; // one set = "all" (7) + "unsure(n)" (13)
+  const head1 = `  ${"".padEnd(L)}${ss.map((s) => s.name.padStart(Math.ceil((W + s.name.length) / 2)).padEnd(W)).join("")}`.trimEnd();
+  const head2 = `  ${"".padEnd(L)}${ss.map((s) => "all".padStart(7) + `unsure(${VS_JEV.summary[s.key].unsure})`.padStart(13)).join("")}`;
+  const rule = `  ${"-".repeat(L + ss.length * W)}`;
   const lines = RUNS.filter((r) => ss.every((s) => row(s.key, r.key))).map(
-    (r) => `  ${r.name.padEnd(24)}${ss.map((s) => pct(row(s.key, r.key)!.acc).padStart(8) + pct(row(s.key, r.key)!.acc_unsure).padStart(14)).join("")}`,
+    (r) => `  ${r.name.padEnd(L)}${ss.map((s) => pct(row(s.key, r.key)!.acc).padStart(7) + pct(row(s.key, r.key)!.acc_unsure).padStart(13)).join("")}`,
   );
   const fastAcc = ss.map((s) => `${pct(row(s.key, "fast")?.acc)} vs ${pct(row(s.key, "jev")?.acc)}`).join(", ");
   const dis = ss.map((s) => row(s.key, "fast")).filter(Boolean) as Row[];
@@ -110,8 +112,8 @@ export function vsJevText(full: boolean): string {
   const after = full
     ? [
         ...wrap(
-          "The fast tier is the same model, packed a thousand to a request: it scored the " +
-            `same within noise (${fastAcc}), and ${disagree}. The smart tier re-asked ` +
+          "The fast tier is Jev, packed a thousand to a request, so the table shows one row for " +
+            `both. Measured separately it scored the same within noise (fast ${fastAcc}), and ${disagree}. The smart tier re-asked ` +
             `${escalated} items and took about ${ms} ms per item amortised. Calling Jev ` +
             `yourself costs about ${jevCost} per thousand and needs a TypeSafe key; this ` +
             "service costs nothing and needs none.",
@@ -124,7 +126,7 @@ export function vsJevText(full: boolean): string {
         ),
       ]
     : wrap(
-        `Fast is Jev itself (${fastAcc}). Smart re-asked ${escalated} items. Gaps under about ` +
+        `The fast tier is Jev, so one row serves both. Smart re-asked ${escalated} items. Gaps under about ` +
           `${floor} points are noise. The full table, with latency and cost, is at https://classifier.dev/benchmark`,
       );
   return [...intro, "", head1, head2, rule, ...lines, "", ...after].map((l) => (l ? `  ${l}` : l)).join("\n");
@@ -136,7 +138,7 @@ export function vsJevHtml(): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const th = (t: string, extra = "") => `<th${extra}>${esc(t)}</th>`;
   const head1 = `<tr>${th("")}${ss.map((s) => th(s.name, ' colspan="2" class="set"')).join("")}</tr>`;
-  const head2 = `<tr>${th("")}${ss.map((s) => th("all") + th(`unsure (${VS_JEV.summary[s.key].unsure})`)).join("")}</tr>`;
+  const head2 = `<tr>${th("")}${ss.map((s) => th("all", ' class="num gap"') + th(`unsure (${VS_JEV.summary[s.key].unsure})`, ' class="num"')).join("")}</tr>`;
   const body = RUNS.filter((r) => ss.every((s) => row(s.key, r.key)))
     .map((r) => {
       const cells = ss
@@ -144,8 +146,9 @@ export function vsJevHtml(): string {
           const me = row(s.key, r.key)!;
           const jev = row(s.key, "jev")!;
           // Only the smart tier is a different answer; the fast row is the same model and its gaps are noise.
-          const win = (a: number | null, b: number | null) => (r.key === "smart" && a != null && b != null && a > b ? ' class="win"' : "");
-          return `<td${win(me.acc, jev.acc)}>${pct(me.acc)}</td><td${win(me.acc_unsure, jev.acc_unsure)}>${pct(me.acc_unsure)}</td>`;
+          const cls = (a: number | null, b: number | null, extra: string) =>
+            ` class="num${extra}${r.key === "smart" && a != null && b != null && a > b ? " win" : ""}"`;
+          return `<td${cls(me.acc, jev.acc, " gap")}>${pct(me.acc)}</td><td${cls(me.acc_unsure, jev.acc_unsure, "")}>${pct(me.acc_unsure)}</td>`;
         })
         .join("");
       return `<tr><th scope="row">${esc(r.name)}</th>${cells}</tr>`;

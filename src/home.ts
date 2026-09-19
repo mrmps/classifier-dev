@@ -20,10 +20,16 @@ const HOME_CSS = `
 .block>.row{margin-top:4px}
 h2{scroll-margin-top:24px}
 .foot{color:var(--dim);border-top:1px solid var(--rule);padding-top:16px}
+.nb{white-space:nowrap}
 .vs{width:auto;margin-top:10px}
-.vs th.set{text-align:center;color:var(--fg);border-bottom:0;padding-bottom:0}
+.vs th,.vs td{padding:3px 0}
+.vs th.set{text-align:center;color:var(--fg);border-bottom:1px solid var(--rule);padding:0 8px 4px}
+.vs .num{text-align:right;min-width:5.5em;padding-left:14px}
+.vs .gap{padding-left:32px}
+.vs thead th:first-child{border-bottom:0}
+.vs thead tr:last-child th{border-bottom:0;padding-top:4px}
 .vs td.win{color:var(--green)}
-.vs tbody th{font-weight:400;color:var(--fg);border-bottom:0}
+.vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
 `;
 
 /** The headline: what the service adds over calling its own model directly. */
@@ -41,7 +47,7 @@ function vsJevSection() {
     (clear.length ? `; ${clear.map((g) => g.set).join(" and ")} clears it.` : ".");
   return `<section>
     <h2><span class="syn">## </span>${esc(title)}</h2>
-    <p class="lead">${esc(lead)} Same public test sets, measured live over this API on ${esc(VS_JEV.measured)}. No key, no cost.</p>
+    <p class="lead">${esc(lead)} Same public test sets, measured live over this API on <span class="nb">${esc(VS_JEV.measured)}</span>. No key, no cost.</p>
     ${vsJevHtml()}
     <p class="row">${btn("full benchmark", { href: "/benchmark" })}${btn("npm run vs-jev", { href: "https://github.com/mrmps/classifier-dev/blob/main/eval/vs_jev.py", cls: "dim" })}</p>
   </section>`;
