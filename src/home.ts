@@ -41,12 +41,14 @@ h2{scroll-margin-top:24px}
 .vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
 .vs tbody th .eq{color:var(--dim)}
 .vs tr.smart th{color:var(--bright)}
-/* The gain row: dim where the difference is inside the noise. A clear gain is
-   bright and bold, a clear loss is the one status colour; the sign carries
-   the meaning for a reader who sees neither. */
+/* In each column the better accuracy is green. The gain row is green or red
+   by its sign, and bold only where the gap clears the noise on that column's
+   items; the sign carries the meaning for a reader who sees neither. */
+.vs td.best{color:var(--good)}
 .vs tr.gain th,.vs tr.gain td{color:var(--dim);border-top:1px solid var(--line);padding-top:8px}
-.vs tr.gain td.win{color:var(--bright);font-weight:600}
+.vs tr.gain td.win{color:var(--good)}
 .vs tr.gain td.loss{color:var(--bad)}
+.vs tr.gain td.clear{font-weight:600}
 /* The agent prompt: the one thing a first-time visitor should not miss, so it
    is the one surface on the page drawn with depth. No border: a hairline ring
    and a lift, a faint wash of the accent from the top corner (at full P3

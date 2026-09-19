@@ -133,7 +133,8 @@ QUICKSTART
     curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone
     spam
 
-    curl https://classifier.dev -d '{"inputs":["the checkout button does nothing","love the dark mode"],"labels":["bug","praise","feature"]}'
+    curl https://classifier.dev -d '{"inputs":["the checkout button does nothing","love the dark mode"],
+                                     "labels":["bug","praise","feature"]}'
 
   One request, up to 1,000 texts, back in about a second, each with a label,
   a calibrated confidence and a score per label. Full reference: https://classifier.dev
@@ -209,7 +210,8 @@ EXAMPLES
   curl:
 
     curl https://classifier.dev/v1/classify -H 'content-type: application/json' \\
-      -d '{"inputs":["the checkout button does nothing","love the dark mode"],"labels":["bug","praise","feature"]}'
+      -d '{"inputs":["the checkout button does nothing","love the dark mode"],
+           "labels":["bug","praise","feature"]}'
 
   JavaScript (Node 18+, Bun, browsers — CORS is open):
 
@@ -237,7 +239,9 @@ EXAMPLES
 
   Multi-label, capped at two tags per text:
 
-    curl https://classifier.dev/v1/classify -d '{"inputs":["postgres index tuning for ML"],"labels":["databases","ml","frontend"],"multi":true,"max_labels":2}'
+    curl https://classifier.dev/v1/classify -d '{"inputs":["postgres index tuning for ML"],
+                                                 "labels":["databases","ml","frontend"],
+                                                 "multi":true,"max_labels":2}'
 
 
 KEYS AND LIMITS

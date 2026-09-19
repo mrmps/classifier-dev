@@ -23,8 +23,9 @@ export const BASE_CSS = `
      things are lavender; a lavender fill carries ink. Nothing else is coloured. */
   --accent:#a98cff; --accent-hover:#b9a4ff; --ink:#190727;
   --code-string:#c4b4ff;
-  /* The one status colour the page can show: something went wrong. */
-  --bad:#f87171;
+  /* Two status colours: something went wrong, and, in a comparison, the
+     better number. Neither means interactive. */
+  --bad:#f87171; --good:#7fd39a;
   /* Corners follow the mark, which is a rounded square holding pills: 8px on
      a surface or a field, 4px on the fill a bare control gets under the
      pointer. A surface nested in another keeps its curves parallel by taking
