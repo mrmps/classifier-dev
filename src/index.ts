@@ -3,6 +3,7 @@ import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
+import { homeHtml, benchmarkHtml } from "./home";
 import { dailyReport } from "./report";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
@@ -129,6 +130,20 @@ const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8", ...CORS, ...extra },
+  });
+
+/** The rendered site. Same document as text(), for clients that asked for HTML. */
+const html = (body: string, status = 200, extra: Record<string, string> = {}) =>
+  new Response(body, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "public, max-age=300",
+      // The plain text and the page differ by Accept, so caches must vary on it.
+      vary: "accept",
+      ...CORS,
+      ...extra,
+    },
   });
 
 const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
@@ -707,6 +722,14 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
     const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    // Browsers announce text/html; curl sends */* and agents ask for text or
+    // markdown. Only the first gets the rendered page — `curl classifier.dev`
+    // prints exactly what it always did. ?format=text opts out by hand.
+    const accept = req.headers.get("accept") ?? "";
+    const wantsHtml =
+      req.method === "GET" &&
+      url.searchParams.get("format") !== "text" &&
+      /\btext\/html\b/.test(accept);
     // The operator dashboard. Returns null for every other path.
     const admin = await adminResponse(req, env, path, ip);
     if (admin) return admin;
@@ -716,9 +739,13 @@ export default {
           headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600", ...CORS },
         });
       }
-      return text(DOCS);
+      if (wantsHtml) return html(homeHtml());
+      return text(DOCS, 200, { vary: "accept" });
     }
-    if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) return text(BENCHMARK);
+    if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
+      if (wantsHtml && path === "benchmark") return html(benchmarkHtml());
+      return text(BENCHMARK, 200, { vary: "accept" });
+    }
     if (path === "robots.txt") {
       return text("User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: https://classifier.dev/llms.txt\n");
     }
