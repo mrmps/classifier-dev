@@ -68,10 +68,12 @@ when none-of-the-above is a real outcome.
 ## Limits and errors
 
 Per IP: 3,000 classifications a minute and 20,000 a day on fast; 200 and 2,000
-on smart. Every response carries \`RateLimit-Limit\`, \`RateLimit-Remaining\` and
-\`RateLimit-Policy\`; a 429 adds \`Retry-After\`. Errors are JSON:
-\`{"error": "...", "code": "too_few_labels"}\`. Authentication: none —
-https://classifier.dev/auth.md.
+on smart. Every classification response carries \`RateLimit-Limit\` and
+\`RateLimit-Policy\`, plus \`RateLimit-Remaining\` once the limiter has been
+consulted (every 200 and 429); a 429 adds \`Retry-After\`. Errors are JSON on
+POST: \`{"error": "...", "code": "too_few_labels"}\`. The GET forms answer plain
+text unless you add \`?verbose=1\` or send \`Accept: application/json\`.
+Authentication: none — https://classifier.dev/auth.md.
 
 ## More
 

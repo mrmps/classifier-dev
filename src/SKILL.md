@@ -203,8 +203,9 @@ this is why. Rate limiting returns `429`.
 
 Per IP per minute: 3,000 classifications on `fast`, 200 on `smart`; per day
 20,000 and 2,000. A batch of 400 counts as 400. `429` when exceeded, with
-`x-ratelimit-limit` on every response. Errors are JSON on POST and plain text
-on GET.
+`RateLimit-Limit` (and the older `x-ratelimit-limit`) on every response. Errors
+are JSON on POST, `{"error": "...", "code": "..."}`, and plain text on GET
+unless you add `?verbose=1` or send `Accept: application/json`.
 
 ## Reference
 

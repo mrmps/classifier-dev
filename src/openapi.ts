@@ -1,23 +1,60 @@
 import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
 
+/**
+ * Every code the worker puts in an error body. index.ts types its `fail()`
+ * against this list, so a code cannot be served without being documented here.
+ * The two parameterised families, typesafe_<status> and openrouter_<status>,
+ * carry the upstream HTTP status and are described by the pattern below.
+ */
+export const ERROR_CODES = [
+  // 400
+  "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
+  "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission",
+  // 404
+  "not_found",
+  // 429
+  "rate_limit_minute", "rate_limit_day",
+  // 502: the model provider failed after retries
+  "typesafe", "chain_exhausted", "batch_unavailable", "timeout", "upstream_other",
+  // 500
+  "internal",
+] as const;
+export type ErrorCode = (typeof ERROR_CODES)[number] | `typesafe_${number}` | `openrouter_${number}`;
+export const UPSTREAM_CODE_PATTERN = "^(typesafe|openrouter)_[0-9]{3}$";
+
 const ERROR_SCHEMA = { $ref: "#/components/schemas/Error" };
 /** Every non-2xx answer is the same {error, code} object; spelled out inline on each operation. */
-const err = (description: string, headers?: Record<string, unknown>) => ({
+const err = (description: string, headers?: Record<string, unknown>, plain = false) => ({
   description,
   ...(headers ? { headers } : {}),
-  content: { "application/json": { schema: ERROR_SCHEMA } },
+  content: {
+    "application/json": { schema: ERROR_SCHEMA },
+    // The GET forms answer a bare label, so their errors are bare too:
+    // `error:` and, on a 400, `usage:` and `try:` lines. ?verbose=1 or
+    // Accept: application/json makes them the JSON object instead.
+    ...(plain ? { "text/plain": { schema: { type: "string", example: "error: Provide at least 2 labels; got 1 (\"spam\"). Separate labels with commas.\nusage: GET /{labels}/{text}  or  GET /?labels={a,b}&text={text}\ntry:   https://classifier.dev/spam,not+spam/Win+a+free+iPhone\n" } } } : {}),
+  },
 });
-const ERRORS = {
-  "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, or a body that is not JSON. `code` says which."),
-  "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap."),
-  "429": err("Per-IP limit reached. Wait `Retry-After` seconds.", {
-    "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
-    "RateLimit-Limit": { schema: { type: "string" } },
-    "RateLimit-Policy": { schema: { type: "string" } },
-  }),
-  "502": err("The model provider failed after retries; retry with backoff. `code` is typesafe_<status>, openrouter_<status> or upstream."),
-  default: err("Any other error, same {error, code} shape."),
+const RATE_LIMIT_HEADERS = {
+  "RateLimit-Limit": { schema: { type: "string" }, description: "Classifications allowed per minute for this tier." },
+  "RateLimit-Remaining": { schema: { type: "string" }, description: "Left in the current minute. Present once the limiter has been consulted: on every 200 and 429, not on a 400 that never reached it." },
+  "RateLimit-Policy": { schema: { type: "string" }, description: "The policy, e.g. 3000;w=60, 20000;w=86400." },
+  "x-api-version": { schema: { type: "string" }, description: "The API major that answered, e.g. v1." },
+  "Idempotency-Key": { schema: { type: "string" }, description: "Echoed when sent." },
 };
+const errors = (plain: boolean) => ({
+  "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
+  "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
+  "429": err("Per-IP limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day.", {
+    "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
+    ...RATE_LIMIT_HEADERS,
+  }, plain),
+  "502": err("The model provider failed after retries; retry with backoff. `code` is typesafe_<status> or typesafe (the decision model), openrouter_<status>, chain_exhausted or timeout (the fallback chain), batch_unavailable (more than 20 inputs while the decision model is down) or upstream_other.", RATE_LIMIT_HEADERS, plain),
+  default: err("Any other error, same {error, code} shape.", undefined, plain),
+});
+const ERRORS = errors(false);
+/** For GET /{labels}/{text} and GET /?labels=&text=, whose errors are plain text unless JSON was asked for. */
+const GET_ERRORS = errors(true);
 
 /** Served at /openapi.json and /.well-known/openapi.json */
 export const OPENAPI = {
@@ -38,10 +75,12 @@ export const OPENAPI = {
       "Response shapes are additive within a major (fields are added, never renamed or removed). Every response carries an " +
       "x-api-version header. A breaking change ships as /v2 beside /v1, and /v1 then carries Deprecation and Sunset headers " +
       "(RFC 9745 / RFC 8594) for at least six months before removal.\n\n" +
-      "Rate limits: RateLimit-Limit, RateLimit-Remaining and RateLimit-Policy (IETF draft-ietf-httpapi-ratelimit-headers) on every " +
-      "response, Retry-After on 429s. Idempotency: classification has no side effects; an Idempotency-Key header is accepted and " +
+      "Rate limits: RateLimit-Limit and RateLimit-Policy (IETF draft-ietf-httpapi-ratelimit-headers) on every classification " +
+      "response, RateLimit-Remaining once the limiter has been consulted (every 200 and 429), Retry-After on 429s. " +
+      "Idempotency: classification has no side effects; an Idempotency-Key header is accepted and " +
       "echoed so generic retry logic keeps working.\n\n" +
-      "Errors: every non-2xx body is {error, code} — see components.schemas.Error for the codes.\n\n" +
+      "Errors: every non-2xx body is {error, code} — see components.schemas.Error for the codes. The two GET forms answer " +
+      "plain text (`error:`, `usage:`, `try:` lines) unless ?verbose=1 or Accept: application/json asks for the JSON object.\n\n" +
       "MCP: the same capability as tools at https://classifier.dev/mcp (Streamable HTTP, no auth), documented at " +
       "https://classifier.dev/mcp-setup. Batch: the inputs array is the batch operation — up to 1,000 texts per request; " +
       "POST /v1/classify/batch is an alias for callers that look for one.",
@@ -58,7 +97,8 @@ export const OPENAPI = {
     "x-mcp": { url: "https://classifier.dev/mcp", docs: "https://classifier.dev/mcp/docs", card: "https://classifier.dev/.well-known/mcp/server-card.json" },
   },
   externalDocs: { description: "Developer guide", url: "https://classifier.dev/developers" },
-  security: [],
+  // Anonymous, or a partner key: the empty object is what makes the key optional.
+  security: [{}, { partnerKey: [] }],
   tags: [
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
     { name: "docs", description: "Documentation served over HTTP." },
@@ -236,6 +276,76 @@ export const OPENAPI = {
         },
       },
     },
+    "/api/v1/policy": {
+      get: {
+        operationId: "getFeedbackPolicy",
+        summary: "What this host accepts as feedback: categories, severities, evidence types, limits, budget.",
+        description: "The feedback.now policy document. The same vocabularies are in /.well-known/agent-feedback.json and in the FeedbackReport schema.",
+        tags: ["feedback"],
+        responses: {
+          "200": {
+            description: "The policy.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["version", "categories", "severity_levels", "evidence_types", "limits", "rate_limit_per_hour", "endpoints"],
+                  properties: {
+                    version: { type: "string" },
+                    categories: { type: "array", items: { type: "string", enum: [...CATEGORIES] } },
+                    severity_levels: { type: "array", items: { type: "string", enum: [...SEVERITIES] } },
+                    reproducibility_options: { type: "array", items: { type: "string", enum: [...REPRODUCIBILITY] } },
+                    evidence_types: { type: "array", items: { type: "string", enum: [...EVIDENCE_TYPES] } },
+                    surface_kinds: { type: "array", items: { type: "string", enum: [...SURFACE_KINDS] } },
+                    limits: { type: "object", additionalProperties: true },
+                    rate_limit_per_hour: { type: "integer" },
+                    retention_days: { type: "integer" },
+                    auth_required: { type: "boolean" },
+                    endpoints: { type: "object", additionalProperties: { type: "string" } },
+                  },
+                },
+              },
+            },
+          },
+          ...ERRORS,
+        },
+      },
+    },
+    "/api/v1/feedback/{id}/attachments": {
+      post: {
+        operationId: "addFeedbackAttachments",
+        summary: "Add evidence to a feedback report that was already submitted.",
+        description: "Appends to the report's evidence list, within the per-report cap the policy states. The id is the `feedback_id` on the receipt. Synchronous: answers 200 with the new evidence ids.",
+        tags: ["feedback"],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" }, description: "The feedback report id (`feedback_id` on its receipt)." }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["evidence"],
+                properties: {
+                  evidence: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: LIMITS.max_evidence_per_feedback,
+                    items: { type: "object", required: ["type", "content"], properties: { type: { type: "string", enum: [...EVIDENCE_TYPES] }, content: { description: "Text, or any JSON value, which is stored serialised." } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Evidence added.",
+            content: { "application/json": { schema: { type: "object", required: ["evidence_ids", "evidence_count"], properties: { evidence_ids: { type: "array", items: { type: "string" } }, evidence_count: { type: "integer" } } } } },
+          },
+          ...ERRORS,
+        },
+      },
+    },
     "/api/v1/receipts/{id}": {
       get: {
         operationId: "getReceipt",
@@ -287,13 +397,7 @@ export const OPENAPI = {
         responses: {
           "200": {
             description: "One result per input, in order.",
-            headers: {
-              "RateLimit-Limit": { schema: { type: "string" }, description: "Classifications allowed per minute for this tier." },
-              "RateLimit-Remaining": { schema: { type: "string" }, description: "Left in the current minute." },
-              "RateLimit-Policy": { schema: { type: "string" }, description: "The policy, e.g. 3000;w=60, 20000;w=86400." },
-              "x-api-version": { schema: { type: "string" }, description: "The API major that answered, e.g. v1." },
-              "Idempotency-Key": { schema: { type: "string" }, description: "Echoed when sent." },
-            },
+            headers: RATE_LIMIT_HEADERS,
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
           },
           ...ERRORS,
@@ -312,9 +416,9 @@ export const OPENAPI = {
           content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } },
         },
         responses: {
-          ...ERRORS,
           "200": {
             description: "One result per input, in order.",
+            headers: RATE_LIMIT_HEADERS,
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
           },
           ...ERRORS,
@@ -341,15 +445,20 @@ export const OPENAPI = {
             name: "text",
             in: "query",
             required: false,
-            description: "The text to classify, up to 32,000 characters.",
+            description: "The text to classify, up to 32,000 characters. `input` and `q` are read as aliases; `classes` and `categories` as aliases of `labels`.",
             schema: { type: "string" },
             example: "Win+a+free+iPhone",
           },
+          { name: "tier", in: "query", required: false, schema: { type: "string", enum: ["fast", "smart"], default: "fast" }, description: "With labels and text. Anything else is a 400 bad_tier." },
+          { name: "instructions", in: "query", required: false, schema: { type: "string" }, description: "With labels and text: extra criteria." },
+          { name: "verbose", in: "query", required: false, schema: { type: "string", enum: ["1", "true", "yes", "on"] }, description: "With labels and text: JSON instead of a bare label." },
+          { name: "multi", in: "query", required: false, schema: { type: "string", enum: ["1", "true", "yes", "on"] }, description: "With labels and text: every label that applies, one per line." },
+          { name: "max_labels", in: "query", required: false, schema: { type: "integer", minimum: 1 }, description: "With labels and text: cap on a multi-label answer; implies multi." },
         ],
         responses: {
-          ...ERRORS,
+          ...GET_ERRORS,
           "200": {
-            description: "Documentation, in the negotiated format.",
+            description: "Documentation, in the negotiated format; or, with labels and text, the classification exactly as GET /{labels}/{text} answers it.",
             content: {
               "text/plain": { schema: { type: "string" } },
               "text/markdown": { schema: { type: "string" } },
@@ -392,7 +501,8 @@ export const OPENAPI = {
           "200": {
             description: "Classification results",
             headers: {
-              "X-RateLimit-Limit": { schema: { type: "string" }, description: "e.g. 3000/min" },
+              ...RATE_LIMIT_HEADERS,
+              "X-RateLimit-Limit": { schema: { type: "string" }, description: "The older spelling, kept: e.g. 3000/min" },
               "X-RateLimit-Remaining": { schema: { type: "string" } },
             },
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
@@ -407,8 +517,9 @@ export const OPENAPI = {
         summary: "Classify a single text. Returns the bare label as plain text.",
         description:
           "The quickest possible call: labels comma-separated in the first path segment, " +
-          "the text in the rest. Spaces may be written as + or %20. " +
-          "Add ?verbose=1 for JSON including calibrated confidence and per-label scores. " +
+          "the text in the rest. Spaces may be written as + or %20. A raw comma, slash or plus is a separator; " +
+          "a label's own comma, slash or plus sign is written percent-encoded (%2C, %2F, %2B), so /C%2B%2B,python/... reads the label C++. " +
+          "Add ?verbose=1 (or send Accept: application/json) for JSON including calibrated confidence and per-label scores. " +
           "The same request works as query parameters on the root, GET /?labels=spam,not+spam&text=Win+a+free+iPhone, " +
           "with the same options; a malformed request answers with a URL that would have worked.",
         parameters: [
@@ -432,6 +543,7 @@ export const OPENAPI = {
             name: "tier",
             in: "query",
             required: false,
+            description: "fast or smart, any case. Anything else is a 400 bad_tier rather than a silent fast.",
             schema: { type: "string", enum: ["fast", "smart"], default: "fast" },
           },
           {
@@ -445,34 +557,34 @@ export const OPENAPI = {
             name: "verbose",
             in: "query",
             required: false,
-            description: "Set to 1 to receive JSON instead of a bare label.",
-            schema: { type: "string", enum: ["1"] },
+            description: "Set to 1 to receive JSON instead of a bare label. Accept: application/json does the same.",
+            schema: { type: "string", enum: ["1", "true", "yes", "on"] },
           },
           {
             name: "multi",
             in: "query",
             required: false,
-            description: "Set to 1 to return every category that applies, one per line.",
-            schema: { type: "string", enum: ["1"] },
+            description: "Set to 1 to return every category that applies, one per line (an array under `labels` with ?verbose=1).",
+            schema: { type: "string", enum: ["1", "true", "yes", "on"] },
           },
           {
             name: "max_labels",
             in: "query",
             required: false,
-            description: "Cap on how many labels a multi-label answer returns.",
+            description: "Cap on how many labels a multi-label answer returns; implies multi. Zero or less means no cap.",
             schema: { type: "integer" },
           },
         ],
         responses: {
-          ...ERRORS,
+          ...GET_ERRORS,
           "200": {
-            description: "The chosen label, or JSON when verbose=1",
+            description: "The chosen label, or JSON when verbose=1 or Accept: application/json",
+            headers: RATE_LIMIT_HEADERS,
             content: {
               "text/plain": { schema: { type: "string", example: "spam" } },
               "application/json": { schema: { $ref: "#/components/schemas/SingleResult" } },
             },
           },
-          ...ERRORS,
         },
       },
     },
@@ -591,7 +703,7 @@ export const OPENAPI = {
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
-          input: { type: "string", description: "A single text. Provide this or inputs." },
+          input: { type: "string", description: "A single text. Provide this or inputs; a string under `inputs` is read as one text too." },
           inputs: {
             type: "array",
             items: { type: "string" },
@@ -610,11 +722,11 @@ export const OPENAPI = {
             enum: ["fast", "smart"],
             default: "fast",
             description:
-              "smart re-asks single-label answers below 0.7 confidence of a reasoning model; multi-label ignores it.",
+              "smart re-asks single-label answers below 0.7 confidence of a reasoning model; multi-label ignores it. Read case-insensitively; any other value is a 400 bad_tier.",
           },
           instructions: { type: "string", description: "Extra criteria for the classifier." },
-          multi: { type: "boolean", description: "Return every label that applies, with a score per label." },
-          max_labels: { type: "integer", description: "Cap on how many multi-label answers come back." },
+          multi: { type: "boolean", description: "Return every label that applies, with a score per label. true, \"true\", 1 and \"1\" all mean yes." },
+          max_labels: { type: "integer", minimum: 1, description: "Cap on how many multi-label answers come back; implies multi. A numeric string is read; zero or less means no cap; a fraction is rounded down." },
         },
       },
       SingleResult: {
@@ -639,6 +751,11 @@ export const OPENAPI = {
             type: "string",
             description:
               "Present only when confidence and scores were withheld because the input does not read as natural language. Treat the label as unreliable.",
+          },
+          labels: {
+            type: "array",
+            items: { type: "string" },
+            description: "With ?multi=1 only: every label scoring >= 0.7, most likely first. `label` is then the first of them, or empty, and confidence is null.",
           },
           ms: { type: "integer" },
           tier: { type: "string" },
@@ -683,6 +800,7 @@ export const OPENAPI = {
             properties: {
               classifications: { type: "integer" },
               escalated: { type: "integer", description: "How many answers the smart tier re-asked." },
+              escalation_failed: { type: "integer", description: "Present only when some smart-tier re-asks could not reach the reasoning model; those results carry the fast answer without `escalated`." },
               ms: { type: "integer" },
             },
           },
@@ -743,13 +861,14 @@ export const OPENAPI = {
           error: { type: "string", description: "Human-readable message saying what to change." },
           code: {
             type: "string",
-            description: "Stable machine-readable code.",
-            enum: [
-              "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
-              "duplicate_labels", "empty_input", "input_too_long", "rate_limit_minute", "rate_limit_day",
-              "upstream", "typesafe", "openrouter", "not_found",
-            ],
+            description:
+              "Stable machine-readable code: one of the listed values, or typesafe_<status> / openrouter_<status> carrying the upstream HTTP status. " +
+              "400: bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission. " +
+              "404: not_found. 429: rate_limit_minute, rate_limit_day. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal.",
+            anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
+          usage: { type: "string", description: "GET forms only, on a 400: the two URL shapes." },
+          try: { type: "string", format: "uri", description: "GET forms only, on a 400: a URL built from what was sent that would have worked." },
         },
       },
     },
@@ -767,29 +886,6 @@ export const OPENAPI = {
         type: "http",
         scheme: "bearer",
         description: "Optional. Lifts the per-IP limits for partners; issued by arrangement (https://classifier.dev/auth.md). Every operation works without it.",
-      },
-    },
-    responses: {
-      BadRequest: {
-        description: "Malformed request, e.g. fewer than 2 labels or an oversized input.",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
-      },
-      RateLimited: {
-        description: "Per-IP limit reached.",
-        headers: { "Retry-After": { schema: { type: "integer" }, description: "Seconds" } },
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
-      },
-      Upstream: {
-        description: "The model provider failed after retries.",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
-      },
-      NotFound: {
-        description: "No such path. The body points at the docs, llms.txt, the spec and the sitemap.",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
-      },
-      Error: {
-        description: "Any other error: the same {error, code} object.",
-        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
       },
     },
   },

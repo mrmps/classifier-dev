@@ -11,7 +11,6 @@ import {
   parseAsArrayOf,
   parseAsInteger,
   parseAsString,
-  parseAsStringLiteral,
   type inferParserType,
 } from "nuqs/server";
 
@@ -22,10 +21,30 @@ const flag = createParser<boolean>({
   serialize: (v) => (v ? "1" : "0"),
 });
 
+export const TIERS = ["fast", "smart"] as const;
+export type TierName = (typeof TIERS)[number];
+
+/**
+ * The tier a caller named, read leniently but never guessed: absent or empty
+ * means fast, any spelling of fast or smart is that tier, and anything else is
+ * null so the caller can be told rather than silently served the fast tier.
+ */
+export function readTier(raw: unknown): TierName | null {
+  if (raw === undefined || raw === null || raw === "") return "fast";
+  if (typeof raw !== "string") return null;
+  const t = raw.trim().toLowerCase();
+  return (TIERS as readonly string[]).includes(t) ? (t as TierName) : null;
+}
+
+const tierParser = createParser<TierName>({
+  parse: (v) => readTier(v),
+  serialize: (v) => v,
+});
+
 export const classifyQuery = {
   labels: parseAsArrayOf(parseAsString, ","),
   text: parseAsString,
-  tier: parseAsStringLiteral(["fast", "smart"] as const).withDefault("fast"),
+  tier: tierParser.withDefault("fast"),
   instructions: parseAsString,
   multi: flag.withDefault(false),
   max_labels: parseAsInteger,
@@ -62,7 +81,18 @@ export function hasClassifyQuery(url: URL): boolean {
   return ["text", "labels", ...ALIASES.text, ...ALIASES.labels].some((k) => p.has(k));
 }
 
-const plus = (s: string) => s.replace(/\+/g, " ").trim();
+// The path arrives undecoded, so that a percent-encoded comma, slash or plus
+// inside a label or the text stays a character while the raw ones stay
+// separators: /C%2B%2B,python/x reads as the labels "C++" and "python". The
+// plus is turned into a space before decoding, which is what keeps %2B a plus.
+const decode = (s: string) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+const plus = (s: string) => decode(s.replace(/\+/g, " ")).trim();
 const splitLabels = (s: string) => s.split(",").map(plus).filter(Boolean);
 
 export type GetRequest = {
@@ -76,15 +106,22 @@ export type GetRequest = {
   form: "path" | "query";
   /** Nothing here reads as a classification request: a single segment with no comma and no query. */
   nothing: boolean;
+  /** A tier the caller named that is neither fast nor smart, verbatim, so the error can quote it. */
+  badTier?: string;
 };
 
 /**
  * Merge both spellings into one request. The query string wins where both say
  * something, since it names its fields; the path fills whatever it left out,
  * so /spam,not+spam?text=hi and /?labels=spam,not+spam&text=hi are the same call.
+ *
+ * `path` is the raw pathname without its leading slashes, still percent-encoded;
+ * each piece is decoded after it has been split off.
  */
 export function readGet(path: string, url: URL): GetRequest {
   const q = readQuery(url);
+  const rawTier = url.searchParams.get("tier");
+  const badTier = rawTier !== null && readTier(rawTier) === null ? rawTier : undefined;
   const slash = path.indexOf("/");
   const pathLabels = splitLabels(slash > 0 ? path.slice(0, slash) : path);
   const pathText = slash > 0 ? plus(path.slice(slash + 1)) : "";
@@ -101,6 +138,7 @@ export function readGet(path: string, url: URL): GetRequest {
     verbose: q.verbose,
     form: fromQuery ? "query" : "path",
     nothing: !fromQuery && slash <= 0 && !path.includes(","),
+    ...(badTier !== undefined ? { badTier } : {}),
   };
 }
 
