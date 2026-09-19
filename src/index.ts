@@ -1,5 +1,4 @@
 import { HL_ORIGIN } from "./ui";
-import { isUnintelligible, UNSCORED_REASON } from "./unintelligible";
 import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
@@ -669,12 +668,8 @@ async function callModel(
       const raw = scoresFrom(choice?.logprobs?.content?.[0]?.top_logprobs, labels.length);
       const idx = letter ? LETTERS.indexOf(letter) : -1;
       const label = idx >= 0 && idx < labels.length ? labels[idx] : labels[0];
-      // The model still picks a letter for input that is not language, and does
-      // so with a near-perfect score. Publishing that invites callers to
-      // threshold on it, so the label ships without a score instead.
-      const unreadable = isUnintelligible(input);
       const scores =
-        raw && !unreadable
+        raw
           ? Object.fromEntries(
               Object.entries(raw).map(([l, v]) => [labels[LETTERS.indexOf(l)] ?? l, Number(v.toFixed(4))]),
             )
@@ -684,7 +679,7 @@ async function callModel(
         labels: undefined as string[] | undefined,
         confidence: scores ? Number(Math.max(...Object.values(scores)).toFixed(4)) : null,
         scores,
-        unscored: unreadable ? UNSCORED_REASON : undefined,
+        unscored: undefined as string | undefined,
         ms: Date.now() - started,
         model: cfg.model,
       };
@@ -912,10 +907,7 @@ async function classifyMany(
     }
     if (jev) {
       const ms = Date.now() - started;
-      const results: Result[] = jev.map((r, i) => {
-        // Jev still picks confidently for input that is not language, so the
-        // score is withheld there exactly as it was for the LLMs.
-        const unreadable = isUnintelligible(inputs[i]);
+      const results: Result[] = jev.map((r) => {
         if (multi) {
           let picked = labels
             .filter((l) => r.scores[l] >= MULTI_THRESHOLD)
@@ -925,17 +917,17 @@ async function classifyMany(
             label: picked[0] ?? "",
             labels: picked,
             confidence: null,
-            scores: unreadable ? null : r.scores,
-            unscored: unreadable ? UNSCORED_REASON : undefined,
+            scores: r.scores,
+            unscored: undefined,
             ms,
             model: r.model,
           };
         }
         return {
           label: r.label,
-          confidence: unreadable ? null : r.confidence,
-          scores: unreadable ? null : r.scores,
-          unscored: unreadable ? UNSCORED_REASON : undefined,
+          confidence: r.confidence,
+          scores: r.scores,
+          unscored: undefined,
           ms,
           model: r.model,
         };
@@ -969,9 +961,8 @@ async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[
   // Sequential dimensions bound fallback/escalation concurrency across the entire request.
   for (const [d, dimension] of dimensions.entries()) {
     const criteria = dimensionInstructions(dimension, instructions);
-    const column: Result[] = jev ? inputs.map((input, i) => ({
+    const column: Result[] = jev ? inputs.map((_, i) => ({
       ...jev[i][d], ms: Date.now() - started,
-      ...(isUnintelligible(input) ? { confidence: null, scores: null, unscored: UNSCORED_REASON } : {}),
     })) : await llmClassifyMany(env, inputs, dimension.labels, tier, criteria, undefined, meter);
     if (!jev) fallbackDecisions += column.length;
     if (jev && tier === "smart") {

@@ -151,8 +151,8 @@ export function productServer(classify: ClassifyFn): McpServer {
               type: "object",
               properties: {
                 label: { type: "string" },
-                confidence: { type: ["number", "null"], description: "0-1, calibrated. Null for unreadable inputs or smart-escalated answers without comparable probabilities." },
-                scores: { type: ["object", "null"], additionalProperties: { type: "number" }, description: "Probability per label; sums to 1." },
+                confidence: { type: ["number", "null"], description: "0-1, calibrated. Null when the provider returns no score or the smart tier replaces the scored answer." },
+                scores: { type: ["object", "null"], additionalProperties: { type: "number" }, description: "Model preference per supplied label; sums to 1. Does not validate the input or guarantee correctness." },
                 escalated: { type: "boolean", description: "Smart tier only: this answer was re-asked of the reasoning model." },
               },
               required: ["label"],
@@ -220,7 +220,7 @@ export function productServer(classify: ClassifyFn): McpServer {
               type: "object",
               properties: {
                 labels: { type: "array", items: { type: "string" }, description: "Every label scoring >= 0.7, most likely first. May be empty." },
-                scores: { type: ["object", "null"], additionalProperties: { type: "number" }, description: "Independent probability per label." },
+                scores: { type: ["object", "null"], additionalProperties: { type: "number" }, description: "Independent model preference per supplied label. Does not validate the input or guarantee correctness." },
               },
               required: ["labels"],
             },

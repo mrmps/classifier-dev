@@ -54,7 +54,7 @@ class ClassifierError(Exception):
 class Result:
     label: Optional[str] = None            # single-label
     labels: List[str] = field(default_factory=list)  # multi-label
-    confidence: Optional[float] = None     # calibrated 0-1; None when withheld
+    confidence: Optional[float] = None     # calibrated 0-1; None when unavailable
     scores: Optional[Dict[str, float]] = None
     escalated: bool = False
     unscored: Optional[str] = None

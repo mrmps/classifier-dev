@@ -115,8 +115,9 @@ keeps the id, checksum and refetch command; **the rest is kept**. Threshold on
 
 - **Name the labels in full.** Shortened to `keep` and `drop`, these chunks
   scored an install log 0 to drop where the full ones gave 0.9.
-- **Non-language chunks come back unsure**: a minified bundle and a hash
-  scored under 0.4 on every label and were kept; give each a header.
+- **Scores do not validate chunks**: a minified bundle or hash still receives
+  the model's preference among your labels. Give each a descriptive header or
+  add a label that covers it.
 
 ## When not to use
 

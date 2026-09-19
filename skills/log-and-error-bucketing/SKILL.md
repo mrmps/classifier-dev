@@ -123,10 +123,10 @@ still under 0.5: read those yourself.
 - **0.5 to 0.9** — file it, but show the exemplar in the report, or re-ask on
   `--smart` (`"tier": "smart"`).
 - **below 0.5** — leave it in `unknown`; `--review 0.5` prints those rows.
-- **`confidence: null` with an `unscored` reason** — not language. A separator
-  row (`+++++ ----- +++++`) comes back unscored: bucket those as noise, not a
-  cause. A bare stack hash differs: with `unknown or other` in the list it
-  scores `unknown` at 1.00, without it `authentication ...` at 0.15.
+- **`confidence: null` with an `unscored` reason** — no comparable provider
+  score is available, so leave the row for review. Scores do not validate the
+  input: include `noise or separator` and `unknown or other` when those inputs
+  are possible.
 
 ## Done looks like
 

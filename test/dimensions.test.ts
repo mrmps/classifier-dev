@@ -91,11 +91,14 @@ describe("multidimensional HTTP contract", () => {
     expect(Object.keys(r.body.results[0].dimensions)).toEqual(["__proto__", "constructor"]);
     expect(r.body.results[0].dimensions.__proto__.label).toBe("__proto__");
   });
-  test("unreadable text withholds every field's scores", async () => {
-    fakeJev(); const r = await harness().post({ items: ["asdkjfhaskdjfh"], dimensions: dims });
+  test("identifier and acronym inputs preserve every field's provider scores", async () => {
+    const dimensions = { kind: ["technology", "identifier", "other"], shape: ["acronym", "hash", "other"] };
+    fakeJev(); const r = await harness().post({ items: ["SHA256", "HTTP"], dimensions });
     expect(r.response.status).toBe(200);
-    for (const v of Object.values(r.body.results[0].dimensions) as any[]) {
-      expect(v.confidence).toBeNull(); expect(v.scores).toBeNull(); expect(v.unscored).toBeDefined();
+    for (const row of r.body.results) for (const v of Object.values(row.dimensions) as any[]) {
+      expect(v.confidence).toBe(0.95);
+      expect(v.scores).not.toBeNull();
+      expect(v.unscored).toBeUndefined();
     }
   });
   const invalid = [null, [], {}, { a: ["one"] }, { a: ["same", "same"] }, { " ": ["a", "b"] }, { a: ["a", 2] }, { a: { labels: ["a", "b"], instructions: 1 } }, { a: { labels: ["a", "b"], extra: true } }, Object.fromEntries(Array.from({length:21},(_,i)=>[`d${i}`,["a","b"]]))];
