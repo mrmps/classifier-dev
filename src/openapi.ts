@@ -887,12 +887,12 @@ export const OPENAPI = {
           },
           escalated: {
             type: "boolean",
-            description: "Present and true on the smart tier when the answer was re-asked of the reasoning model; confidence and scores remain the decision model's.",
+            description: "Present and true on the smart tier when the answer was re-asked of the reasoning model; confidence and scores are null because the reasoning model does not return comparable probabilities.",
           },
           unscored: {
             type: "string",
             description:
-              "Present only when confidence and scores were withheld because the input does not read as natural language. Treat the label as unreliable.",
+              "Explains withheld confidence and scores: unreadable input or smart escalation without comparable probabilities. Route to review when a numeric confidence is required.",
           },
           labels: {
             type: "array",
@@ -1124,7 +1124,7 @@ JSON, many at once:
 You can already classify text you can see. Call this when reading the input is
 the expensive part: filtering search results before opening them, pre-filtering
 before expensive reasoning, bucketing logs or tickets nobody reads line by line,
-or routing a pipeline branch deterministically. Each of those classifies many
+or routing texts into label-based pipeline branches. Each of those classifies many
 things without pulling them into context. Under about five items, just decide
 yourself.
 
@@ -1135,6 +1135,12 @@ The confidence is calibrated: on six-way emotion, answers at >= 0.9 were right
 look at the rest yourself, or pass tier "smart" and answers under 0.7 are
 re-asked of a reasoning model for you. It is not a fit score: add a label such
 as "none of these" when none-of-the-above is a real outcome.
+
+Check for null before comparing thresholds. Unreadable inputs and smart-escalated
+answers have null confidence and scores, with an unscored explanation. Route
+these answers to review. Neither tier guarantees identical answers across calls.
+POST multi-label results have labels (an array) and scores; they omit the singular
+label and confidence keys.
 
 ## MCP
 

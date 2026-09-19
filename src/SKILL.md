@@ -25,8 +25,9 @@ Reach for this when reading the input is the expensive part:
   reasoning on what is left.
 - **Streams you would never read line by line.** Log lines, error buckets,
   inbound tickets, changed files in a large diff, ten thousand URLs' titles.
-- **Deterministic routing.** A pipeline branch that must take the same path for
-  the same input on every run, rather than drifting with your reasoning.
+- **Label-based routing.** Use the fast tier to route texts into your categories.
+  Model updates, fallback, and smart reasoning can change answers; neither tier
+  guarantees identical results across calls.
 
 **Do not bother when** you have a handful of items already in context, or the
 judgement needs reasoning about things the text does not state. Under about five
@@ -51,7 +52,10 @@ Many texts in one call. This is the path that matters:
       "inputs": ["first snippet", "second snippet", "third snippet"]
     }'
 
-Returns `results` in input order, each `{label, confidence, scores}`. Up to
+Returns `results` in input order. Single-label results have
+`{label, confidence, scores}`. Confidence and scores
+can be null; check before comparing a threshold. Multi-label results use
+`{labels: [...], scores: {...}}` instead. Up to
 1,000 texts per call; 400 news headlines measured at 650ms end to end. For
 more, fan out calls in parallel; the limit is 3,000 classifications a minute.
 Each result also names the model that answered it. At the batch level,
@@ -111,7 +115,7 @@ right 29% of the time. So:
 
 ```python
 for text, r in zip(texts, results):
-    if r["confidence"] >= 0.8:
+    if r["confidence"] is not None and r["confidence"] >= 0.8:
         act(r["label"])
     else:
         look_yourself(text)      # or send it through tier "smart"
@@ -122,7 +126,9 @@ for text, r in zip(texts, results):
 `escalated: true`, with `usage.escalated` telling you how many. Measured:
 four-way news 87.5% → 90.0% by re-asking 12% of items. It costs a few
 seconds per escalated item, so a batch on smart is slower in proportion to how
-uncertain it is.
+uncertain it is. Escalated answers have `confidence: null`, `scores: null`,
+and `unscored`: the reasoning model does not return comparable probabilities.
+These answers belong in review when your workflow requires a confidence gate.
 
 ## Many labels at once
 
@@ -137,7 +143,8 @@ every subsystem it touches), ask for every label that applies:
     }'
 
 Results carry `labels` (an array, most likely first) plus `scores`, one
-probability per label. Labels at or above 0.7 are returned; use `scores` to
+probability per label. POST multi-label results omit the singular `label` and
+`confidence` keys. Labels at or above 0.7 are returned; use `scores` to
 pick your own threshold. On GET, add `?multi=1` and they come back one per
 line. Measured F1 0.887 on a seven-task set with recall 0.99, in ~200ms. The
 tier makes no difference here, so leave it on `fast`.
@@ -147,10 +154,9 @@ tier makes no difference here, so leave it on `fast`.
 **1. Every call returns one of your labels, always.** There is no "none of the
 above" unless you supply one. Text that fits nothing still gets confidently
 sorted into your best-matching category: "the weather is nice today" against
-`bug / feature / praise` is `praise` at 0.97. If "none of these" is a real
-outcome, **add it as a label**: the same text against those three plus
-`none of these` picks `none of these` at 0.78. That works; hoping for a low
-score does not.
+`bug / feature / praise` must land in one of those categories. If "none of
+these" is a real outcome, **add it as a label**. Hoping for a low score does
+not create a missing category.
 
 **2. Confidence predicts accuracy, not fit.** It tells you how likely the chosen
 label is right *among your labels*, which is exactly what you want for routing.
@@ -185,7 +191,8 @@ def keep_relevant(question, snippets):
     results = json.load(urllib.request.urlopen(req))["results"]
     # A dropped item is invisible, so keep anything the model was unsure about.
     return [s for s, r in zip(snippets, results)
-            if r["label"] == "relevant" or r["confidence"] < 0.8]
+            if r["label"] == "relevant" or r["confidence"] is None
+            or r["confidence"] < 0.8]
 ```
 
 Then read only what comes back. The snippets you dropped never enter context.

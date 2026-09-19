@@ -6,6 +6,9 @@
 import { isUnintelligible } from "../src/unintelligible";
 
 const WITHHOLD: string[] = [
+  "d41d8cd98f00b204e9800998ecf8427e",
+  "deadbeef".repeat(8),
+  "  0xDEADBEEF01234567  ",
   "asdkjfhaskdjfh",
   "qqqq zzzz vvvv",
   "xkcdvbnm",
@@ -18,6 +21,9 @@ const WITHHOLD: string[] = [
 ];
 
 const KEEP: string[] = [
+  "decaf",
+  "deadbeef",
+  "Failed to load d41d8cd98f00b204e9800998ecf8427e",
   "Win a free iPhone click here now",
   "the mitochondria is the powerhouse of the cell",
   "SELECT * FROM users WHERE id = 1",

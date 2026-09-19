@@ -151,7 +151,7 @@ export function productServer(classify: ClassifyFn): McpServer {
               type: "object",
               properties: {
                 label: { type: "string" },
-                confidence: { type: ["number", "null"], description: "0-1, calibrated. Null when the input does not read as natural language." },
+                confidence: { type: ["number", "null"], description: "0-1, calibrated. Null for unreadable inputs or smart-escalated answers without comparable probabilities." },
                 scores: { type: ["object", "null"], additionalProperties: { type: "number" }, description: "Probability per label; sums to 1." },
                 escalated: { type: "boolean", description: "Smart tier only: this answer was re-asked of the reasoning model." },
               },
