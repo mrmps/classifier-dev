@@ -1,0 +1,5 @@
+# Bun 1.4 renders an imported .md file to HTML by default. Wrangler serves it as
+# text (the Text rule in wrangler.example.toml), so the tests must read it the
+# same way or they check a document the worker never serves.
+[loader]
+".md" = "text"
