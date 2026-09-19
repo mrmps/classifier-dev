@@ -12,35 +12,42 @@ export const esc = (s: unknown) =>
 export const BASE_CSS = `
 :root{
   --bg:#0b0e14;
-  --fg:#e5e5e5; --bright:#f5f5f5; --muted:#a3a3a3; --dim:#737373;
+  --fg:#e5e5e5; --bright:#f5f5f5; --muted:#a3a3a3; --dim:#858585;
   --syntax:#525252; --line:#404040; --rule:#262626;
   --blue:#58a6ff; --blue-bg:#1f6feb; --blue-fg:#bfdbfe;
   --amber:#d29922; --green:#3fb950; --red:#f85149;
+  /* One radius step. Nested surfaces derive theirs from it and their own inset. */
+  --r:6px;
+  /* The documents wrap at 78 columns; the page holds them to the same measure. */
+  --measure:80ch;
 }
 *{box-sizing:border-box}
 html{color-scheme:dark}
 body{margin:0;background:var(--bg);color:var(--fg);
   font:14px/1.625 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
-  -webkit-font-smoothing:antialiased}
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .page{padding:64px 16px}
-.doc{max-width:896px;margin:0 auto}
+.doc{max-width:var(--measure);margin:0 auto}
 .doc>*+*{margin-top:24px}
 section>*+*{margin-top:8px}
-h1{font-size:20px;font-weight:700;color:var(--bright);margin:0;letter-spacing:-.01em}
-h2{font-size:14px;font-weight:600;color:var(--fg);margin:0}
-p{margin:0}
+h1{font-size:20px;font-weight:700;color:var(--bright);margin:0;letter-spacing:-.01em;
+  text-wrap:balance}
+h2{font-size:14px;font-weight:600;color:var(--fg);margin:0;text-wrap:balance}
+p{margin:0;text-wrap:pretty}
 /* Markdown syntax: visible, muted, never part of a copy. */
 .syn{user-select:none;color:var(--syntax)}
 .quote{border-left:2px solid var(--rule);padding-left:12px;color:var(--muted)}
 .row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
-/* The bracketed control. Hover and focus fill, exactly like a selected line. */
-.b{display:inline-flex;align-items:center;gap:6px;padding:0 6px;color:var(--blue);
+/* The bracketed control. Hover and focus fill, exactly like a selected line.
+   min-height is the WCAG 2.5.8 target; the brackets alone are shorter than that. */
+.b{display:inline-flex;align-items:center;gap:6px;padding:0 6px;min-height:24px;color:var(--blue);
   text-decoration:none;background:none;border:0;font:inherit;cursor:pointer;
   -webkit-appearance:none;appearance:none;
-  outline:none;transition:background-color .1s,color .1s;white-space:nowrap}
-.b:hover,.b:focus-visible{background:var(--blue-bg);color:#fff}
+  transition:background-color .1s,color .1s;white-space:nowrap}
+.b:focus-visible{background:var(--blue-bg);color:#fff;
+  outline:2px solid var(--blue-fg);outline-offset:2px}
+.b:focus-visible .br{color:var(--blue-fg)}
 .b .br{user-select:none;color:var(--syntax);transition:color .1s}
-.b:hover .br,.b:focus-visible .br{color:var(--blue-fg)}
 .b.dim{color:var(--muted)}
 .b.on{background:var(--blue-bg);color:#fff}
 .b.on .br{color:var(--blue-fg)}
@@ -48,7 +55,15 @@ p{margin:0}
 /* A bare URL is longer than a phone is wide; let it break rather than widen the page. */
 a.inline{color:var(--blue);text-decoration:none;padding:0 2px;transition:background-color .1s,color .1s;
   overflow-wrap:anywhere}
-a.inline:hover,a.inline:focus-visible{background:var(--blue-bg);color:#fff;outline:none}
+a.inline:focus-visible{background:var(--blue-bg);color:#fff;
+  outline:2px solid var(--blue-fg);outline-offset:2px}
+/* Hover only where a pointer can actually hover, so a tap does not stick. */
+@media (hover:hover){
+  .b:hover{background:var(--blue-bg);color:#fff}
+  .b:hover .br{color:var(--blue-fg)}
+  a.inline:hover{background:var(--blue-bg);color:#fff}
+  details>summary:hover{color:var(--fg)}
+}
 .note{border-left:2px solid var(--amber);padding-left:12px;color:var(--muted)}
 .note b{color:var(--fg);font-weight:600}
 pre{margin:0;padding:10px 12px;background:#11161f;border:1px solid var(--rule);
@@ -62,7 +77,6 @@ th{color:var(--dim);font-weight:500;border-bottom:1px solid var(--rule)}
 td{color:var(--fg)}
 details>summary{cursor:pointer;color:var(--muted);list-style:none;user-select:none;padding:2px 0}
 details>summary::-webkit-details-marker{display:none}
-details>summary:hover{color:var(--fg)}
 details>summary::before{content:"▸ ";color:var(--syntax)}
 details[open]>summary::before{content:"▾ ";color:var(--syntax)}
 .empty{color:var(--dim)}
@@ -70,7 +84,13 @@ details[open]>summary::before{content:"▾ ";color:var(--syntax)}
   .page{padding:40px 12px}
   .doc{font-size:13px}
 }
+/* Motion is decoration here; every state also changes colour. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition-duration:.01ms !important;animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;scroll-behavior:auto !important}
+}
 `;
+
 
 export const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 

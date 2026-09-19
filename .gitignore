@@ -8,3 +8,8 @@ wrangler.toml
 
 sdk/python/dist/
 sdk/python/*.egg-info/
+
+# UI review skills (npx skills add jakubkrehel/skills); vendored, not source.
+.agents/
+.claude/
+skills-lock.json
