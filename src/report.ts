@@ -62,37 +62,37 @@ export async function dailyReport(
   };
 
   totals = await q(
-    `SELECT count() AS requests, sum(double1) AS classifications, avg(double2) AS avg_ms
+    `SELECT sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
      FROM ${DATASET} WHERE timestamp > ${since}`,
     [],
     (r) => r,
   );
   visitors = await q(
-    `SELECT index1, count() AS n FROM ${DATASET} WHERE timestamp > ${since} GROUP BY index1`,
+    `SELECT index1, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} GROUP BY index1`,
     0,
     (r) => r.length,
   );
   classifiers = await q(
-    `SELECT blob2, count() AS n FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY blob2`,
+    `SELECT blob2, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY blob2`,
     0,
     (r) => r.length,
   );
   byTier = await q(
-    `SELECT blob1 AS tier, count() AS requests, sum(double1) AS classifications, avg(double2) AS avg_ms
+    `SELECT blob1 AS tier, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
      FROM ${DATASET} WHERE timestamp > ${since} GROUP BY tier ORDER BY requests DESC`,
     [],
     (r) => r,
   );
   byClient = await q(
-    `SELECT blob5 AS client, blob4 AS status, count() AS requests,
-            sum(double1) AS classifications, avg(double2) AS avg_ms
+    `SELECT blob5 AS client, blob4 AS status, sum(_sample_interval) AS requests,
+            sum(double1 * _sample_interval) AS classifications, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
      FROM ${DATASET} WHERE timestamp > ${since}
      GROUP BY client, status ORDER BY client, status`,
     [],
     (r) => r,
   );
   enterpriseClassifiers = await q(
-    `SELECT blob2 AS labels, blob1 AS tier, count() AS requests
+    `SELECT blob2 AS labels, blob1 AS tier, sum(_sample_interval) AS requests
      FROM ${DATASET}
      WHERE timestamp > ${since} AND blob5 = 'enterprise' AND blob2 != ''
      GROUP BY labels, tier ORDER BY requests DESC LIMIT 12`,
@@ -100,26 +100,26 @@ export async function dailyReport(
     (r) => r,
   );
   topClassifiers = await q(
-    `SELECT blob2 AS labels, count() AS requests
+    `SELECT blob2 AS labels, sum(_sample_interval) AS requests
      FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY labels ORDER BY requests DESC LIMIT 12`,
     [],
     (r) => r,
   );
   byCountry = await q(
-    `SELECT blob3 AS country, count() AS requests FROM ${DATASET}
+    `SELECT blob3 AS country, sum(_sample_interval) AS requests FROM ${DATASET}
      WHERE timestamp > ${since} GROUP BY country ORDER BY requests DESC LIMIT 8`,
     [],
     (r) => r,
   );
   byModel = await q(
-    `SELECT blob6 AS model, blob1 AS tier, count() AS requests, avg(double2) AS avg_ms
+    `SELECT blob6 AS model, blob1 AS tier, sum(_sample_interval) AS requests, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
      FROM ${DATASET} WHERE timestamp > ${since} AND blob6 != ''
      GROUP BY model, tier ORDER BY requests DESC LIMIT 10`,
     [],
     (r) => r,
   );
   errors = await q(
-    `SELECT blob4 AS status, count() AS n FROM ${DATASET}
+    `SELECT blob4 AS status, sum(_sample_interval) AS n FROM ${DATASET}
      WHERE timestamp > ${since} AND blob4 != '200' GROUP BY status ORDER BY n DESC`,
     [],
     (r) => r,
@@ -127,7 +127,7 @@ export async function dailyReport(
   // A status code says a request failed; blob7 says why, which is the part
   // that tells you whether to fix the docs, the limits, or a provider.
   reasons = await q(
-    `SELECT blob7 AS reason, blob8 AS agent, count() AS n
+    `SELECT blob7 AS reason, blob8 AS agent, sum(_sample_interval) AS n
      FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != ''
      GROUP BY reason, agent ORDER BY n DESC LIMIT 8`,
     [],
@@ -137,15 +137,20 @@ export async function dailyReport(
   const t = totals[0] ?? {};
   const requests = num(t.requests);
   const classifications = num(t.classifications);
+  const serverErrors = errors.filter((r) => String(r.status).startsWith("5")).reduce((n, r) => n + num(r.n), 0);
+  const rejected = errors.filter((r) => String(r.status).startsWith("4")).reduce((n, r) => n + num(r.n), 0);
 
   lines.push(`LAST ${WINDOW_HOURS} HOURS`);
   lines.push(`  requests         ${requests}`);
   lines.push(`  classifications  ${classifications}`);
+  lines.push(`  server failures  ${serverErrors}`);
+  lines.push(`  rejected requests ${rejected} (validation or quota)`);
   // A caller pseudonym is scoped to a UTC day, so over a window longer than a
   // day this counts caller-days rather than people. See src/privacy.ts.
   lines.push(`  unique callers   ${visitors}`);
   lines.push(`  distinct classifiers ${classifiers}`);
   lines.push(`  avg latency      ${Math.round(num(t.avg_ms))}ms`);
+  lines.push("  Traffic and latency are sampling-adjusted estimates. Latency includes rejected requests. Unique counts reflect observed fingerprints.");
   lines.push("");
 
   if (byTier.length) {
@@ -164,7 +169,7 @@ export async function dailyReport(
   if (byClient.length) {
     const clients = new Map<
       string,
-      { requests: number; classifications: number; ok: number; failed: number; latency: number; statuses: string[] }
+      { requests: number; classifications: number; ok: number; failed: number; rejected: number; latency: number; statuses: string[] }
     >();
     for (const r of byClient) {
       const client = String(r.client || "public");
@@ -175,6 +180,7 @@ export async function dailyReport(
         classifications: 0,
         ok: 0,
         failed: 0,
+        rejected: 0,
         latency: 0,
         statuses: [],
       };
@@ -182,7 +188,8 @@ export async function dailyReport(
       current.classifications += num(r.classifications);
       current.latency += num(r.avg_ms) * requests;
       if (status === "200") current.ok += requests;
-      else current.failed += requests;
+      else if (status.startsWith("5")) current.failed += requests;
+      else if (status.startsWith("4")) current.rejected += requests;
       current.statuses.push(`${status}:${requests}`);
       clients.set(client, current);
     }
@@ -190,7 +197,7 @@ export async function dailyReport(
     lines.push("BY CLIENT");
     for (const [client, r] of clients) {
       lines.push(
-        `  ${pad(client, 12)} ${r.requests} req  ${r.classifications} cls  ${r.ok} ok  ${r.failed} failed  ` +
+        `  ${pad(client, 12)} ${r.requests} req  ${r.classifications} cls  ${r.ok} ok  ${r.failed} server failures  ${r.rejected} rejected  ` +
           `${Math.round(r.latency / Math.max(1, r.requests))}ms  [${r.statuses.join(" ")}]`,
       );
     }
@@ -285,7 +292,6 @@ export async function dailyReport(
     /* ignore */
   }
   const arrow = prev === 0 ? (requests > 0 ? "+" : "") : requests > prev ? "▲" : requests < prev ? "▼" : "=";
-  const errCount = errors.reduce((a, r) => a + num(r.n), 0);
 
   const body = lines.join("\n");
 
@@ -295,7 +301,8 @@ export async function dailyReport(
       ? `classifier.dev · quiet · 0 req/${WINDOW_HOURS}h`
       : [
           "classifier.dev ·",
-          errCount ? `⚠${errCount} err ·` : "",
+          serverErrors ? `⚠${serverErrors} server failures ·` : "",
+          rejected ? `${rejected} rejected ·` : "",
           `${arrow}${requests} req ·`,
           `${visitors} callers ·`,
           `${classifiers} classifiers ·`,

@@ -27,7 +27,7 @@ const T = {
   jevShare: 0.5,
   /** Ignore all of the below unless the window saw at least this many requests. */
   minRequests: 10,
-  /** Server-side failures as a share of all requests. */
+  /** Server-side failures as a share of accepted requests (200 and 5xx). */
   serverErrorRate: 0.05,
   /** Mean latency over the window. */
   latencyMs: 3000,
@@ -133,13 +133,13 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
     recent = await sql(
       env,
       `SELECT blob6 AS model, blob4 AS status, blob7 AS reason, blob9 AS mode,
-              count() AS requests, sum(double2 * 1) AS ms_sum, sum(double3) AS usd, sum(double5) AS escfail, sum(double9) AS fallback
+              sum(_sample_interval) AS requests, sum(double2 * _sample_interval) AS ms_sum, sum(double3 * _sample_interval) AS usd, sum(double5 * _sample_interval) AS escfail, sum(double9 * _sample_interval) AS fallback
        FROM ${DATASET} WHERE timestamp > toDateTime(now()) - INTERVAL '${WINDOW_MIN}' MINUTE
        GROUP BY model, status, reason, mode`,
     );
     baseline = await sql(
       env,
-      `SELECT count() AS requests, sum(double3) AS usd
+      `SELECT sum(_sample_interval) AS requests, sum(double3 * _sample_interval) AS usd
        FROM ${DATASET} WHERE timestamp > toDateTime(now()) - INTERVAL '24' HOUR`,
     );
   } catch (e) {
@@ -161,8 +161,12 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
   }
 
   const requests = recent.reduce((a, r) => a + num(r.requests), 0);
+  // Rejected requests never reached inference. A quota flood must not dilute
+  // server failure rates or latency, either overall or for a feature.
+  const accepted = recent.filter((r) => String(r.status) === "200" || String(r.status).startsWith("5"));
+  const acceptedRequests = accepted.reduce((a, r) => a + num(r.requests), 0);
   const serverErrors = recent.filter((r) => String(r.status).startsWith("5")).reduce((a, r) => a + num(r.requests), 0);
-  const msSum = recent.reduce((a, r) => a + num(r.ms_sum), 0);
+  const msSum = accepted.reduce((a, r) => a + num(r.ms_sum), 0);
   const spend = recent.reduce((a, r) => a + num(r.usd), 0);
   const escFail = recent.reduce((a, r) => a + num(r.escfail), 0);
 
@@ -199,7 +203,7 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
     });
   }
 
-  if (requests >= T.minRequests && serverErrors / requests > T.serverErrorRate) {
+  if (acceptedRequests >= T.minRequests && serverErrors / acceptedRequests > T.serverErrorRate) {
     const reasons = recent
       .filter((r) => String(r.status).startsWith("5") && String(r.reason || ""))
       .map((r) => `${r.reason} (${num(r.requests)})`)
@@ -207,10 +211,10 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
     alerts.push({
       id: "5xx",
       severity: "critical",
-      title: `${pct(serverErrors / requests)} of requests are failing server-side`,
+      title: `${pct(serverErrors / acceptedRequests)} of accepted requests are failing server-side`,
       detail:
-        `${serverErrors} of ${requests} requests in the last ${WINDOW_MIN}m returned 5xx.\n` +
-        `Causes: ${reasons || "not recorded"}.\n\n4xx is excluded — that is scanner noise, not a fault.`,
+        `${serverErrors} of ${acceptedRequests} accepted requests in the last ${WINDOW_MIN}m returned 5xx.\n` +
+        `Causes: ${reasons || "not recorded"}.\n\nValidation and quota rejections (4xx) are excluded from both counts.`,
     });
   }
 
@@ -218,13 +222,13 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
   const dimensions = recent.filter((r) => r.mode === "dimensions");
   const dimensionErrors = dimensions.filter((r) => String(r.status).startsWith("5"));
   const dimensionFailures = dimensionErrors.reduce((n, r) => n + num(r.requests), 0);
-  const dimensionRequests = dimensions.reduce((n, r) => n + num(r.requests), 0);
+  const dimensionRequests = accepted.filter((r) => r.mode === "dimensions").reduce((n, r) => n + num(r.requests), 0);
   const dimensionFallback = dimensions.reduce((n, r) => n + num(r.fallback), 0);
   if (dimensionFailures >= 3 && dimensionFailures / dimensionRequests > 0.1) {
     alerts.push({
       id: "dimensions_5xx", severity: "critical",
       title: "Multidimensional classification is failing",
-      detail: `${dimensionFailures} of ${dimensionRequests} requests in the last ${WINDOW_MIN}m returned 5xx. ` +
+      detail: `${dimensionFailures} of ${dimensionRequests} accepted requests in the last ${WINDOW_MIN}m returned 5xx. ` +
         `Causes: ${dimensionErrors.map((r) => `${r.reason || "unknown"} (${num(r.requests)})`).join(", ")}. Check /admin and the Jev provider.`,
     });
   }
@@ -271,12 +275,12 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
     });
   }
 
-  if (requests >= T.minRequests && msSum / requests > T.latencyMs) {
+  if (acceptedRequests >= T.minRequests && msSum / acceptedRequests > T.latencyMs) {
     alerts.push({
       id: "latency",
       severity: "warning",
-      title: `mean latency is ${Math.round(msSum / requests)}ms`,
-      detail: `Over ${requests} requests in the last ${WINDOW_MIN}m, against a ${T.latencyMs}ms threshold.`,
+      title: `mean latency is ${Math.round(msSum / acceptedRequests)}ms`,
+      detail: `Over ${acceptedRequests} accepted requests in the last ${WINDOW_MIN}m, against a ${T.latencyMs}ms threshold.`,
     });
   }
 

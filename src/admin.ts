@@ -195,54 +195,54 @@ async function load(env: Env, range: RangeKey) {
          byReason, byAgent, failLabels, dimensionTraffic, dimensionCallers, dimensionSeries] =
     await Promise.all([
       q(
-        `SELECT count() AS requests, sum(double1) AS classifications,
-                sum(double3) AS usd, avg(double2) AS avg_ms
+        `SELECT sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
+                sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
          FROM ${DATASET} WHERE timestamp > ${since}`,
         [] as Row[],
         (x) => x,
       ),
       q(
         `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
-                count() AS requests, sum(double1) AS classifications, sum(double3) AS usd
+                sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
          FROM ${DATASET} WHERE timestamp > ${since} GROUP BY t ORDER BY t`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob1 AS tier, count() AS requests, sum(double1) AS classifications,
-                sum(double3) AS usd, avg(double2) AS avg_ms
+        `SELECT blob1 AS tier, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
+                sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
          FROM ${DATASET} WHERE timestamp > ${since} GROUP BY tier ORDER BY requests DESC`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob6 AS model, count() AS requests, sum(double1) AS classifications,
-                sum(double3) AS usd, avg(double2) AS avg_ms
+        `SELECT blob6 AS model, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
+                sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
          FROM ${DATASET} WHERE timestamp > ${since} AND blob6 != ''
          GROUP BY model ORDER BY requests DESC LIMIT 10`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob3 AS country, count() AS requests FROM ${DATASET}
+        `SELECT blob3 AS country, sum(_sample_interval) AS requests FROM ${DATASET}
          WHERE timestamp > ${since} GROUP BY country ORDER BY requests DESC LIMIT 10`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob4 AS status, count() AS requests FROM ${DATASET}
+        `SELECT blob4 AS status, sum(_sample_interval) AS requests FROM ${DATASET}
          WHERE timestamp > ${since} GROUP BY status ORDER BY requests DESC`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob5 AS client, count() AS requests, sum(double1) AS classifications, sum(double3) AS usd
+        `SELECT blob5 AS client, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
          FROM ${DATASET} WHERE timestamp > ${since} GROUP BY client ORDER BY requests DESC`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob2 AS labels, count() AS requests, sum(double1) AS classifications, sum(double3) AS usd
+        `SELECT blob2 AS labels, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
          FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != ''
          GROUP BY labels ORDER BY requests DESC LIMIT 12`,
         [] as Row[],
@@ -250,25 +250,25 @@ async function load(env: Env, range: RangeKey) {
       ),
       // Analytics Engine SQL has no uniq(); a distinct count is the row count of a GROUP BY.
       q(
-        `SELECT index1, count() AS n FROM ${DATASET} WHERE timestamp > ${since} GROUP BY index1`,
+        `SELECT index1, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} GROUP BY index1`,
         0,
         (x) => x.length,
       ),
       q(
-        `SELECT blob2, count() AS n FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY blob2`,
+        `SELECT blob2, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY blob2`,
         0,
         (x) => x.length,
       ),
       // Why requests fail. blob7 is "" on success, so this is the failure set.
       q(
-        `SELECT blob7 AS reason, blob4 AS status, blob8 AS agent, count() AS requests, avg(double4) AS avg_inputs
+        `SELECT blob7 AS reason, blob4 AS status, blob8 AS agent, sum(_sample_interval) AS requests, sum(double4 * _sample_interval) / sum(_sample_interval) AS avg_inputs
          FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != ''
          GROUP BY reason, status, agent ORDER BY requests DESC LIMIT 60`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob8 AS agent, count() AS requests, sum(double1) AS classifications
+        `SELECT blob8 AS agent, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications
          FROM ${DATASET} WHERE timestamp > ${since} AND blob8 != ''
          GROUP BY agent ORDER BY requests DESC LIMIT 10`,
         [] as Row[],
@@ -276,29 +276,29 @@ async function load(env: Env, range: RangeKey) {
       ),
       // Which classifier configurations are the failing ones.
       q(
-        `SELECT blob2 AS labels, blob7 AS reason, count() AS requests
+        `SELECT blob2 AS labels, blob7 AS reason, sum(_sample_interval) AS requests
          FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != '' AND blob2 != ''
          GROUP BY labels, reason ORDER BY requests DESC LIMIT 12`,
         [] as Row[],
         (x) => x,
       ),
       q(
-        `SELECT blob4 AS status, blob7 AS reason, count() AS requests,
-                sum(double1) AS classifications, sum(double6) AS items,
-                sum(double7) AS dimensions, sum(double8) AS uncertain,
-                sum(double9) AS fallback, sum(double3) AS usd, sum(double2) AS ms_sum
+        `SELECT blob4 AS status, blob7 AS reason, sum(_sample_interval) AS requests,
+                sum(double1 * _sample_interval) AS classifications, sum(double6 * _sample_interval) AS items,
+                sum(double7 * _sample_interval) AS dimensions, sum(double8 * _sample_interval) AS uncertain,
+                sum(double9 * _sample_interval) AS fallback, sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) AS ms_sum
          FROM ${DATASET} WHERE timestamp > ${since} AND blob9 = 'dimensions'
          GROUP BY status, reason`,
         [] as Row[], (x) => x,
       ),
       q(
-        `SELECT index1, count() AS n FROM ${DATASET}
+        `SELECT index1, sum(_sample_interval) AS n FROM ${DATASET}
          WHERE timestamp > ${since} AND blob9 = 'dimensions' GROUP BY index1`,
         0, (x) => x.length,
       ),
       q(
         `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
-                count() AS requests, sum(double1) AS classifications
+                sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications
          FROM ${DATASET} WHERE timestamp > ${since} AND blob9 = 'dimensions'
          GROUP BY t ORDER BY t`,
         [] as Row[], (x) => x,
@@ -417,9 +417,9 @@ const STYLE = BASE_CSS + `
 :root{--blue:#7aa2f7;--green:#7fd39a;--amber:#e0b35a;--red:var(--bad)}
 /* key/value block: the digest's aligned columns, on screen */
 .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:0 32px;margin:0}
-.kv .k{display:flex;justify-content:space-between;gap:16px;padding:1px 0}
-.kv dt{color:var(--dim)}
-.kv dd{margin:0;color:var(--bright);font-variant-numeric:tabular-nums}
+.kv .k{display:flex;justify-content:space-between;gap:16px;padding:1px 0;min-width:0}
+.kv dt{color:var(--dim);white-space:nowrap;flex-shrink:0}
+.kv dd{margin:0;color:var(--bright);font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere}
 .kv .sub{color:var(--dim)}
 /* block-character bars */
 .bars{display:grid;grid-template-columns:auto auto minmax(0,9ch) 1fr;gap:2px 12px;align-items:baseline;min-width:max-content}
@@ -512,8 +512,11 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
   const avgMs = num(t.avg_ms);
 
   const ok = d.byStatus.filter((r) => String(r.status) === "200").reduce((a, r) => a + num(r.requests), 0);
-  const failed = requests - ok;
-  const errRate = requests ? (failed / requests) * 100 : 0;
+  const failed = d.byStatus.filter((r) => String(r.status).startsWith("5")).reduce((a, r) => a + num(r.requests), 0);
+  const rejected = d.byStatus.filter((r) => String(r.status).startsWith("4")).reduce((a, r) => a + num(r.requests), 0);
+  const attempted = ok + failed;
+  const errRate = attempted ? (failed / attempted) * 100 : 0;
+  const rejectionRate = requests ? (rejected / requests) * 100 : 0;
   const dimSum = (key: string, rows = d.dimensionTraffic) => rows.reduce((n, r) => n + num(r[key]), 0);
   const dimRequests = dimSum("requests");
   const dimDecisions = dimSum("classifications");
@@ -567,17 +570,19 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
     `  classifications   ${group(classifications)}`,
     `  upstream spend    ${usd(spend)}`,
     `  cost / 1k         ${usd(per1k)}`,
-    `  avg latency       ${ms(avgMs)}`,
-    `  error rate        ${errRate.toFixed(1)}%  (${group(failed)} of ${group(requests)})`,
+    `  avg latency       ${ms(avgMs)} (all requests)`,
+    `  server error rate ${errRate.toFixed(1)}%  (${group(failed)} of ${group(attempted)} accepted requests)`,
+    `  rejected requests ${group(rejected)} (${rejectionRate.toFixed(1)}% of traffic; validation or quota)`,
     `  unique callers    ${group(d.visitors)}`,
     `  classifiers       ${group(d.labelSets)}`,
+    "  Traffic, spend and latency are sampling-adjusted estimates. Unique counts reflect observed fingerprints.",
     "",
     "MULTIDIMENSIONAL CLASSIFICATION",
     `  requests          ${group(dimRequests)} (${dimPercent(dimRequests, requests)} of traffic)`,
     `  successful items  ${group(dimSum("items"))}`,
     `  decisions         ${group(dimDecisions)}`,
     `  unique callers    ${group(d.dimensionCallers)} (day-scoped)`,
-    `  server failures   ${group(dim5xx)}`,
+    `  server failures   ${group(dim5xx)} (${dimPercent(dim5xx, dimOk + dim5xx)} of accepted)`,
     `  rejected requests ${group(dim4xx)}`,
     `  uncertain fields  ${group(dimSum("uncertain"))}`,
     `  fallback fields   ${group(dimSum("fallback"))}`,
@@ -613,13 +618,14 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
 
   ${section(
     "Totals",
-    kv([
+    `<p class="quote">Traffic, spend and latency are sampling-adjusted estimates. Unique counts reflect observed fingerprints.</p>` + kv([
       ["requests", group(requests)],
-      ["classifications", group(classifications), requests ? `${(classifications / requests).toFixed(1)}/req` : ""],
+      ["classifications", group(classifications), requests ? `${(classifications / requests).toFixed(1)}/received req` : ""],
       ["upstream spend", usd(spend), "provider-reported"],
       ["cost / 1k", usd(per1k)],
-      ["avg latency", ms(avgMs)],
-      ["error rate", `${errRate.toFixed(1)}%`, `${group(failed)} of ${group(requests)}`],
+      ["avg latency", ms(avgMs), "all requests"],
+      ["server error rate", `${errRate.toFixed(1)}%`, `${group(failed)} of ${group(attempted)} accepted`],
+      ["rejected requests", group(rejected), `${rejectionRate.toFixed(1)}% of traffic; validation or quota`],
       ["unique callers", group(d.visitors), range === "24h" ? "" : "counts caller-days"],
       ["classifiers", group(d.labelSets)],
     ]),
@@ -634,12 +640,12 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
       ["successful items", group(dimSum("items"))],
       ["decisions", group(dimDecisions)],
       ["unique callers", group(d.dimensionCallers), range === "24h" ? "day-scoped" : "counts caller-days"],
-      ["server failures", group(dim5xx), dimPercent(dim5xx, dimRequests)],
+      ["server failures", group(dim5xx), `${dimPercent(dim5xx, dimOk + dim5xx)} of accepted`],
       ["rejected requests", group(dim4xx), "validation or quota"],
       ["uncertain fields", group(dimSum("uncertain")), "confidence < 0.7 or unscored"],
       ["fallback fields", group(dimSum("fallback")), "Jev unavailable"],
       ["upstream spend", usd(dimSum("usd"))],
-      ["avg latency", ms(dimRequests ? dimSum("ms_sum") / dimRequests : 0)],
+      ["avg latency", ms(dimRequests ? dimSum("ms_sum") / dimRequests : 0), "all requests"],
     ]) +
     areaChart("dimensions", d.dimensionSeries.map((r) => ({ t: fmtT(r.t), v: num(r.classifications) })), "var(--blue)", group) +
     `<p class="sub">Decisions over time</p>` +
