@@ -113,5 +113,10 @@ enabled live Stripe webhook and a live checkout charging $20 USD per month
 against deployed Durable Objects. No real payment was submitted; subscription
 activation, key rotation and cancellation were exercised in the sandbox.
 
-The WorkOS sign-in path has not been tested yet in sandbox or production.
-Re-verify sign-in, callback, account lookup and sign-out before relying on it.
+The WorkOS sign-in path was verified in production on 2026-09-19: sign-up,
+the emailed verification code, the callback, account lookup and API key
+creation all completed, and the existing active Pro subscription was retained.
+A live REST fast classification and a live REST smart classification both
+returned 200, with policies fast 30000/minute and 200000/day and smart
+2000/minute and 20000/day. A live MCP classification returned 200.
+Sign-out has not been verified yet; verify it before relying on it.
