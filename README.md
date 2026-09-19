@@ -377,3 +377,57 @@ classification path without replacing `ENTERPRISE_API_KEY`. The CLI accepts it
 through `CLASSIFY_API_KEY` or `CLASSIFIER_API_KEY`. It does not authorize private
 reports or admin access. Keep it in an ignored secret file; never give it to
 public clients. Anonymous quotas continue to apply to unauthenticated traffic.
+
+## Multiple dimensions
+
+`POST /v1/classify` also accepts `items` and `dimensions`:
+
+```json
+{
+  "items": ["Checkout charges me twice"],
+  "dimensions": {
+    "team": ["billing", "identity", "platform"],
+    "urgency": {
+      "labels": ["immediate", "normal", "low"],
+      "instructions": "Active financial harm is immediate."
+    },
+    "kind": ["bug", "request", "question"]
+  }
+}
+```
+
+Each `results[i].dimensions[name]` carries its own label, confidence, scores,
+model and latency. Jev shares state across item–dimension questions, packing
+both context limits. Smart escalation is per field and clears the original
+scores; unavailable Jev falls back only up to 20 decisions. The API accepts
+up to 20 dimensions and 1,000 decisions, with each decision charged to quota.
+The `classify_dimensions` MCP tool uses this same path.
+
+Analytics adds `blob9` (single/multi/dimensions), `double6` (successful input
+items), `double7` (dimension count), `double8` (uncertain or unscored fields),
+and `double9` (fields served by fallback). `double1` counts successful decisions.
+Dimension configurations are keyed fingerprints, never stored verbatim. The
+admin panel queries dimension traffic separately, including failures and
+caller-days. The existing alert cron flags three or more dimension 5xx in an
+hour above 10% of dimension requests, plus any dimension fallback usage.
+
+Run `npm run test:e2e` with Node 22.18+ against the real production API, or set
+`CLASSIFIER_BASE_URL` to a staging origin. These are named TypeScript tests
+using `node:test` and real HTTP/model calls, with no fetch or inference mocks.
+Set `CLASSIFIER_API_KEY` to an authorized key when the shared IP quota is used
+up; it is optional. The suite uses inference and counts toward normal quotas.
+
+The tests check exact decisions and ordering for a 300-decision batch, every
+field's allowed labels and probability distribution, real smart escalation,
+unreadable input, aliases, validation errors, MCP, OpenAPI, and legacy calls.
+Responses start as `unknown` and are validated before becoming typed matrices.
+Smart tests require an actual escalation; model drift that makes every fixture
+confident fails the test instead of silently skipping the reasoning provider.
+
+`npm run typecheck` checks the Worker and the TypeScript live tests. Deployment
+CI runs the live suite after publishing; `npm test` stays offline. Fault
+injection remains in `test/dimensions.test.ts` and
+`test/dimensions-observability.test.ts`.
+
+Run the **live API tests** workflow manually from GitHub Actions (or
+`gh workflow run e2e.yml`) to check production without deploying a Worker.

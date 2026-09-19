@@ -6,7 +6,7 @@ import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
-import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, isHeading, toMarkdown } from "./pages";
+import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, TERMS, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
 import { chatStream, parseMessages } from "./chat";
@@ -20,14 +20,18 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
+import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
 import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
 import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
+export { BillingAccount } from "./billing";
+import { authenticatePro, handleBilling, BillingError, type BillingEnv } from "./billing";
+import { proHtml } from "./proui";
 
-export interface Env {
+export interface Env extends BillingEnv {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
   /** context.dev, for the chat's web search and page reads only. Never served. */
@@ -54,6 +58,12 @@ export interface Env {
    * to what when it is unset.
    */
   PRIVACY_SALT?: string;
+  /**
+   * The token OpenAI's plugin portal issues when a draft claims this domain;
+   * served verbatim at /.well-known/openai-apps-challenge until the claim is
+   * checked. A Wrangler secret, never in the repository.
+   */
+  OPENAI_APPS_CHALLENGE?: string;
   /**
    * Postgres for the updates list, and nothing else. A separate Neon project on
    * purpose: the addresses share a database with no other data, so there is
@@ -252,9 +262,10 @@ const agentView = (origin: string) => ({
   name: "classifier.dev",
   description: "Zero-shot text classification over plain HTTP. No API key, no account.",
   version: API_VERSION,
-  authentication: { required: false, optional_bearer: "partner key lifts per-IP limits", docs: `${origin}/auth.md` },
+  authentication: { required: false, optional_bearer: "Pro key gives 10× limits; partner key lifts limits", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
+    classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
     subscribe: {
       method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
@@ -285,7 +296,7 @@ const agentView = (origin: string) => ({
   skill: { install: `npx skills add ${origin}`, url: `${origin}/skill.md` },
   limits: { fast: "3,000 classifications/min, 20,000/day per IP", smart: "200/min, 2,000/day per IP", headers: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Policy", "Retry-After"] },
   pricing: { price: 0, currency: "USD", url: `${origin}/pricing` },
-  docs: { llms: `${origin}/llms.txt`, developers: `${origin}/developers`, benchmark: `${origin}/benchmark`, privacy: `${origin}/privacy`, contact: `${origin}/contact` },
+  docs: { llms: `${origin}/llms.txt`, developers: `${origin}/developers`, benchmark: `${origin}/benchmark`, privacy: `${origin}/privacy`, terms: `${origin}/terms`, contact: `${origin}/contact` },
   discovery: [`${origin}/.well-known/ard.json`, `${origin}/.well-known/agent-card.json`, `${origin}/.well-known/api-catalog`, `${origin}/.well-known/agent-skills/index.json`, `${origin}/sitemap.xml`],
 });
 
@@ -314,10 +325,11 @@ function notFound(req: Request, origin: string) {
 const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = {
   developers: { doc: DEVELOPERS, title: "developers", desc: "Quickstart, every surface (REST, MCP, CLI, skill), limits, errors, versioning. No key needed." },
   "mcp-setup": { doc: MCP_SETUP, title: "MCP setup", desc: "Connect classifier.dev to Claude, ChatGPT, Codex, Cursor or any MCP client, step by step." },
-  pricing: { doc: PRICING, title: "pricing", desc: "Free within per-IP limits. Partner keys by arrangement." },
+  pricing: { doc: PRICING, title: "pricing", desc: "Free, or Pro for $20/month with 10× classification limits." },
   about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
   contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },
   privacy: { doc: PRIVACY, title: "privacy", desc: "Inputs are not stored. What is logged, and what is not collected." },
+  terms: { doc: TERMS, title: "terms", desc: "Free within the limits, offered as is; what you agree to by using it." },
 };
 
 const DOCS_MCP = docsServer([
@@ -331,6 +343,7 @@ const DOCS_MCP = docsServer([
   { id: "auth", title: "Authentication", url: "https://classifier.dev/auth.md", text: AUTH_MD },
   { id: "agents", title: "For agents: when and how to use classifier.dev", url: "https://classifier.dev/agents.md", text: AGENTS_MD },
   { id: "privacy", title: "Privacy", url: "https://classifier.dev/privacy", text: PRIVACY },
+  { id: "terms", title: "Terms", url: "https://classifier.dev/terms", text: TERMS },
   { id: "about", title: "About", url: "https://classifier.dev/about", text: ABOUT },
   { id: "contact", title: "Contact", url: "https://classifier.dev/contact", text: CONTACT },
 ]);
@@ -341,7 +354,7 @@ function docSections() {
   const src: [string, string, string][] = [
     ["api", DOCS, "https://classifier.dev/"], ["developers", DEVELOPERS, "https://classifier.dev/developers"],
     ["mcp-setup", MCP_SETUP, "https://classifier.dev/mcp-setup"], ["benchmark", BENCHMARK, "https://classifier.dev/benchmark"],
-    ["pricing", PRICING, "https://classifier.dev/pricing"], ["privacy", PRIVACY, "https://classifier.dev/privacy"],
+    ["pricing", PRICING, "https://classifier.dev/pricing"], ["privacy", PRIVACY, "https://classifier.dev/privacy"], ["terms", TERMS, "https://classifier.dev/terms"],
     ["about", ABOUT, "https://classifier.dev/about"], ["contact", CONTACT, "https://classifier.dev/contact"],
   ];
   for (const [doc, text, url] of src) {
@@ -922,6 +935,39 @@ async function classifyMany(
   return { results: await llmClassifyMany(env, inputs, labels, tier, instructions, multi, meter), escalationFailed: 0 };
 }
 
+/** Keep each field independent, including smart escalation and the bounded LLM fallback. */
+async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter) {
+  const started = Date.now();
+  let jev: Awaited<ReturnType<typeof classifyDimensions>> | undefined;
+  if (env.TYPESAFE_API_KEY) {
+    try { jev = await classifyDimensions(env.TYPESAFE_API_KEY, batches, meter); }
+    catch (e) { console.warn(`dimensions Jev failed: ${(e as Error).message}`); }
+  }
+  if (!jev && inputs.length * dimensions.length > FALLBACK_MAX_INPUTS) {
+    throw new Error(`batch classification is temporarily unavailable; send up to ${FALLBACK_MAX_INPUTS} decisions or retry shortly`);
+  }
+  const results: Result[][] = inputs.map(() => []);
+  let escalationFailed = 0;
+  let fallbackDecisions = 0;
+  // Sequential dimensions bound fallback/escalation concurrency across the entire request.
+  for (const [d, dimension] of dimensions.entries()) {
+    const criteria = dimensionInstructions(dimension, instructions);
+    const column: Result[] = jev ? inputs.map((input, i) => ({
+      ...jev[i][d], ms: Date.now() - started,
+      ...(isUnintelligible(input) ? { confidence: null, scores: null, unscored: UNSCORED_REASON } : {}),
+    })) : await llmClassifyMany(env, inputs, dimension.labels, tier, criteria, undefined, meter);
+    if (!jev) fallbackDecisions += column.length;
+    if (jev && tier === "smart") {
+      // If the reasoning model changes a field, its predecessor's probabilities
+      // no longer describe that answer. Expose no mismatched confidence/scores.
+      escalationFailed += await escalate(env, inputs, dimension.labels, criteria, column, meter);
+      for (const r of column) if (r.escalated) { r.confidence = null; r.scores = null; r.unscored = "reasoning model does not return comparable probabilities"; }
+    }
+    column.forEach((r, i) => { results[i][d] = r; });
+  }
+  return { results, escalationFailed, fallbackDecisions };
+}
+
 /**
  * Which kind of client called, as a low-cardinality family rather than the raw
  * User-Agent. Enough to tell one broken integration from broad traffic without
@@ -1003,6 +1049,10 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   attempted: number;
   /** Smart-tier answers that could not reach the reasoning model. */
   escalationFailed: number;
+  mode?: "single" | "multi" | "dimensions";
+  dimensions?: number;
+  uncertain?: number;
+  fallbackDecisions?: number;
 }) {
   // Hashing is async, so the write moved off the response path entirely. The
   // point is unchanged apart from the two columns that used to carry the
@@ -1013,11 +1063,11 @@ export function record(env: Env, ctx: ExecutionContext, d: {
       const [caller, labels] = await Promise.all([callerId(env, d.ip), classifierId(env, d.labels)]);
       try {
         env.AE?.writeDataPoint({
-          blobs: [d.tier, labels, d.country, String(d.status), d.client, d.model, d.reason, d.agent],
+          blobs: [d.tier, labels, d.country, String(d.status), d.client, d.model, d.reason, d.agent, d.mode ?? "single"],
           // double3 and blob7/blob8 were added after launch: rows written before
           // that read back as 0 and "", so cost and failure reasons are only
           // meaningful from that deploy forward.
-          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed],
+          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed, d.status === 200 ? d.attempted : 0, d.dimensions ?? 1, d.uncertain ?? 0, d.fallbackDecisions ?? 0],
           indexes: [caller],
         });
       } catch {
@@ -1037,13 +1087,13 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   );
 }
 
-/** Ask the per-IP Durable Object whether this request fits inside the window. */
-async function limited(env: Env, tier: Tier, ip: string, cost: number) {
-  const rpm = TIERS[tier].rpm;
+/** Ask the IP or Pro account Durable Object whether the batch fits. */
+async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1) {
+  const rpm = TIERS[tier].rpm * multiplier;
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
     const res = await env.LIMITER.get(id).fetch(
-      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily}&cost=${cost}`,
+      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}`,
     );
     return (await res.json()) as {
       limited: boolean;
@@ -1105,6 +1155,11 @@ const worker = {
     const wantsMarkdown =
       req.method === "GET" && (url.searchParams.get("format") === "markdown" || /\btext\/markdown\b/.test(accept));
     const origin = url.origin;
+    if (path === "pro" && req.method === "GET") {
+      return html(proHtml(), 200, { "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    }
+    const billing = await handleBilling(req, env);
+    if (billing) return billing;
     // The operator dashboard. Returns null for every other path.
     const admin = await adminResponse(req, env, path, ip);
     if (admin) return admin;
@@ -1188,6 +1243,11 @@ const worker = {
       return new Response(sitemapXml(origin), { headers: { "content-type": "application/xml; charset=utf-8", ...CORS, ...SECURITY, ...CACHE_HOUR } });
     }
     if (path === ".well-known/mcp-registry-auth") return text(MCP_REGISTRY_AUTH + "\n", 200, CACHE_HOUR);
+    if (path === ".well-known/openai-apps-challenge") {
+      // Domain verification for the ChatGPT plugin directory: the token must be the whole body.
+      const token = (env.OPENAI_APPS_CHALLENGE ?? "").trim();
+      return token ? text(token, 200, { "cache-control": "no-store" }) : notFound(req, origin);
+    }
     if (path === ".well-known/security.txt" || path === "security.txt") {
       return text(securityTxt(origin), 200, CACHE_HOUR);
     }
@@ -1591,12 +1651,30 @@ const worker = {
       return notFound(req, origin);
     }
 
+    // Paid credentials are resolved only on classification paths. The shared
+    // MCP handler forwards Authorization here too. Never put billing identity
+    // into classification analytics; only the quota bucket uses the account.
+    let pro: { customerId: string; active: boolean } | null = null;
+    if (!enterprise) {
+      try { pro = await authenticatePro(req, env); }
+      catch (error) {
+        if (error instanceof BillingError) return json({ error: error.message, code: error.code }, error.status, { "cache-control": "no-store", "x-api-version": API_VERSION });
+        return json({ error: "Unable to verify Pro access. Try again shortly.", code: "billing_unavailable" }, 503, { "cache-control": "no-store", "x-api-version": API_VERSION });
+      }
+    }
+    const multiplier = pro ? 10 : 1;
+    const quotaOwner = pro ? `pro:${pro.customerId}` : ip;
+    const quotaScope = pro ? "per Pro account" : "per IP";
+
     // ---- gather params from either shape -----------------------------------
     let inputs: string[] = [];
     let labels: string[] = [];
     let tier: Tier = "fast";
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
+    let dimensions: Dimension[] | undefined;
+    let dimensionBatches: DimensionBatch[] = [];
+    let mode: "single" | "multi" | "dimensions" = "single";
     // JSON for every POST, and for a GET that asked with ?verbose=1 or Accept: application/json.
     let wantJson = req.method === "POST" || /\bapplication\/json\b/.test(accept);
     // Set for GET so a failed request can be answered with a URL that would have worked.
@@ -1607,11 +1685,11 @@ const worker = {
     // key if the caller sent one — classification has no side effects, so the
     // echo is all a retrying client needs.
     const apiHeaders = (remaining = -1): Record<string, string> => {
-      const limit = TIERS[tier].rpm;
+      const limit = TIERS[tier].rpm * multiplier;
       const h: Record<string, string> = {
         "x-api-version": API_VERSION,
         "ratelimit-limit": enterprise ? "unlimited" : String(limit),
-        "ratelimit-policy": enterprise ? "unlimited" : `${limit};w=60, ${TIERS[tier].daily};w=86400`,
+        "ratelimit-policy": enterprise ? "unlimited" : `${limit};w=60, ${TIERS[tier].daily * multiplier};w=86400`,
         "x-ratelimit-limit": enterprise ? "unlimited" : `${limit}/min`,
       };
       if (remaining >= 0) {
@@ -1624,7 +1702,7 @@ const worker = {
     };
     const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1) => {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
-        usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0 });
+        usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
       const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
@@ -1651,6 +1729,12 @@ const worker = {
         return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
       }
       const b = body as Record<string, unknown>;
+      if (Object.hasOwn(b, "dimensions")) mode = "dimensions";
+      if (mode === "dimensions" && ["items", "inputs", "input"].filter((k) => Object.hasOwn(b, k)).length > 1) return fail("Use only one of items, inputs or input", 400, "bad_dimensions");
+      if (mode === "dimensions" && Object.hasOwn(b, "items")) {
+        if (!Array.isArray(b.items)) return fail("items must be an array of strings", 400, "bad_dimensions");
+        b.inputs = b.items;
+      }
       inputs = Array.isArray(b.inputs)
         ? (b.inputs as string[])
         : typeof b.inputs === "string"
@@ -1659,6 +1743,14 @@ const worker = {
             ? [b.input]
             : [];
       labels = Array.isArray(b.labels) ? (b.labels as string[]) : [];
+      if (mode === "dimensions") {
+        if (["labels", "multi", "max_labels"].some((k) => Object.hasOwn(b, k))) return fail("dimensions cannot be combined with labels, multi or max_labels", 400, "bad_dimensions");
+        if (b.instructions !== undefined && (typeof b.instructions !== "string" || b.instructions.length > 4000)) return fail("instructions must be a string of at most 4,000 characters", 400, "bad_dimensions");
+        try { dimensions = readDimensions(b.dimensions); }
+        catch (e) { return fail((e as Error).message, 400, "bad_dimensions"); }
+        // Fingerprint the whole configuration, including field names and rubrics, never store it.
+        labels = [JSON.stringify(dimensions)];
+      }
       const named = readTier(b.tier);
       if (named === null) return fail(`tier must be "fast" or "smart"; got ${JSON.stringify(b.tier).slice(0, 40)}`, 400, "bad_tier");
       tier = named;
@@ -1693,7 +1785,7 @@ const worker = {
       );
     }
     if (inputs.length > MAX_INPUTS) return fail(`Maximum ${MAX_INPUTS} inputs per request`, 400, "too_many_inputs");
-    if (labels.length < 2) {
+    if (!dimensions && labels.length < 2) {
       return fail(
         labels.length
           ? `Provide at least 2 labels; got ${labels.length} (${shown(labels)}).` + (getReq ? " Separate labels with commas." : "")
@@ -1708,23 +1800,29 @@ const worker = {
     if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400, "empty_input");
     if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be at most ${MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
 
-    const rpm = TIERS[tier].rpm;
+    if (dimensions) {
+      if (inputs.length * dimensions.length > MAX_DECISIONS) return fail(`Maximum ${MAX_DECISIONS} decisions (items × dimensions) per request`, 400, "too_many_decisions");
+      try { dimensionBatches = packDimensions(inputs, dimensions, instructions); }
+      catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
+    } else mode = multi ? "multi" : "single";
+    const decisions = inputs.length * (dimensions?.length ?? 1);
+    const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
-    if (!enterprise && inputs.length > rpm) return fail(`Maximum ${rpm} inputs per public ${tier} request; split the batch to fit the per-minute quota`, 400, "too_many_inputs");
+    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const gate = enterprise
       ? { limited: false, remaining: -1 }
-      : await limited(env, tier, ip, inputs.length);
+      : await limited(env, tier, quotaOwner, decisions, multiplier);
     if (gate.limited) {
       const perDay = gate.scope === "day";
       return fail(
         perDay
-          ? `Daily limit reached: ${TIERS[tier].daily} ${tier} classifications per IP per day. Need more? https://cal.com/michaelsf/coffee`
-          : `Rate limit: ${rpm} ${tier} classifications/minute per IP. Need more? https://cal.com/michaelsf/coffee`,
+          ? `Daily limit reached: ${TIERS[tier].daily * multiplier} ${tier} classifications ${quotaScope} per day. See https://classifier.dev/pricing`
+          : `Rate limit: ${rpm} ${tier} classifications/minute ${quotaScope}. See https://classifier.dev/pricing`,
         429,
         perDay ? "rate_limit_day" : "rate_limit_minute",
         {
           "retry-after": String(gate.resetIn ?? 60),
-          "x-ratelimit-limit": perDay ? `${TIERS[tier].daily}/day` : `${rpm}/min`,
+          "x-ratelimit-limit": perDay ? `${TIERS[tier].daily * multiplier}/day` : `${rpm}/min`,
         },
         0,
         0,
@@ -1733,9 +1831,17 @@ const worker = {
 
     const started = Date.now();
     let results: Result[];
+    let matrix: Result[][] | undefined;
+    let fallbackDecisions = 0;
     let escalationFailed = 0;
     try {
-      ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter));
+      if (dimensions) {
+        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter);
+        matrix = r.results;
+        results = matrix.flat();
+        escalationFailed = r.escalationFailed;
+        fallbackDecisions = r.fallbackDecisions;
+      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter));
     } catch (e) {
       const msg = (e as Error).message;
       return fail(`upstream: ${msg}`, 502, upstreamReason(msg), {}, Date.now() - started);
@@ -1745,13 +1851,26 @@ const worker = {
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
       model: modelSummary.modelsUsed.join(","), usd: meter.usd,
-      reason: "", agent, attempted: inputs.length, escalationFailed,
+      reason: "", agent, attempted: inputs.length, escalationFailed, mode,
+      dimensions: dimensions?.length ?? 1,
+      uncertain: results.filter((r) => r.confidence === null || r.confidence < ESCALATE_BELOW).length,
+      fallbackDecisions,
     });
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
     // fabricated remaining count. The limit is also documented at GET /.
     const headers = apiHeaders(gate.remaining);
 
+    if (dimensions && matrix) {
+      return json({
+        tier, ...modelSummary,
+        results: matrix.map((row) => ({ dimensions: Object.fromEntries(dimensions.map((d, i) => [d.name, row[i]])) })),
+        usage: { items: inputs.length, dimensions: dimensions.length, classifications: results.length,
+          escalated: results.filter((r) => r.escalated).length,
+          ...(escalationFailed ? { escalation_failed: escalationFailed } : {}),
+          fallback: fallbackDecisions, ms },
+      }, 200, headers);
+    }
     if (!wantJson) {
       // r.jina.ai style: the answer, nothing else. Multi-label answers are one
       // label per line, so the response stays greppable.

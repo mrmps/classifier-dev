@@ -22,7 +22,7 @@ export const SITE_UPDATED = "2026-09-19";
 
 export const SITE = {
   name: "classifier.dev",
-  tagline: "Zero-shot text classification over plain HTTP. No API key, no account.",
+  tagline: "Zero-shot text classification over plain HTTP. Free without a key; Pro for 10x limits.",
   author: { name: "Michael Ryaboy", handle: "michael_chomsky", x: "https://x.com/michael_chomsky", cal: "https://cal.com/michaelsf/coffee" },
   repo: "https://github.com/mrmps/classifier-dev",
   email: "contact@classifier.dev",
@@ -39,6 +39,7 @@ export const PAGES: { path: string; priority: number; changefreq: string }[] = [
   { path: "/about", priority: 0.5, changefreq: "monthly" },
   { path: "/contact", priority: 0.5, changefreq: "monthly" },
   { path: "/privacy", priority: 0.5, changefreq: "monthly" },
+  { path: "/terms", priority: 0.5, changefreq: "monthly" },
   { path: "/auth.md", priority: 0.5, changefreq: "monthly" },
   { path: "/agents.md", priority: 0.7, changefreq: "monthly" },
   { path: "/llms.txt", priority: 0.6, changefreq: "weekly" },
@@ -153,7 +154,7 @@ export function serverCard(origin: string, product: McpServer, docs: McpServer) 
   return {
     ...cardCore(origin, `${origin}/mcp`, product),
     kind: "product",
-    authentication: { type: "none", description: "No key, no account. Limits are per IP and returned as RateLimit headers and 429s with Retry-After." },
+    authentication: { type: "none", description: "Free classification needs no key. Optional Pro bearer keys give 10x rate limits per billing account; partner keys remain supported. RateLimit headers and 429s with Retry-After describe quotas." },
     openapi: `${origin}/openapi.json`,
     relatedServers: [
       {
@@ -297,12 +298,11 @@ export function apiCatalog(origin: string) {
   };
 }
 
-// ---------------------------------------------------------------- auth (there is none)
+// ---------------------------------------------------------------- authentication
 
 /**
  * RFC 9728 protected-resource metadata. Truthful: no authorization server,
- * no scopes, anonymous access everywhere; a bearer key exists only to lift
- * rate limits for partners and is issued by hand.
+ * no scopes, anonymous classification; optional Pro and partner bearer keys.
  */
 export function oauthProtectedResource(origin: string) {
   return {
@@ -313,9 +313,10 @@ export function oauthProtectedResource(origin: string) {
     scopes_supported: [],
     resource_documentation: `${origin}/auth.md`,
     resource_policy_uri: `${origin}/privacy`,
+    resource_tos_uri: `${origin}/terms`,
     // Not part of RFC 9728; states in plain words what the empty lists mean.
     anonymous_access: true,
-    note: "Every endpoint is public. No token is required or issued. Authorization: Bearer <key> is accepted only to lift per-IP rate limits for partners.",
+    note: "Classification and docs support anonymous access. Optional Pro bearer keys give 10x rate limits per billing account. Partner keys remain supported. Billing endpoints require a signed-in session.",
   };
 }
 
@@ -323,69 +324,64 @@ export const AUTH_MD = `# Agent authentication on classifier.dev
 
 Canonical: https://classifier.dev/auth.md · Last updated ${SITE_UPDATED}
 
-There is none to do. Every endpoint on classifier.dev — the REST API, the MCP
-servers, the docs — is public and keyless. This file lives at \`/auth.md\`, the
-discovery path from the WorkOS auth.md spec (https://github.com/workos/auth.md),
-so an agent that looks for it learns in one request that it can start calling.
-classifier.dev does not implement that spec's registration machinery; the
-sections below say what exists and what deliberately does not.
+Classification and documentation work without a key. Pro is $20/month for
+10x classification rate limits. Send a Pro API key as a bearer credential on
+REST or MCP requests. Billing uses a separate browser sign-in session.
+This file follows the discovery path from https://github.com/workos/auth.md;
+classifier.dev does not implement that spec's agent registration or token exchange.
 
 ## Discover
 
-- The API: \`POST https://classifier.dev\` with \`{"inputs": [...], "labels": [...]}\`, or
-  \`GET https://classifier.dev/{labels}/{text}\` (or \`GET https://classifier.dev/?labels=a,b&text=...\`). OpenAPI at https://classifier.dev/openapi.json.
-- MCP: https://classifier.dev/mcp (tools) and https://classifier.dev/mcp/docs (documentation),
-  Streamable HTTP, no auth. Server card at https://classifier.dev/.well-known/mcp/server-card.json.
-- Protected-resource metadata (RFC 9728) at https://classifier.dev/.well-known/oauth-protected-resource
-  lists no \`authorization_servers\` and no \`scopes_supported\`, because nothing here is protected.
-- There is no \`/.well-known/oauth-authorization-server\` and no \`agent_auth\` block: no endpoint
-  on classifier.dev issues tokens.
+- REST: POST https://classifier.dev/v1/classify with inputs and labels.
+- MCP: https://classifier.dev/mcp; docs: https://classifier.dev/mcp/docs.
+- OpenAPI: https://classifier.dev/openapi.json.
+- RFC 9728 metadata: https://classifier.dev/.well-known/oauth-protected-resource.
+  No OAuth authorization server, scopes, ID-JAG exchange or agent identity assertion.
 
 ## Pick a method
 
-- **anonymous** — the only identity type in use. Every read and every classification, within the
-  per-IP limits: 3,000 classifications a minute and 20,000 a day on the fast tier, 200 and 2,000
-  on smart. Start here; it is the whole product.
-- **service_auth (partner key)** — a bearer key that lifts the per-IP limits. Keys are issued by
-  hand after a conversation (https://cal.com/michaelsf/coffee); there is no self-serve tier
-  because the free one is not metered per account.
-- There is no \`identity_assertion\` type and no ID-JAG exchange; nothing here needs to know who
-  you are.
+- **anonymous** — free, per IP: fast 3,000/minute and 20,000/day;
+  smart 200/minute and 2,000/day. No account or card.
+- **service_auth (Pro key)** — $20/month, per billing account across IPs and keys:
+  fast 30,000/minute and 200,000/day; smart 2,000/minute and 20,000/day.
+  Up to 1,000 inputs per request on either tier.
+- **service_auth (partner key)** — separately arranged limits;
+  contact https://cal.com/michaelsf/coffee.
 
-## Register
+## Register and claim
 
-Not applicable. There is no \`identity_endpoint\` and no registration call; an anonymous agent is
-already fully registered by having an IP address.
+For Pro, open https://classifier.dev/pro, sign in using a one-time email link,
+and subscribe through Stripe checkout managed by Autumn. Create an API key
+and save it when shown; it is shown only once. There is no agent registration
+or claim endpoint. Free classification requires no registration.
 
-## Claim
+## Use the key
 
-Not applicable. There is no \`claim_endpoint\`; a partner key arrives ready to use.
+    Authorization: Bearer classifier_pro_...
 
-## Exchange
-
-Not applicable. No token exchange, no refresh: the partner key is the credential.
-
-## Use the access_token
-
-Only partners have one. Send it as a bearer credential on any API or MCP request:
-
-    Authorization: Bearer <partner-key>
-
-Keyless requests are valid everywhere. Never send a key you do not have; an unrecognised key
-is treated as anonymous, not rejected.
+Use the same header on REST and MCP. For the CLI, use --api-key or set
+CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). Keep keys out of URLs.
+No token exchange or refresh is needed. Your browser billing session is not
+an API credential. Existing partner keys continue to work.
 
 ## Errors
 
-- \`429\` with \`Retry-After\` (seconds), \`RateLimit-*\` headers and a JSON body
-  \`{"error": "...", "code": "rate_limit_minute" | "rate_limit_day"}\` — wait the stated time.
-- \`400\` with \`{"error": "...", "code": "..."}\` — the request itself is wrong (fewer than two
-  labels, more than 1,000 inputs, empty text); the message says which.
-- \`502\` with \`{"error": "upstream: ...", "code": "typesafe_..."}\` — the model provider failed
-  after retries; retry with backoff.
-- There is no \`401\`: nothing is behind \`WWW-Authenticate\`.
+- 401 — the Pro key is invalid; create a replacement in your account.
+- 403 — the subscription does not grant Pro access, including past-due,
+  suspended or expired access. Manage the subscription at https://classifier.dev/pro.
+- 429 — quota reached; wait the Retry-After seconds. RateLimit headers describe
+  the allowance. The code is rate_limit_minute or rate_limit_day.
+- 400 — invalid classification parameters; the message says what to change.
+- 502 — classification provider failure; retry with backoff.
+- 503 — billing verification is unavailable; retry later.
 
-## Revocation
+Subscription access is cached for at most 60 seconds. Anonymous classification
+remains available within free limits without a Pro credential.
 
-Not applicable for anonymous access. A partner key is revoked or rotated on request through the
-channel that issued it; there is no \`revocation_endpoint\` and no \`events_endpoint\`.
+## Revocation and billing
+
+Rotate a Pro key or manage your subscription at https://classifier.dev/pro.
+Rotating replaces the old key. Cancellation at the end of a paid period keeps
+access until that period ends. Partner keys are rotated through their issuing
+contact. There is no OAuth revocation or token exchange endpoint.
 `;

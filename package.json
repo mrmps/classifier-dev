@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "bun test",
+    "test:e2e": "node --experimental-strip-types --test --test-concurrency=1 e2e/dimensions.live.mts",
+    "typecheck": "tsc --noEmit && tsc -p e2e/tsconfig.json",
     "eval": "cd eval && python3 run.py",
     "bench": "cd eval && python3 bench.py",
     "single": "cd eval && python3 single.py",
@@ -16,7 +18,9 @@
   "type": "commonjs",
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260813.1",
+    "@types/node": "^22.20.4",
     "ajv": "^8.20.0",
+    "atmn": "2.0.8",
     "typescript": "^7.0.2",
     "wrangler": "^4.122.0"
   },

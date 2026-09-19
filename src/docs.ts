@@ -5,7 +5,8 @@ export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
 labels, you get back the label that fits and how sure the model is. There is no
-API key and no account, so the example below works the moment you paste it.
+API key or account required for free use, so the example below works the
+moment you paste it.
 
 
 Agents: the OpenAPI 3.1 description is at https://classifier.dev/openapi.json
@@ -62,7 +63,7 @@ MCP
   The same tools inside Claude, ChatGPT, Codex, Cursor or any MCP client, over
   Streamable HTTP with no key:
 
-    https://classifier.dev/mcp          classify_texts, classify_multi_label, count_labels, review_uncertain
+    https://classifier.dev/mcp          classify_texts, classify_dimensions, classify_multi_label, count_labels, review_uncertain
     https://classifier.dev/mcp/docs     list_docs, read_doc, search_docs
 
     claude mcp add --transport http classifier https://classifier.dev/mcp
@@ -154,9 +155,45 @@ EXAMPLES
   %2B a plus sign, and a comma inside a label is written %252C.
 
 
+MULTIPLE DIMENSIONS
+
+  Make several independent decisions about every input in one request:
+
+    curl https://classifier.dev/v1/classify -H 'content-type: application/json' -d '{"items":["Checkout charges me twice"],"dimensions":{"team":["billing","identity","platform"],"urgency":["immediate","normal","low"],"kind":["bug","request","question"]}}'
+
+  results[i].dimensions[name] contains that field's label, confidence, scores,
+  model and ms. Results stay in input order. inputs or input work too; items
+  is an alias for inputs in this mode. Use only one input spelling.
+
+  To define a dimension's criteria, replace its array with an object:
+
+    "urgency": {"labels":["immediate","normal","low"],"instructions":"Active financial harm is immediate; minor inconvenience is low."}
+
+  Up to 20 dimensions, 2-100 distinct labels per dimension, and 1,000 decisions
+  (items times dimensions) per request. Names cap at 64 characters, labels at
+  200, instructions at 4,000, and dimension definitions at 16,000 combined.
+  Each decision counts toward the existing quota; public smart requests cap
+  at 200 decisions. Do not combine dimensions with labels, multi or max_labels.
+  Large batches are packed into multiple upstream calls. An individual input
+  and question that cannot fit the model context returns dimension_context_too_large.
+
+  Jev answers the dimensions independently against the same input. Confidence
+  is derived from the option distribution; it is not a literal probability
+  of correctness. Add an unknown category when evidence may be insufficient.
+  Smart escalation happens per field. Escalated fields have null confidence
+  and scores, since the original distribution no longer describes that answer.
+  Unreadable inputs also have null scores, with unscored explaining why.
+
+  usage reports items, dimensions, classifications (decisions), escalated,
+  fallback, and ms. If Jev is unavailable, the LLM fallback accepts at most
+  20 decisions; larger requests return 502 batch_unavailable. A failed field
+  fails the whole request rather than returning an incomplete matrix.
+
+
 PARAMETERS
 
-  labels        Two to one hundred categories. Required.
+  labels        Two to one hundred categories. Required unless dimensions is supplied.
+  dimensions    Named label sets for independent decisions; see MULTIPLE DIMENSIONS.
   input         The text to classify, up to 32,000 characters.
   inputs        Up to one thousand strings classified in a single call.
   tier          Either fast (the default) or smart, in any case. Anything
@@ -256,12 +293,16 @@ TIERS
 
 LIMITS
 
-  Limits are counted per IP address in classifications, not requests, so a
+  Free limits are counted per IP address in classifications, not requests, so a
   batch of a thousand inputs spends a thousand of them. The fast tier allows
   3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
   per day. A batch must fit the remaining quota in full. Public smart
   requests accept at most 200 inputs; larger batches return 400 so callers
-  can split them. Operator and partner keys retain the 1,000-input ceiling.
+  can split them. Pro ($20/month) allows 30,000/minute and 200,000/day on
+  fast, 2,000/minute and 20,000/day on smart, per billing account across IPs.
+  Pro, operator and partner keys retain the 1,000-input ceiling.
+  Subscribe and create a key at https://classifier.dev/pro; send it as
+  Authorization: Bearer classifier_pro_... on REST or MCP requests.
 
   Every classification response carries RateLimit-Limit and RateLimit-Policy,
   plus RateLimit-Remaining once the limiter has been consulted (every 200 and

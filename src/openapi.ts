@@ -1,3 +1,4 @@
+import { DIMENSIONS_SCHEMA } from "./dimensions";
 import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
 import { ROADMAP, ROADMAP_KEYS } from "./newsletter";
 
@@ -9,8 +10,10 @@ import { ROADMAP, ROADMAP_KEYS } from "./newsletter";
  */
 export const ERROR_CODES = [
   // 400
-  "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
+  "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
   "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid",
+  // 401/403: paid classification credentials
+  "invalid_pro_key", "pro_inactive",
   // 404
   "not_found",
   // 409: the same skill text is already listed
@@ -22,7 +25,7 @@ export const ERROR_CODES = [
   // 500
   "internal",
   // 503: the skills review needs both models and one of them is down
-  "review_unavailable",
+  "review_unavailable", "billing_unavailable", "billing_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number] | `typesafe_${number}` | `openrouter_${number}`;
 export const UPSTREAM_CODE_PATTERN = "^(typesafe|openrouter)_[0-9]{3}$";
@@ -49,8 +52,11 @@ const RATE_LIMIT_HEADERS = {
 };
 const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
+  "401": err("Invalid or replaced Pro API key. Create a replacement at https://classifier.dev/pro."),
+  "403": err("Pro subscription is not active. Manage billing at https://classifier.dev/pro."),
+  "503": err("Pro subscription verification is temporarily unavailable. Retry later."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
-  "429": err("Per-IP limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day.", {
+  "429": err("Free per-IP or Pro per-account limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day.", {
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
     ...RATE_LIMIT_HEADERS,
   }, plain),
@@ -67,14 +73,15 @@ export const OPENAPI = {
   info: {
     title: "classifier.dev",
     version: "1.0.0",
-    summary: "Zero-shot text classification with calibrated confidence. No API key, no account.",
+    summary: "Zero-shot text classification with calibrated confidence. Free without a key; Pro for 10x limits.",
     description:
       "Send text and a list of labels, receive the label that fits, a calibrated confidence " +
       "and a score per label. Up to 1,000 texts per request, ~1s. Tiers: fast (default) and " +
       "smart, which re-asks answers below 0.7 confidence of a fast reasoning model. " +
-      "Limits are per IP and counted in classifications: 3,000/min and 20,000/day on fast, " +
+      "Free limits are per IP and counted in classifications: 3,000/min and 20,000/day on fast, " +
       "200/min and 2,000/day on smart. Benchmarks: https://classifier.dev/benchmark\n\n" +
-      "Authentication: none. Every endpoint is public; an optional bearer key lifts the per-IP limits for partners " +
+      "Authentication: optional for classification. Pro ($20/month) bearer keys provide fast 30,000/min and 200,000/day, " +
+      "smart 2,000/min and 20,000/day per billing account across IPs. Partner keys remain supported " +
       "(see https://classifier.dev/auth.md).\n\n" +
       "Versioning: the current major is v1, addressed as POST /v1/classify; POST / is an alias that tracks the current major. " +
       "Response shapes are additive within a major (fields are added, never renamed or removed). Every response carries an " +
@@ -91,7 +98,7 @@ export const OPENAPI = {
       "POST /v1/classify/batch is an alias for callers that look for one.",
     contact: { name: "Michael Ryaboy", url: "https://cal.com/michaelsf/coffee", email: "contact@classifier.dev" },
     license: { name: "MIT", url: "https://github.com/mrmps/classifier-dev/blob/main/LICENSE" },
-    termsOfService: "https://classifier.dev/privacy",
+    termsOfService: "https://classifier.dev/terms",
     "x-api-versioning": {
       scheme: "url-path",
       current: "v1",
@@ -102,7 +109,7 @@ export const OPENAPI = {
     "x-mcp": { url: "https://classifier.dev/mcp", docs: "https://classifier.dev/mcp/docs", card: "https://classifier.dev/.well-known/mcp/server-card.json" },
   },
   externalDocs: { description: "Developer guide", url: "https://classifier.dev/developers" },
-  // Anonymous, or a partner key: the empty object is what makes the key optional.
+  // Anonymous, or a Pro/partner key: the empty object is what makes the key optional.
   security: [{}, { partnerKey: [] }],
   tags: [
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
@@ -610,7 +617,7 @@ export const OPENAPI = {
                   },
                 },
                 batch: {
-                  summary: "Smart batch (up to 200 inputs without a partner key)",
+                  summary: "Smart batch (up to 200 inputs free; 1,000 with Pro or a partner key)",
                   value: {
                     inputs: ["refund never came", "love this app"],
                     labels: ["billing", "praise"],
@@ -826,12 +833,18 @@ export const OPENAPI = {
       },
       ClassifyRequest: {
         type: "object",
-        required: ["labels"],
+        oneOf: [
+          { required: ["labels"], not: { required: ["dimensions"] } },
+          { required: ["dimensions"], not: { anyOf: [{ required: ["labels"] }, { required: ["multi"] }, { required: ["max_labels"] }] } },
+        ],
         examples: [
+          { items: ["Checkout charges me twice"], dimensions: { team: ["billing", "identity", "platform"], kind: ["bug", "request", "question"] } },
           { inputs: ["the checkout button does nothing", "love the new dark mode"], labels: ["bug", "praise", "feature"] },
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
+          dimensions: DIMENSIONS_SCHEMA,
+          items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 32000 }, description: "Alias for inputs in dimensions mode. Do not combine with input or inputs." },
           input: { type: "string", description: "A single text. Provide this or inputs; a string under `inputs` is read as one text too." },
           inputs: {
             type: "array",
@@ -891,6 +904,16 @@ export const OPENAPI = {
           model: { type: "string" },
         },
       },
+      DimensionResult: {
+        type: "object", required: ["label", "confidence", "scores", "model", "ms"],
+        properties: {
+          label: { type: "string" },
+          confidence: { type: ["number", "null"], minimum: 0, maximum: 1, description: "Jev's distribution-derived confidence. Null for unreadable inputs or after smart escalation; not a literal probability of correctness." },
+          scores: { type: ["object", "null"], additionalProperties: { type: "number", minimum: 0, maximum: 1 } },
+          model: { type: "string" }, ms: { type: "integer" },
+          escalated: { type: "boolean" }, unscored: { type: "string" },
+        },
+      },
       ClassifyResponse: {
         type: "object",
         properties: {
@@ -909,6 +932,7 @@ export const OPENAPI = {
             items: {
               type: "object",
               properties: {
+                dimensions: { type: "object", additionalProperties: { $ref: "#/components/schemas/DimensionResult" }, description: "Dimensions mode: one field result per supplied dimension, in an input-ordered results array." },
                 label: { type: "string" },
                 confidence: { type: ["number", "null"] },
                 scores: { type: ["object", "null"], additionalProperties: { type: "number" } },
@@ -927,7 +951,10 @@ export const OPENAPI = {
           usage: {
             type: "object",
             properties: {
-              classifications: { type: "integer" },
+              items: { type: "integer", description: "Dimensions mode: number of input items." },
+              dimensions: { type: "integer", description: "Dimensions mode: number of fields per item." },
+              fallback: { type: "integer", description: "Dimensions mode: fields served by the LLM fallback because Jev was unavailable." },
+              classifications: { type: "integer", description: "Decisions made. In dimensions mode, items multiplied by dimensions; each counts toward the quota." },
               escalated: { type: "integer", description: "How many answers the smart tier re-asked." },
               escalation_failed: { type: "integer", description: "Present only when some smart-tier re-asks could not reach the reasoning model; those results carry the fast answer without `escalated`." },
               ms: { type: "integer" },
@@ -1042,7 +1069,7 @@ export const OPENAPI = {
             type: "string",
             description:
               "Stable machine-readable code: one of the listed values, or typesafe_<status> / openrouter_<status> carrying the upstream HTTP status. " +
-              "400: bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission, skill_invalid. " +
+              "400: bad_dimensions, too_many_decisions, dimension_context_too_large, bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission, skill_invalid. " +
               "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable.",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
@@ -1064,7 +1091,7 @@ export const OPENAPI = {
       partnerKey: {
         type: "http",
         scheme: "bearer",
-        description: "Optional. Lifts the per-IP limits for partners; issued by arrangement (https://classifier.dev/auth.md). Every operation works without it.",
+        description: "Optional for classification. Pro keys (classifier_pro_...) provide 10x limits per billing account; subscribe at https://classifier.dev/pro. Partner keys retain separately arranged access. See https://classifier.dev/auth.md.",
       },
     },
   },
@@ -1111,7 +1138,7 @@ as "none of these" when none-of-the-above is a real outcome.
 ## MCP
 
 Two Streamable HTTP servers, no auth: https://classifier.dev/mcp (tools:
-classify_texts, classify_multi_label, count_labels, review_uncertain) and
+classify_texts, classify_dimensions, classify_multi_label, count_labels, review_uncertain) and
 https://classifier.dev/mcp/docs (list_docs, read_doc, search_docs, get_examples). Setup for
 Claude, ChatGPT, Codex and Cursor: [mcp-setup](https://classifier.dev/mcp-setup).
 Server card: [server-card.json](https://classifier.dev/.well-known/mcp/server-card.json).
@@ -1146,6 +1173,16 @@ reasoning model, ranked at [/skills](https://classifier.dev/skills); JSON at
 Submit one, no key: \`POST /v1/skills {"skill": "<SKILL.md text>", "author": "..."}\`.
 The answer is the review, with the reasons either way.
 
+## Multiple dimensions
+
+POST /v1/classify with {"items":["Checkout charges me twice"],"dimensions":{"team":["billing","identity","platform"],"kind":["bug","request","question"]}}.
+Each results[i].dimensions[name] has a label, confidence, scores and model.
+Up to 20 dimensions and 1,000 item × dimension decisions; each decision counts
+against the quota. Each dimension may instead be {"labels":[...],"instructions":"..."}.
+Do not combine dimensions with labels, multi or max_labels. Smart escalation is
+per field; escalated fields have null confidence and scores. LLM fallback is
+limited to 20 decisions; larger requests return 502 if Jev is unavailable.
+
 ## Multi-label
 
 Pass "multi": true to get every category that applies, up to 100 labels, each
@@ -1160,9 +1197,9 @@ with a score. Labels scoring >= 0.7 are returned, most likely first;
 - [Skill](https://classifier.dev/skill.md): when to reach for this, batching, confidence, pitfalls
 - [Developers](https://classifier.dev/developers): every surface, limits, errors, versioning
 - [MCP setup](https://classifier.dev/mcp-setup): Claude, ChatGPT, Codex, Cursor
-- [Pricing](https://classifier.dev/pricing): free; limits; partner keys
-- [Authentication](https://classifier.dev/auth.md): there is none
-- [Privacy](https://classifier.dev/privacy), [About](https://classifier.dev/about), [Contact](https://classifier.dev/contact)
+- [Pricing](https://classifier.dev/pricing): Free and $20/month Pro; limits; partner keys
+- [Authentication](https://classifier.dev/auth.md): anonymous access, Pro and partner keys
+- [Privacy](https://classifier.dev/privacy), [Terms](https://classifier.dev/terms), [About](https://classifier.dev/about), [Contact](https://classifier.dev/contact)
 - [Documentation](https://classifier.dev): full parameter list, tiers, limits
 - [OpenAPI specification](https://classifier.dev/openapi.json): machine-readable, OpenAPI 3.1
 - [Benchmark](https://classifier.dev/benchmark): measured accuracy, calibration, cost and latency
@@ -1177,9 +1214,13 @@ needed, and the receipt you get back can be polled at \`/api/v1/receipts/{id}\`.
 
 ## Limits
 
-Per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
+Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
-characters, 1,000 per request. Exceeding a limit returns 429 with Retry-After.
+characters; free requests accept 1,000 inputs on fast or 200 on smart.
+Pro ($20/month) gives 10x minute and daily limits per billing account, and up
+to 1,000 inputs on either tier. Subscribe at https://classifier.dev/pro and
+send Authorization: Bearer classifier_pro_... on REST or MCP requests.
+Exceeding a limit returns 429 with Retry-After.
 
 ## Contact
 
