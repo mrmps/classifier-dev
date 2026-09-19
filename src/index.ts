@@ -1174,6 +1174,10 @@ const worker = {
           : json({ error: "could not record that address; try again shortly" }, 503);
       }
 
+      ctx.waitUntil(
+        newsletter.notify(env, email, form ? "form" : "api").catch((e) => console.error(`subscribe notify failed: ${(e as Error).message}`)),
+      );
+
       return form
         ? html(newsletter.resultPage(true, "You are on the list."))
         : json({ ok: true, subscribed: email }, 202);
