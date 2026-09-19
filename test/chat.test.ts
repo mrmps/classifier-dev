@@ -7,7 +7,7 @@
 // with `done` or with an `error` event, never mid-sentence.
 import { afterEach, describe, expect, it } from "bun:test";
 import worker, { type Env } from "../src/index";
-import { parseMessages, toolsFor, WEB_TOOLS, MAX_MESSAGES, CHAT_MAX_INPUTS } from "../src/chat";
+import { parseMessages, toolsFor, systemPrompt, runTimeTool, TIME_TOOL, WEB_TOOLS, MAX_MESSAGES, CHAT_MAX_INPUTS } from "../src/chat";
 import { productServer, type ClassifyFn } from "../src/mcp";
 import { homeHtml, docHtml, benchmarkHtml } from "../src/home";
 
@@ -232,5 +232,41 @@ describe("a turn", () => {
     const res = await post({ OPENROUTER_API_KEY: "k", LIMITER: full }, { messages: [{ role: "user", content: "hi" }] });
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("12");
+  });
+});
+
+// A visitor asked the chat the time in Dallas and was told 7pm when it was
+// morning there: the model had no clock, searched the web and read a cached
+// one off a page. The time now comes from the worker.
+describe("the clock", () => {
+  const noon = new Date("2026-09-19T13:57:44Z");
+
+  it("converts to the zone the visitor asked about, daylight saving and all", () => {
+    const r = runTimeTool({ timezone: "America/Chicago" }, noon);
+    expect(r.error).toBeUndefined();
+    expect(r.text).toContain("8:57:44 AM CDT");
+    expect(r.text).toContain("Saturday, September 19, 2026");
+    expect(r.text).toContain("2026-09-19T13:57:44.000Z");
+  });
+
+  it("stays on standard time where daylight saving is not kept", () => {
+    expect(runTimeTool({ timezone: "America/Phoenix" }, noon).text).toContain("6:57:44 AM MST");
+  });
+
+  it("answers in UTC when no zone is given", () => {
+    expect(runTimeTool({}, noon).text).toContain("1:57:44 PM");
+  });
+
+  it("tells the model what is wrong with a zone it made up", () => {
+    const r = runTimeTool({ timezone: "America/Dallas" }, noon);
+    expect(r.error).toBe(true);
+    expect(r.text).toContain("America/Chicago");
+  });
+
+  it("is offered to the model, and the prompt carries the instant and sends clock questions to it", () => {
+    const fake: ClassifyFn = async () => ({ status: 200, body: {} });
+    const prompt = systemPrompt(productServer(fake), noon);
+    expect(prompt).toContain("2026-09-19T13:57:44.000Z");
+    expect(prompt).toContain(TIME_TOOL.function.name);
   });
 });

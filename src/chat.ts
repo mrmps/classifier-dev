@@ -81,6 +81,39 @@ export const WEB_TOOLS = [
   },
 ] as const;
 
+/**
+ * The clock, for the assistant only. The model has none, and a clock read off
+ * a search result or a scraped page is whatever that page was cached at, so
+ * the time comes from the worker and is converted here rather than in prose.
+ */
+export const TIME_TOOL = {
+  type: "function",
+  function: {
+    name: "current_time",
+    description:
+      "The current date and time. Pass an IANA timezone to get the local time there (America/Chicago for Dallas, " +
+      "Europe/London, Asia/Tokyo); without one you get UTC. Call this for any clock question, including one about a " +
+      "place: it knows the offset and whether daylight saving is on. Never read a time off a search result or a page.",
+    parameters: {
+      type: "object",
+      properties: { timezone: { type: "string", description: "IANA timezone name, e.g. America/Chicago." } },
+      additionalProperties: false,
+    },
+  },
+} as const;
+
+/** The clock tool, run. The zone comes from the visitor's question, so a bad one is an error the model can read. */
+export function runTimeTool(args: Record<string, unknown>, now = new Date()): { text: string; error?: boolean } {
+  const zone = typeof args.timezone === "string" && args.timezone.trim() ? args.timezone.trim() : "UTC";
+  let local: string;
+  try {
+    local = new Intl.DateTimeFormat("en-US", { timeZone: zone, dateStyle: "full", timeStyle: "long" }).format(now);
+  } catch {
+    return { text: `error: ${zone} is not an IANA timezone name; use one like America/Chicago`, error: true };
+  }
+  return { text: `${local}\nin ${zone}, and ${now.toISOString()} in UTC` };
+}
+
 async function contextFetch(key: string, path: string, init: RequestInit) {
   const res = await fetch(`${CONTEXT_API}${path}`, {
     ...init,
@@ -134,9 +167,9 @@ export type ChatEvent =
   | { t: "done" }
   | { t: "error"; message: string };
 
-export function systemPrompt(server: McpServer, today = new Date().toISOString().slice(0, 10)) {
+export function systemPrompt(server: McpServer, now = new Date()) {
   return (
-    `Today is ${today}. ` +
+    `Now is ${now.toISOString()} (UTC). ` +
     "You are the assistant on classifier.dev, a zero-shot text classification API. " +
     "You are talking to a visitor in a chat sidebar on the site. Show them what the API does by using it: " +
     "when they paste texts, ask for a demo, or describe a sorting problem, call a tool with real labels and real inputs " +
@@ -150,6 +183,8 @@ export function systemPrompt(server: McpServer, today = new Date().toISOString()
     "The API needs no key: curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone returns `spam`, " +
     "and POST https://classifier.dev/v1/classify takes {inputs, labels}. " +
     "Docs are at https://classifier.dev/docs and the MCP server at https://classifier.dev/mcp.\n\n" +
+    "Ask current_time for the time or the date anywhere: it is the only clock you have, and a time printed in a search " +
+    "result or on a fetched page is whatever that page was cached at, so it is wrong. Do not work an offset out in your head.\n\n" +
     "You can also search the web and read pages. Use them to get real text to classify, then classify it all in one call: " +
     "search results are texts (classify the titles or snippets directly); a page is a list of items (pull them out and classify them). " +
     "Read at most two pages per answer, and never classify one item at a time — send the whole batch to classify_texts or " +
@@ -291,7 +326,7 @@ export function chatStream(o: { key: string; webKey?: string; server: McpServer;
         { role: "system", content: systemPrompt(o.server) },
         ...o.messages,
       ];
-      const tools = [...toolsFor(o.server), ...(o.webKey ? WEB_TOOLS : [])];
+      const tools = [...toolsFor(o.server), TIME_TOOL, ...(o.webKey ? WEB_TOOLS : [])];
       const isWeb = (name: string) => WEB_TOOLS.some((t) => t.function.name === name);
       try {
         for (let step = 0; ; step++) {
@@ -319,9 +354,11 @@ export function chatStream(o: { key: string; webKey?: string; server: McpServer;
             const r =
               Array.isArray(args.inputs) && args.inputs.length > CHAT_MAX_INPUTS
                 ? { text: `error: the chat classifies at most ${CHAT_MAX_INPUTS} texts per call; send fewer`, error: true }
-                : isWeb(c.name) && o.webKey
-                  ? await runWebTool(o.webKey, c.name, args)
-                  : await callTool(o.server, o.req, c.name, args);
+                : c.name === TIME_TOOL.function.name
+                  ? runTimeTool(args)
+                  : isWeb(c.name) && o.webKey
+                    ? await runWebTool(o.webKey, c.name, args)
+                    : await callTool(o.server, o.req, c.name, args);
             send({ t: "result", name: c.name, text: r.text.slice(0, RESULT_PREVIEW), ...(r.error ? { error: true } : {}) });
             messages.push({ role: "tool", tool_call_id: c.id, content: r.text });
           }
