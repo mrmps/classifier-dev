@@ -31,11 +31,11 @@ const DATASET = "classifier_events";
 const COOKIE = "__Secure-cd_admin";
 const SESSION_HOURS = 12;
 /**
- * The login form's own token, and the reason it exists: `Origin` is the real
- * CSRF check, but this page sends `Referrer-Policy: no-referrer`, so the Referer
- * fallback below can never fire. A browser setting, an extension or a filtering
- * proxy that drops `Origin` therefore locks the operator out of their own
- * dashboard with nothing to fall back on. This is that fallback. The same random
+ * The login form's own token, and the reason it exists: this page sends
+ * `Referrer-Policy: no-referrer`, which costs it both header answers at once.
+ * Referer is stripped outright, and Chrome serializes the origin of a form post
+ * from such a page as `null`, so `Origin` says nothing either. On this page the
+ * token is not a fallback at all — it is the check that actually runs. The same random
  * value goes into the form and into a SameSite=Strict cookie; a cross-site post
  * carries neither, and Strict is what makes that true whatever the prefix. It
  * takes the session cookie's prefix and path for the same reasons.
@@ -102,14 +102,20 @@ function readCookie(req: Request, name: string) {
 }
 
 /**
- * A login POST has to come from this site's own form. Origin is sent on every
- * cross-site POST; Referer is the fallback for the few clients that strip it.
- * Neither header present is not a verdict — it is a question this cannot
- * answer, and the form token answers it instead.
+ * A login POST has to come from this site's own form, and this asks the two
+ * headers that would know. Neither one present is not a verdict — it is a
+ * question they cannot answer, and the form token answers it instead.
+ *
+ * `Origin: null` is that same silence spelled out loud. A page that sends
+ * `Referrer-Policy: no-referrer` — which this one does, a few lines down — gets
+ * its origin serialized to the literal string "null" on a form post, so Chrome
+ * says `null` for our own login form. A sandboxed frame says exactly the same
+ * thing, so it can never be read as a pass on its own; it means only that the
+ * browser declined to say, which is the case the token exists for.
  */
 function statedOrigin(req: Request, url: URL): "match" | "mismatch" | "absent" {
   const stated = req.headers.get("origin") ?? req.headers.get("referer");
-  if (!stated) return "absent";
+  if (!stated || stated === "null") return "absent";
   try {
     return new URL(stated).origin === url.origin ? "match" : "mismatch";
   } catch {
