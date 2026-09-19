@@ -48,8 +48,13 @@ both responses carry `Vary: accept`.
     npx wrangler deploy
 
 Secrets already set: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, `RESEND_API_KEY`,
-`CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `ADMIN_PASSWORD`. Add one with
-`npx wrangler secret put NAME`.
+`CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `ADMIN_PASSWORD`, `ADMIN_SIGNING_KEY`.
+Add one with `npx wrangler secret put NAME`.
+
+Secrets are compared with `secretEquals` (src/secrets.ts), never `===`: a
+plain comparison returns on the first wrong byte and tells a caller how much
+of a guess was right. `ADMIN_SIGNING_KEY` is random and unrelated to the
+password, so a leaked session cookie cannot be ground back into it.
 
 ## The model
 
@@ -117,7 +122,10 @@ API uses, capped at 10 a minute per IP.
 
 Preview it any time without sending:
 
-    curl "https://classifier.dev/report?key=$REPORT_KEY"
+    curl -H "authorization: Bearer $REPORT_KEY" https://classifier.dev/report
+
+A query string lands in logs, browser history and Referer headers, so the
+header is the way in; `?key=` still works for compatibility.
 
 Append `&send=1` to actually email it.
 

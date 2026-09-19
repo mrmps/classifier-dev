@@ -7,6 +7,7 @@ import { homeHtml, benchmarkHtml } from "./home";
 import { dailyReport } from "./report";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
+import { secretEquals } from "./secrets";
 import { adminResponse } from "./admin";
 export { RateLimiter } from "./limiter";
 
@@ -24,6 +25,8 @@ export interface Env {
   REPORT_KEY: string;
   /** Gates /admin. Set with `npx wrangler secret put ADMIN_PASSWORD`. */
   ADMIN_PASSWORD?: string;
+  /** Signs the /admin session cookie. Random, and unrelated to the password. */
+  ADMIN_SIGNING_KEY?: string;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -632,12 +635,13 @@ function classifierId(labels: string[]) {
 }
 
 /** Enterprise callers use a secret bearer token and are not application-rate-limited. */
-function hasEnterpriseAccess(req: Request, env: Env) {
+async function hasEnterpriseAccess(req: Request, env: Env) {
   if (!env.ENTERPRISE_API_KEY) return false;
   const authorization = req.headers.get("authorization");
   if (!authorization) return false;
   const [scheme, token, extra] = authorization.trim().split(/\s+/);
-  return !extra && scheme.toLowerCase() === "bearer" && token === env.ENTERPRISE_API_KEY;
+  if (extra || scheme.toLowerCase() !== "bearer" || !token) return false;
+  return secretEquals(token, env.ENTERPRISE_API_KEY);
 }
 
 function record(env: Env, ctx: ExecutionContext, d: {
@@ -712,7 +716,7 @@ export default {
     const url = new URL(req.url);
     const ip = req.headers.get("cf-connecting-ip") ?? "anon";
     const country = (req as { cf?: { country?: string } }).cf?.country ?? "??";
-    const enterprise = hasEnterpriseAccess(req, env);
+    const enterprise = await hasEnterpriseAccess(req, env);
     const client = enterprise ? "enterprise" : "public";
     const agent = agentFamily(req.headers.get("user-agent") ?? "");
     // One meter per request, read once by record(). Never a module global:
@@ -773,7 +777,12 @@ export default {
     }
     // Preview the daily digest on demand (also proves the cron path works).
     if (req.method === "GET" && path === "report") {
-      if (!env.REPORT_KEY || url.searchParams.get("key") !== env.REPORT_KEY) {
+      // A query string is copied into logs, history and Referer headers, so
+      // the header is the documented way in; ?key= stays for compatibility.
+      const bearer = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
+      const given = bearer || url.searchParams.get("key") || "";
+      if (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY))) {
+        // 404, not 401: there is no reason to confirm the endpoint exists.
         return text("not found\n", 404);
       }
       const send = url.searchParams.get("send") === "1";
