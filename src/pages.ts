@@ -24,7 +24,7 @@ Server card: https://classifier.dev/.well-known/mcp/server-card.json
   https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier
 
 
-CLAUDE (CLAUDE.AI AND CLAUDE DESKTOP)
+CLAUDE APP AND CLAUDE DESKTOP
 
   Pro and Max: Customize > Connectors > "+" > Add custom connector. Paste
   https://classifier.dev/mcp as the remote MCP server URL, leave the OAuth
@@ -490,9 +490,9 @@ export function toMarkdown(doc: string, meta: { title: string; canonical: string
     const line = lines[i];
     if (isHeading(line)) {
       flush();
-      const title = (line.charAt(0) + line.slice(1).toLowerCase()).replace(/\b(cli|api|mcp|json|ndjson|url|http|rfc|vs|chatgpt|claude\.ai|a2a|ard)\b/gi, (m) =>
-        m.toLowerCase() === "chatgpt" ? "ChatGPT" : m.toLowerCase() === "claude.ai" ? "Claude.ai" : m.toUpperCase(),
-      );
+      const title = (line.charAt(0) + line.slice(1).toLowerCase())
+        .replace(/\b(cli|api|mcp|json|ndjson|url|http|rfc|vs|chatgpt|a2a|ard)\b/gi, (m) => (m.toLowerCase() === "chatgpt" ? "ChatGPT" : m.toUpperCase()))
+        .replace(/\bClaude code\b/, "Claude Code");
       out.push(`## ${title}`, "");
       continue;
     }

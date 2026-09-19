@@ -142,10 +142,9 @@ function renderDoc(doc: string, skipTitle: boolean) {
     i++;
     const body: string[] = [];
     while (i < lines.length && !isHeading(lines[i])) body.push(lines[i++]);
-    const name = (title.charAt(0) + title.slice(1).toLowerCase()).replace(
-      /\b(cli|api|json|ndjson|url|http|rfc)\b/gi,
-      (m) => m.toUpperCase(),
-    );
+    const name = (title.charAt(0) + title.slice(1).toLowerCase())
+      .replace(/\b(cli|api|mcp|json|ndjson|url|http|rfc|chatgpt)\b/gi, (m) => (m.toLowerCase() === "chatgpt" ? "ChatGPT" : m.toUpperCase()))
+      .replace(/\bClaude code\b/, "Claude Code");
     out.push(
       `<section><h2><span class="syn">## </span>${esc(name)}</h2>${renderBlocks(body)}</section>`,
     );
