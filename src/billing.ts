@@ -243,7 +243,7 @@ export class BillingAccount implements DurableObject {
       if (action === "checkout") {
         const customer = await autumn(this.env, "customers.get_or_create", {customer_id: customerId, email: account.email});
         if (customer.id !== customerId) throw unavailable();
-        const checkout = await autumn(this.env, "billing.attach", {customer_id: customerId, plan_id: PLAN, redirect_mode: "always", success_url: `${input.origin}/pro`});
+        const checkout = await autumn(this.env, "billing.attach", {customer_id: customerId, plan_id: PLAN, redirect_mode: "always", success_url: `${input.origin}/pro?checkout=complete`});
         this.cached = undefined;
         return json({url: safeUrl(checkout.payment_url)});
       }

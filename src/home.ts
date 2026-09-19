@@ -19,6 +19,10 @@ export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
+.b.pro-link{font-weight:600;background:var(--surface);box-shadow:inset 0 0 0 1px var(--accent);padding:3px 10px}
+@media(hover:hover){.b.pro-link:hover{background:var(--accent);color:var(--ink)}}
+.pro-offer{color:var(--muted)}
+.pro-offer strong{color:var(--bright)}
 .k{color:var(--bright)}
 .block{position:relative}
 .block>.row{margin-top:4px}
@@ -734,7 +738,7 @@ const navLink = (label: string, href: string, here: string, key: string) =>
   btn(label, { href, cls: here === key ? "on" : "", attrs: here === key ? ' aria-current="page"' : "" });
 
 export const NAV = (here: string) =>
-  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${navLink("skills", "/skills", here, "skills")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${navLink("pro", "/pro", here, "pro")}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
+  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${navLink("skills", "/skills", here, "skills")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${btn("Pro · 10× usage", { href: "/pro", cls: "pro-link" })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
     href: "/skill.md",
     cls: "dim",
   })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
@@ -754,6 +758,7 @@ export function homeHtml(o: { chat?: boolean } = {}): string {
   <header><h1><span class="syn"># </span>classifier.dev</h1></header>
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
   ${NAV(o.chat ? "chat" : "home")}
+  <p class="pro-offer"><strong>10× usage with Pro.</strong> $20/month for 10× the free minute and daily limits, on fast and smart. <a class="inline" href="/pro">Get Pro →</a></p>
 
   <section class="agent" id="agent">
     <h2><span class="syn">## </span>Give your agent this prompt</h2>
@@ -830,7 +835,7 @@ ${chatPanel(!!o.chat)}`,
  * beside the limits it lifts, with the full comparison one click away.
  */
 export const proRow = (primary = false) =>
-  `<p class="row">${btn("get pro · $20/mo", { href: "/pro", cls: primary ? "cta" : "" })}${primary ? "" : btn("all plans", { href: "/pricing", cls: "dim" })}</p>`;
+  `<p class="row">${btn("Pro · 10× usage · $20/mo", { href: "/pro", cls: primary ? "cta" : "" })}${primary ? "" : btn("all plans", { href: "/pricing", cls: "dim" })}</p>`;
 
 /** The LIMITS section of the home doc, with the way past the limits beside them. */
 const limitsSection = (body: string[]) =>

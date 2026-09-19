@@ -31,6 +31,7 @@ function setup() {
       return Response.json({subscriptions: status.active ? [{plan_id: "pro", status: "active", past_due: status.pastDue, expires_at: status.expires, canceled_at: 123}] : []});
     }
     if (String(url).endsWith("billing.attach")) {
+      expect(input.success_url).toBe("https://classifier.dev/pro?checkout=complete");
       expect(input.redirect_mode).toBe("always"); expect(input.plan_id).toBe("pro");
       return Response.json({payment_url: "https://checkout.stripe.com/session"});
     }
