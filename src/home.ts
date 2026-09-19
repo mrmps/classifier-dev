@@ -98,9 +98,34 @@ h2{scroll-margin-top:24px}
     --c-edge:color(display-p3 .39 .22 .85);--glow:color(display-p3 .66 .49 1/.5)}
 }
 @media (max-width:640px){.agent{--pad:14px;--inset:6px}}
-/* The updates list: two columns of plain text, and one field. Still not a card. */
-.roadmap td:first-child{color:var(--bright);padding-right:20px}
-.roadmap td:last-child{text-align:left;color:var(--muted);white-space:normal}
+/* The updates list: the roadmap as a checklist, and one field. Still not a
+   card. Each item is one label — box, name, what it is — so the whole line
+   is the hit area, and the ticks ride along with the address in the same
+   post. The box is drawn the way a shadcn checkbox is: a 16px square with a
+   hairline, filled with the accent when checked and the tick cut out of it
+   in the ink colour, the tick being an L rotated rather than an image so the
+   page still loads nothing. It sits 3px down so it centres on the first
+   line of text, not on the row. */
+.pick{margin:0;padding:0;border:0;min-width:0}
+/* In the document the lead sentence is the legend, so the fieldset's own is
+   for the screen reader; the dock has no lead, so there it is shown. */
+.pick legend{padding:0;color:var(--muted)}
+#updates .pick legend{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%)}
+.opt{display:grid;grid-template-columns:16px auto 1fr;column-gap:10px;padding:6px 0;cursor:pointer;
+  color:var(--bright)}
+.opt+.opt{border-top:1px solid var(--rule)}
+.opt .what{color:var(--muted)}
+.opt input{appearance:none;margin:3px 0 0;width:16px;height:16px;flex:none;position:relative;cursor:pointer;
+  background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-s);
+  transition:background-color .12s ease-out,border-color .12s ease-out}
+.opt input::after{content:"";position:absolute;left:4.5px;top:1px;width:4px;height:8px;
+  border:solid var(--ink);border-width:0 2px 2px 0;rotate:45deg;opacity:0;scale:.6;
+  transition:opacity .12s ease-out,scale .12s ease-out}
+.opt input:checked{background:var(--accent);border-color:var(--accent)}
+.opt input:checked::after{opacity:1;scale:1}
+.opt input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (hover:hover){.opt:hover input:not(:checked){border-color:var(--fg)}}
+@media (max-width:640px){.opt{grid-template-columns:16px 1fr}.opt .what{grid-column:2}}
 .sub{--h:38px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}
 /* The field matches the button it sits beside: same corners, same height.
    16px is a floor, not a preference — iOS Safari zooms the page on focus
@@ -133,8 +158,27 @@ h2{scroll-margin-top:24px}
 .dock form{--pad:8px;pointer-events:auto;margin:0;width:100%;max-width:var(--measure);
   padding:var(--pad);background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--r) + var(--pad));
   box-shadow:0 12px 32px -12px rgba(0,0,0,.8)}
+.dock .sub{margin-top:0}
 .dock .head{flex:none;padding:0 6px 0 4px;color:var(--fg);font-weight:600;white-space:nowrap}
-.dock input{flex:1 1 0;background:var(--bg)}
+.dock input[type=email]{flex:1 1 0;background:var(--bg)}
+/* The dock's checklist, folded away above the field until the field has the
+   reader's attention, then unfolded and kept open while anything is ticked.
+   The strip is pinned to the bottom, so growing it moves nothing the cursor
+   is on: the field stays put and the list rises out of the top. The height
+   comes from a grid track going 0fr to 1fr, which is the one way to animate
+   to an unknown height without measuring it, and the list fades and lifts
+   a few pixels inside the track so it arrives rather than just appears. The
+   fold is quicker than the unfold, the way a thing put away should be. */
+.dock .more{display:grid;grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.32,.72,0,1)}
+.dock .more>div{min-height:0;overflow:hidden;opacity:0;translate:0 4px;
+  transition:opacity .16s ease-out,translate .16s ease-out,visibility 0s .16s;visibility:hidden}
+.dock form.open .more{grid-template-rows:1fr;transition-duration:.28s}
+.dock form.open .more>div{opacity:1;translate:none;visibility:visible;transition-delay:.06s,.06s,0s}
+.dock .pick{display:flex;flex-wrap:wrap;gap:0 4px;align-items:center;padding:2px 4px 8px}
+.dock .pick legend{padding:4px 4px 0;color:var(--dim)}
+.dock .opt{display:inline-flex;gap:8px;align-items:center;padding:6px 8px 6px 0;border:0}
+.dock .opt input{margin:0}
+.dock .opt .what{display:none}
 /* Whatever the server said, on its own line under the field so a long message
    is read in full. Empty is gone, so nothing has to toggle it. */
 .dock .said{flex:1 0 100%;padding:0 4px;text-wrap:pretty}
@@ -144,52 +188,72 @@ h2{scroll-margin-top:24px}
    keeps the room. */
 @media (max-width:640px){.dock{padding-left:12px;padding-right:12px}.dock .head{display:none}
   .dock form{--pad:6px;gap:6px}.dock .b.cta{font-size:inherit;padding-left:12px;padding-right:12px}}
-@media (prefers-reduced-motion:reduce){.dock{translate:none}}
-@media (max-width:640px){.roadmap td{display:block}.roadmap td:first-child{padding-bottom:0}
-  .roadmap tr+tr td:first-child{padding-top:10px}}
+@media (prefers-reduced-motion:reduce){.dock{translate:none}
+  .dock .more,.dock .more>div,.opt input,.opt input::after{transition:none}}
 `;
 
-/** The updates list. ROADMAP is the same constant `curl classifier.dev` prints. */
+/**
+ * The roadmap as a checklist. ROADMAP is the same constant `curl
+ * classifier.dev` prints; the key is the value that is posted. The ids are
+ * prefixed because the list is on the page twice, once in the document and
+ * once in the dock, and a label must point at its own box.
+ */
+function roadmapPick(prefix: string, legend: string) {
+  const items = ROADMAP.map(
+    (r) => `<label class="opt" for="${prefix}-${r.key}">
+        <input id="${prefix}-${r.key}" type="checkbox" name="wants" value="${r.key}">
+        <span class="name">${esc(r.name)}</span>
+        <span class="what">${esc(r.what)}</span>
+      </label>`,
+  ).join("");
+  return `<fieldset class="pick"><legend>${esc(legend)}</legend>${items}</fieldset>`;
+}
+
 /**
  * The floating signup.
  *
  * The same form as the one in the document, in the one place a reader can
  * always reach it. It shows once they are past the fold, steps aside while
  * that form or the footer is on screen, and comes back after them — the
- * UPDATES section sits in the middle of the document, not at its end.
- * Dismissing it, or subscribing, retires it for good on this browser.
+ * UPDATES section sits in the middle of the document, not at its end. It is
+ * a strip until the field is focused; then the checklist unfolds above it.
+ * Dismissing it, or subscribing from either form, retires it for good on
+ * this browser.
  */
 function subscribeDock() {
   return `<aside class="dock" id="dock" hidden aria-label="Get the updates">
-    <form class="sub" method="post" action="/${SUBSCRIBE_PATH}" data-subscribe="1">
-      <span class="head" aria-hidden="true"><span class="syn">## </span>Get the updates</span>
-      <label class="sr" for="dock-email">Your email address</label>
-      <input id="dock-email" type="email" name="email" required autocomplete="email"
-        spellcheck="false" placeholder="you@example.com">
-      ${btn("subscribe", { cls: "cta", type: "submit" })}
-      ${btn("×", { cls: "dim", attrs: ' aria-label="Dismiss" data-dismiss="1"' })}
-      <span class="said" role="status" aria-live="polite" data-say="1"></span>
+    <form method="post" action="/${SUBSCRIBE_PATH}" data-subscribe="1">
+      <div class="more"><div>${roadmapPick("dock", "First on your list?")}</div></div>
+      <div class="sub">
+        <span class="head" aria-hidden="true"><span class="syn">## </span>Get the updates</span>
+        <label class="sr" for="dock-email">Your email address</label>
+        <input id="dock-email" type="email" name="email" required autocomplete="email"
+          spellcheck="false" placeholder="you@example.com">
+        ${btn("subscribe", { cls: "cta", type: "submit" })}
+        ${btn("×", { cls: "dim", attrs: ' aria-label="Dismiss" data-dismiss="1"' })}
+        <span class="said" role="status" aria-live="polite" data-say="1"></span>
+      </div>
     </form>
   </aside>`;
 }
 
 function updatesSection() {
-  const rows = ROADMAP.map(
-    (r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.what)}</td></tr>`,
-  ).join("");
   return `<section id="updates">
     <h2><span class="syn">## </span>Get the updates</h2>
-    <p class="lead">The free tier is the whole service today. What is being built on top of it:</p>
-    <div class="scroll"><table class="roadmap"><tbody>${rows}</tbody></table></div>
-    <form class="sub" method="post" action="/${SUBSCRIBE_PATH}" data-subscribe="1">
-      <input type="email" name="email" required autocomplete="email" spellcheck="false"
-        placeholder="you@example.com" aria-label="Your email address">
-      ${btn("subscribe", { cls: "cta", type: "submit" })}
-      <span class="said" role="status" aria-live="polite" data-say="1"></span>
+    <p class="lead">The free tier is the whole service today. What is being built on top of it,
+      in the order people ask for it — tick what you would use first:</p>
+    <form method="post" action="/${SUBSCRIBE_PATH}" data-subscribe="1">
+      ${roadmapPick("want", "What you would use first")}
+      <div class="sub">
+        <input type="email" name="email" required autocomplete="email" spellcheck="false"
+          placeholder="you@example.com" aria-label="Your email address">
+        ${btn("subscribe", { cls: "cta", type: "submit" })}
+        <span class="said" role="status" aria-live="polite" data-say="1"></span>
+      </div>
     </form>
     <p class="terms">Confirm your email to join. One mail when something on that list ships, and nothing in between.
-      The list keeps your address, signup source, and subscription dates in a separate
-      database, with no classification traffic. Unsubscribing is a reply.</p>
+      The list keeps your address, what you ticked, the signup source and the subscription dates
+      in a separate database, with no classification traffic. Unsubscribing is a reply.</p>
   </section>`;
 }
 
@@ -605,6 +669,16 @@ if (dock && !remembered()) {
   dock.addEventListener("focusout", () => setTimeout(sync, 0));
   dock.addEventListener("keydown", (e) => { if (e.key === "Escape") retire(); });
   dock.querySelector("[data-dismiss]").addEventListener("click", retire);
+
+  // The checklist unfolds when the field takes focus and stays while focus
+  // is anywhere in the form or anything is ticked; otherwise it folds when
+  // focus leaves, so a strip the reader walked away from is a strip again.
+  const form = dock.querySelector("form");
+  const ticked = () => form.querySelector("input[type=checkbox]:checked") !== null;
+  const fold = () => form.classList.toggle("open", form.contains(document.activeElement) || ticked());
+  form.addEventListener("focusin", fold);
+  form.addEventListener("focusout", () => setTimeout(fold, 0));
+  form.addEventListener("change", fold);
   sync();
 }
 
@@ -623,16 +697,19 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
     say.textContent = "";
     lbl.textContent = "sending";
     try {
+      const wants = [...f.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.value);
       const res = await fetch(f.action, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: input.value }),
+        body: JSON.stringify({ email: input.value, wants }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         input.value = "";
         say.textContent = "check your inbox to confirm.";
-        if (f.closest(".dock")) setTimeout(retire, 2400);
+        // Subscribed is subscribed: the dock has nothing more to ask, from
+        // whichever form the address came.
+        setTimeout(retire, f.closest(".dock") ? 2400 : 0);
       } else {
         say.classList.add("bad");
         say.textContent = body.error || "that did not work.";

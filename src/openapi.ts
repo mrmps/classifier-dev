@@ -1,4 +1,5 @@
 import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
+import { ROADMAP, ROADMAP_KEYS } from "./newsletter";
 
 /**
  * Every code the worker puts in an error body. index.ts types its `fail()`
@@ -121,7 +122,15 @@ export const OPENAPI = {
           required: true,
           content: { "application/json": { schema: {
             type: "object", required: ["email"],
-            properties: { email: { type: "string", maxLength: 254, description: "An email address for an inbox you control or have explicit permission to subscribe.", example: "agent@example.com" } },
+            properties: {
+              email: { type: "string", maxLength: 254, description: "An email address for an inbox you control or have explicit permission to subscribe.", example: "agent@example.com" },
+              wants: {
+                type: "array", uniqueItems: true,
+                items: { type: "string", enum: [...ROADMAP_KEYS] },
+                description: `Optional. The roadmap items the subscriber would use first: ${ROADMAP.map((r) => `${r.key} (${r.name.toLowerCase()})`).join(", ")}. Unknown keys are ignored. The list rides in the confirmation token and is stored on confirmation; a later confirmation that names some replaces the earlier choice, one that names none keeps it.`,
+                example: ["private", "trained"],
+              },
+            },
           } } },
         },
         responses: {
@@ -129,8 +138,8 @@ export const OPENAPI = {
             description: "Confirmation email accepted by the mail provider. The address is not yet subscribed.",
             content: { "application/json": { schema: {
               type: "object", required: ["ok", "status"],
-              properties: { ok: { const: true }, status: { const: "pending_confirmation" } },
-              example: { ok: true, status: "pending_confirmation" },
+              properties: { ok: { const: true }, status: { const: "pending_confirmation" }, wants: { type: "array", items: { type: "string" }, description: "The roadmap keys that were accepted, in roadmap order." } },
+              example: { ok: true, status: "pending_confirmation", wants: ["private", "trained"] },
             } } },
           },
           ...Object.fromEntries([
@@ -156,7 +165,7 @@ export const OPENAPI = {
         } } } },
         responses: {
           "200": { description: "Mailbox confirmed; existing unsubscribe preferences remain in effect.", content: { "application/json": { schema: {
-            type: "object", required: ["ok", "status"], properties: { ok: { const: true }, status: { const: "confirmed" } },
+            type: "object", required: ["ok", "status"], properties: { ok: { const: true }, status: { const: "confirmed" }, wants: { type: "array", items: { type: "string" }, description: "The roadmap keys recorded with the confirmation." } },
           } } } },
           "400": { description: "Invalid or expired token. Subscribe again for a fresh email.", content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } } },
           "503": { description: "Confirmation storage unavailable. Retry the same token shortly.", content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } } },

@@ -178,17 +178,27 @@ random `NEWSLETTER_CONFIRMATION_SECRET` of at least 32 bytes. `NEWSLETTER_FROM`
 in `wrangler.example.toml` must use a verified Resend sending domain. `REPORT_TO`
 is the reply address and receives notifications only for newly confirmed rows.
 
-The database holds email, source, signup/confirmation/unsubscribe dates, and an
+The database holds email, source, signup/confirmation/unsubscribe dates, which
+roadmap items were ticked (`wants text[]`, holding `ROADMAP` keys; the ticks
+ride in the confirmation token and are written on confirmation), and an
 internal id. It holds no IP, request id, or classification traffic. Pending
 signups are not stored. Tokens and mail-provider error bodies must not be logged.
+`migrations/002-newsletter-wants.sql` adds the column; a repeat confirmation
+replaces the ticks only when it ticked something, and never clears an
+unsubscribe or moves the first confirmation date.
 
 Read only confirmed, active recipients when sending updates:
 
-    SELECT email FROM subscriber
+    SELECT email, wants FROM subscriber
     WHERE confirmed_at IS NOT NULL AND unsubscribed_at IS NULL;
 
+What people asked for first, to order the work by:
+
+    SELECT unnest(wants) AS item, count(*) FROM subscriber
+    WHERE unsubscribed_at IS NULL GROUP BY 1 ORDER BY 2 DESC;
+
 The Worker connects as `newsletter_writer`, which can insert and update
-confirmation state on that one table. Do not read more into that than it deserves: Neon
+confirmation state and the ticks on that one table. Do not read more into that than it deserves: Neon
 puts every role it creates into `neon_superuser`, which can read any table
 whatever the grants say, and neither the project owner nor `ALTER ROLE` can
 revoke that membership. So the connection string can in fact read the list.
