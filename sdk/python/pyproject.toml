@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "classifier-dev"
+version = "0.1.0"
+description = "Official Python client for classifier.dev: zero-shot text classification over HTTP, calibrated confidence, no API key."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "Michael Ryaboy" }]
+keywords = ["classification", "zero-shot", "text", "nlp", "agents", "triage"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Text Processing :: Linguistic",
+  "Intended Audience :: Developers",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://classifier.dev"
+Documentation = "https://classifier.dev/developers"
+Repository = "https://github.com/mrmps/classifier-dev"
+Issues = "https://github.com/mrmps/classifier-dev/issues"
+
+[project.scripts]
+classify-py = "classifier_dev:_cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["classifier_dev"]

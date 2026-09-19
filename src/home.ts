@@ -371,7 +371,7 @@ const NAV = (here: string) =>
   `<nav><p class="row">${btn("home", { href: "/", cls: here === "home" ? "on" : "" })}${btn("benchmark", {
     href: "/benchmark",
     cls: here === "benchmark" ? "on" : "",
-  })}${btn("developers", { href: "/developers", cls: here === "developers" ? "on" : "" })}${btn("mcp", {
+  })}${btn("docs", { href: "/docs", cls: here === "developers" ? "on" : "" })}${btn("mcp", {
     href: "/mcp-setup",
     cls: here === "mcp-setup" ? "on" : "",
   })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {

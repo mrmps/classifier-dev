@@ -136,6 +136,24 @@ QUICKSTART
   (the same document as \`curl classifier.dev\`).
 
 
+COMING SOON
+
+  Two things are being built on the same call shape, and both are worth a
+  conversation before they ship:
+
+    Image classification   Labels in, one calibrated answer out, for images
+                           instead of text.
+    Private inference      Zero-knowledge, end-to-end encrypted classification:
+                           the input is unreadable in transit and unreadable to
+                           the service that classifies it.
+
+  If either is on your roadmap, say so while it is still being shaped and it
+  gets built against your case.
+
+    Book a call   ${SITE.author.cal}
+    Email         ${SITE.email}
+
+
 SURFACES
 
   REST API        POST https://classifier.dev  or  GET https://classifier.dev/{labels}/{text}
