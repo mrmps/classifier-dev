@@ -163,6 +163,9 @@ SURFACES
   MCP             https://classifier.dev/mcp (tools) and https://classifier.dev/mcp/docs (documentation)
                   Setup for Claude, ChatGPT, Codex, Cursor: https://classifier.dev/mcp-setup
   CLI             npm i -g classifier-dev  ->  classify bug,feature,praise < feedback.txt
+  Python SDK      pip install classifier-dev  ->  from classifier_dev import classify   https://pypi.org/project/classifier-dev/
+  Go SDK          go get github.com/mrmps/classifier-dev/sdk/go   https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go
+  JavaScript      fetch() is the SDK; see EXAMPLES. Source for both SDKs: https://github.com/mrmps/classifier-dev/tree/main/sdk
   Agent skill     npx skills add https://classifier.dev
   llms.txt        https://classifier.dev/llms.txt
   Discovery       /.well-known/ard.json, /.well-known/mcp/server-card.json,
@@ -212,12 +215,16 @@ EXAMPLES
     });
     const { results } = await res.json();   // results[i] = { label, confidence, scores }
 
-  Python:
+  Python (pip install classifier-dev, standard library only):
 
-    import requests
-    r = requests.post("https://classifier.dev/v1/classify", json={"inputs": texts, "labels": ["bug", "praise", "feature"]})
-    for item in r.json()["results"]:
-        print(item["label"], item["confidence"])
+    from classifier_dev import classify
+    for r in classify(texts, ["bug", "praise", "feature"]):
+        print(r.label, r.confidence)
+
+  Go (go get github.com/mrmps/classifier-dev/sdk/go):
+
+    results, err := classifier.Classify(ctx, texts, []string{"bug", "praise", "feature"})
+    // results[i].Label, *results[i].Confidence
 
   Multi-label, capped at two tags per text:
 
