@@ -343,7 +343,7 @@ function areaChart(id: string, points: { t: string; v: number }[], color: string
   const x = (i: number) => L + (points.length === 1 ? iw / 2 : (i * iw) / (points.length - 1));
   const y = (v: number) => T + ih - (v / top) * ih;
 
-  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join("") + (points.length === 1 ? "l0,0" : "");
   const area = `${line}L${x(points.length - 1).toFixed(1)},${T + ih}L${x(0).toFixed(1)},${T + ih}Z`;
 
   const grid = [0, top / 2, top]
@@ -379,6 +379,7 @@ function areaChart(id: string, points: { t: string; v: number }[], color: string
     ${grid}
     <path d="${area}" fill="url(#g-${id})"/>
     <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${points.length === 1 ? `<circle cx="${x(0).toFixed(1)}" cy="${y(points[0].v).toFixed(1)}" r="3" fill="${color}"/>` : ""}
     <line class="cross" x1="0" x2="0" y1="${T}" y2="${T + ih}" style="display:none"/>
     <circle class="dot" r="4" fill="${color}" style="display:none"/>
     ${xlab}
