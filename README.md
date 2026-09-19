@@ -394,6 +394,27 @@ through `CLASSIFY_API_KEY` or `CLASSIFIER_API_KEY`. It does not authorize privat
 reports or admin access. Keep it in an ignored secret file; never give it to
 public clients. Anonymous quotas continue to apply to unauthenticated traffic.
 
+## Finding the classification code
+
+The domain terms are defined in [CONTEXT.md](CONTEXT.md).
+
+| Module | Responsibility |
+| --- | --- |
+| `src/index.ts` | HTTP validation, quota, model selection, smart escalation, fallback, and response formatting. |
+| `src/jev.ts` | Jev questions and answers, shared batch budgets and recovery, gateway/direct transport, and provider validation. |
+| `src/dimensions.ts` | Dimension definitions and the mapping from input–dimension decisions to Jev questions and back. |
+
+Both ordinary and dimension classification use the same Jev batching module.
+A question group is the smallest part of a request that recovery keeps together:
+one input's questions for ordinary classification, one decision for dimensions.
+Batch preparation accounts for shared input text once, checks both provider
+budgets, and runs before quota charging for dimensions. Execution limits
+concurrent requests and splits an oversized batch between question groups.
+
+Change provider budgets and recovery in `src/jev.ts`; keep dimension meaning in
+`src/dimensions.ts`. Test the posted requests and returned classifications through
+`jevClassify` and the Worker HTTP interface, without depending on packing internals.
+
 ## Multiple dimensions
 
 `POST /v1/classify` also accepts `items` and `dimensions`:

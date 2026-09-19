@@ -138,7 +138,6 @@ export type Question =
   | { type: "choice"; instructions: string; criteria: Record<string, null> }
   | { type: "noul"; instructions: string };
 
-type Packed = { start: number; items: { id: string; text: string }[]; questions: Record<string, Question> };
 type JevBody = { state: { id: string; text: string }[]; model: string; questions: Record<string, Question> };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -165,8 +164,8 @@ function validAnswer(answer: unknown, question: Question): boolean {
   );
 }
 
-type Answer = { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number };
-type JevPayload = { model: string; answers: Record<string, Answer>; usage?: { input_tokens?: number } };
+export type JevAnswer = { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number };
+type JevPayload = { model: string; answers: Record<string, JevAnswer>; usage?: { input_tokens?: number } };
 
 function validPayload(payload: unknown, body: JevBody): payload is JevPayload {
   if (!isRecord(payload) || typeof payload.model !== "string" || !payload.model || !isRecord(payload.answers)) return false;
@@ -196,38 +195,76 @@ function questionsFor(id: string, labels: string[], instructions: string | undef
   return out;
 }
 
-/** Greedy packing: fill each request up to the token budget, in input order. Exported for the tests. */
-export function pack(inputs: string[], labels: string[], instructions: string | undefined, multi: boolean): Packed[] {
-  const labelTokens = labels.reduce((n, l) => n + est(l), 0);
-  const instrTokens = instructions ? est(instructions) : 0;
-  const perItemQuestions = multi
-    ? labels.length * (36 + instrTokens) + labelTokens
-    : 25 + 16 * labels.length + labelTokens + instrTokens;
+/** An indivisible set of questions about one state item. Recovery splits between groups, never within one. */
+export type JevQuestionGroup<T> = {
+  state: { id: string; text: string };
+  questions: Record<string, Question>;
+  value: T;
+};
 
-  const out: Packed[] = [];
-  let cur: Packed | null = null;
-  let used = 0;
-  let stateUsed = 0;
+/** A prepared request. Callers retain it when validation must happen before quota or network work. */
+export type JevBatch<T> = { groups: JevQuestionGroup<T>[]; state: { id: string; text: string }[]; questions: Record<string, Question> };
+
+/** A single dimension cell can be rejected before quota work; ordinary classification lets Jev make that decision. */
+export class JevContextError extends Error {}
+
+function stateCost(state: JevQuestionGroup<unknown>["state"]) {
+  return est(state.text) + 20;
+}
+
+function questionCost(question: Question) {
+  return est(JSON.stringify(question)) + 16 * (question.type === "choice" ? Object.keys(question.criteria).length : 0) + 40;
+}
+
+function batchFrom<T>(groups: JevQuestionGroup<T>[]): JevBatch<T> {
+  const states = new Map<string, { id: string; text: string }>();
+  const questions: Record<string, Question> = {};
+  for (const group of groups) {
+    states.set(group.state.id, group.state);
+    Object.assign(questions, group.questions);
+  }
+  return { groups, state: [...states.values()], questions };
+}
+
+/** Own both documented context budgets and greedily preserve group order. */
+export function prepareJevBatches<T>(groups: JevQuestionGroup<T>[], options: { rejectOversized?: boolean } = {}): JevBatch<T>[] {
+  const batches: JevBatch<T>[] = [];
+  let current: JevQuestionGroup<T>[] = [];
+  let included = new Set<string>();
+  let stateTokens = 0;
+  let questionTokens = 0;
   let longestQuestion = 0;
-  inputs.forEach((text, i) => {
-    const id = `i${i}`;
-    const questions = questionsFor(id, labels, instructions, multi);
-    const stateCost = est(text) + 20;
-    const questionCost = Math.max(...Object.values(questions).map(q => est(JSON.stringify(q)) + 16 * (q.type === "choice" ? labels.length : 0) + 40));
-    const cost = stateCost + perItemQuestions;
-    if (!cur || used + cost > TOKEN_BUDGET ||
-        stateUsed + stateCost + Math.max(longestQuestion, questionCost) > STATE_QUESTION_BUDGET || cur.items.length >= MAX_ITEMS) {
-      cur = { start: i, items: [], questions: {} };
-      out.push(cur);
-      used = stateUsed = longestQuestion = 0;
+
+  const flush = () => {
+    if (current.length) batches.push(batchFrom(current));
+    current = [];
+    included = new Set();
+    stateTokens = questionTokens = longestQuestion = 0;
+  };
+
+  for (const group of groups) {
+    const addedState = included.has(group.state.id) ? 0 : stateCost(group.state);
+    const costs = Object.values(group.questions).map(questionCost);
+    const addedQuestions = costs.reduce((sum, cost) => sum + cost, 0);
+    const groupLongest = Math.max(0, ...costs);
+    if (options.rejectOversized && stateCost(group.state) + groupLongest > STATE_QUESTION_BUDGET) {
+      throw new JevContextError("A state item and question exceed Jev's context budget");
     }
-    cur.items.push({ id, text });
-    Object.assign(cur.questions, questions);
-    used += cost;
-    stateUsed += stateCost;
-    longestQuestion = Math.max(longestQuestion, questionCost);
-  });
-  return out;
+    const overBudget = stateTokens + addedState + questionTokens + addedQuestions > TOKEN_BUDGET ||
+      stateTokens + addedState + Math.max(longestQuestion, groupLongest) > STATE_QUESTION_BUDGET ||
+      (!included.has(group.state.id) && included.size >= MAX_ITEMS);
+    if (current.length && overBudget) flush();
+
+    current.push(group);
+    if (!included.has(group.state.id)) {
+      included.add(group.state.id);
+      stateTokens += stateCost(group.state);
+    }
+    questionTokens += addedQuestions;
+    longestQuestion = Math.max(longestQuestion, groupLongest);
+  }
+  flush();
+  return batches;
 }
 
 /** Jev's questions in the gateway's vocabulary: a yes/no is a `boolean` there, and a choice is a choice. */
@@ -250,7 +287,7 @@ function fromGateway(payload: unknown): (JevPayload & { cost?: unknown }) | null
   const confidence = isRecord(typesafe.confidence) ? typesafe.confidence : {};
   const gateway = isRecord(meta.gateway) ? meta.gateway : {};
   const usage = isRecord(payload.usage) ? payload.usage : {};
-  const answers: Record<string, Answer> = {};
+  const answers: Record<string, JevAnswer> = {};
   for (const [id, a] of Object.entries(payload.answers)) {
     if (!isRecord(a)) continue;
     if (a.type === "boolean") {
@@ -413,20 +450,6 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics
   throw last;
 }
 
-/** Two halves of a packed request, each addressed to its own slice of the inputs. */
-function halve(b: Packed): [Packed, Packed] {
-  const mid = Math.ceil(b.items.length / 2);
-  const part = (items: Packed["items"], start: number): Packed => {
-    const ids = new Set(items.map((it) => it.id));
-    const questions: Packed["questions"] = {};
-    for (const [qid, q] of Object.entries(b.questions)) {
-      if (ids.has(qid.replace(/_\d+$/, "")) || ids.has(qid)) questions[qid] = q;
-    }
-    return { start, items, questions };
-  };
-  return [part(b.items.slice(0, mid), b.start), part(b.items.slice(mid), b.start + mid)];
-}
-
 /**
  * One request, questions written by the caller. The skills review asks Jev
  * about intent and quality in its own words rather than as a label set, and
@@ -437,6 +460,36 @@ export async function jevAsk(keys: JevKeys, state: { id: string; text: string }[
   return { model: res.model, answers: res.answers };
 }
 
+export type JevBatchResult<T> = { value: T; model: string; answers: Record<string, JevAnswer> };
+
+/** Execute prepared requests with bounded concurrency and recover from an underestimated context by halving groups. */
+export async function runJevBatches<T>(keys: JevKeys, prepared: JevBatch<T>[], meter?: Meter): Promise<JevBatchResult<T>[]> {
+  const queue = [...prepared];
+  const positions = new Map(prepared.flatMap((batch) => batch.groups).map((group, index) => [group, index]));
+  const out: JevBatchResult<T>[] = new Array(positions.size);
+  let next = 0;
+  let failure: unknown;
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+    while (!failure && next < queue.length) {
+      const batch = queue[next++];
+      try {
+        const res = await post(keys, { state: batch.state, model: MODEL, questions: batch.questions }, meter);
+        for (const group of batch.groups) out[positions.get(group)!] = { value: group.value, model: res.model, answers: res.answers };
+      } catch (error) {
+        if (error instanceof JevError && error.errorType === "max_tokens_exceeded" && batch.groups.length > 1) {
+          const mid = Math.ceil(batch.groups.length / 2);
+          queue.push(batchFrom(batch.groups.slice(0, mid)), batchFrom(batch.groups.slice(mid)));
+        } else {
+          failure = error;
+        }
+      }
+    }
+  }));
+  if (failure) throw failure;
+  return out;
+}
+
 export async function jevClassify(
   keys: JevKeys,
   inputs: string[],
@@ -445,51 +498,30 @@ export async function jevClassify(
   multi: boolean,
   meter?: Meter,
 ): Promise<JevResult[]> {
-  const batches = pack(inputs, labels, instructions, multi);
-  const out: JevResult[] = new Array(inputs.length);
-
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
-      while (next < batches.length) {
-        const b = batches[next++];
-        let res: JevPayload;
-        try {
-          res = await post(keys, { state: b.items, model: MODEL, questions: b.questions }, meter);
-        } catch (e) {
-          // The estimate undercounted this batch. Halve it and let the loop
-          // pick both halves up; a single item that is still too large is a
-          // real failure and falls back like any other.
-          if (e instanceof JevError && e.errorType === "max_tokens_exceeded" && b.items.length > 1) {
-            batches.push(...halve(b));
-            continue;
-          }
-          throw e;
-        }
-        b.items.forEach((item, k) => {
-          const i = b.start + k;
-          if (multi) {
-            // Define own properties so labels such as __proto__ remain data.
-            const scores = Object.fromEntries(labels.map((l, li) => [
-              l, Number((res.answers[`${item.id}_${li}`]?.noul ?? 0).toFixed(4)),
-            ]));
-            const best = labels.reduce((a, l) => (scores[l] > scores[a] ? l : a), labels[0]);
-            out[i] = { label: best, confidence: scores[best], scores, model: res.model };
-          } else {
-            const a = res.answers[item.id];
-            const scores = Object.fromEntries(labels.map((l) => [
-              l, Number((a?.probabilities?.[l] ?? 0).toFixed(4)),
-            ]));
-            out[i] = {
-              label: a?.choice && labels.includes(a.choice) ? a.choice : labels[0],
-              confidence: Number((a?.confidence ?? 0).toFixed(4)),
-              scores,
-              model: res.model,
-            };
-          }
-        });
-      }
-    }),
-  );
-  return out;
+  const groups = inputs.map((text, index): JevQuestionGroup<number> => {
+    const id = `i${index}`;
+    return { state: { id, text }, questions: questionsFor(id, labels, instructions, multi), value: index };
+  });
+  const answered = await runJevBatches(keys, prepareJevBatches(groups), meter);
+  return answered.map(({ value: index, model, answers }) => {
+    const id = `i${index}`;
+    if (multi) {
+      // Define own properties so labels such as __proto__ remain data.
+      const scores = Object.fromEntries(labels.map((label, labelIndex) => [
+        label, Number((answers[`${id}_${labelIndex}`]?.noul ?? 0).toFixed(4)),
+      ]));
+      const best = labels.reduce((a, label) => (scores[label] > scores[a] ? label : a), labels[0]);
+      return { label: best, confidence: scores[best], scores, model };
+    }
+    const answer = answers[id];
+    const scores = Object.fromEntries(labels.map((label) => [
+      label, Number((answer?.probabilities?.[label] ?? 0).toFixed(4)),
+    ]));
+    return {
+      label: answer?.choice && labels.includes(answer.choice) ? answer.choice : labels[0],
+      confidence: Number((answer?.confidence ?? 0).toFixed(4)),
+      scores,
+      model,
+    };
+  });
 }

@@ -136,14 +136,15 @@ describe("multidimensional HTTP contract", () => {
 
 describe("packing and recovery", () => {
   test("splits long states and many questions without losing or duplicating cells", async () => {
-    fakeJev(); const ds = readDimensions(Object.fromEntries(Array.from({length:20},(_,i)=>[`dimension${i}`,["bug","request"]])));
+    const calls = fakeJev(); const ds = readDimensions(Object.fromEntries(Array.from({length:20},(_,i)=>[`dimension${i}`,["bug","request"]])));
     const texts = Array(50).fill("這是錯誤報告".repeat(600));
     const batches = packDimensions(texts, ds);
-    expect(batches.length).toBeGreaterThan(1);
-    expect(batches.flatMap((b)=>b.cells)).toHaveLength(1000);
-    expect(new Set(batches.flatMap((b)=>b.cells.map(c=>c.id))).size).toBe(1000);
     const out = await classifyDimensions({ typesafe: "key" }, batches);
     expect(out).toHaveLength(50); out.forEach((row)=>expect(row).toHaveLength(20));
+    expect(calls.length).toBeGreaterThan(1);
+    const questionIds = calls.flatMap((call) => Object.keys(call.questions));
+    expect(questionIds).toHaveLength(1000);
+    expect(new Set(questionIds).size).toBe(1000);
   });
   test("splits a rejected wide item by questions", async () => {
     const calls = fakeJev({maxQuestions:1});

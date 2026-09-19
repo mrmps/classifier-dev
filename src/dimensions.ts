@@ -1,4 +1,13 @@
-import { estimateTokens, jevAsk, JevError, type JevKeys, type JevResult, type Question } from "./jev";
+import {
+  JevContextError,
+  prepareJevBatches,
+  runJevBatches,
+  type JevBatch,
+  type JevKeys,
+  type JevQuestionGroup,
+  type JevResult,
+  type Question,
+} from "./jev";
 import type { Meter } from "./cost";
 
 export type Dimension = { name: string; labels: string[]; instructions?: string };
@@ -45,75 +54,40 @@ export function dimensionInstructions(d: Dimension, shared?: string) {
 }
 
 type Cell = { item: number; dimension: number; id: string; question: Extract<Question, { type: "choice" }> };
-export type DimensionBatch = { state: { id: string; text: string }[]; cells: Cell[] };
+export type DimensionBatch = JevBatch<Cell>;
 
 /** State is shared across questions. Respect BOTH Jev context limits, with headroom. */
 export function packDimensions(inputs: string[], dimensions: Dimension[], shared?: string): DimensionBatch[] {
-  const batches: DimensionBatch[] = [];
-  let batch: DimensionBatch = { state: [], cells: [] };
-  let stateTokens = 0, questionTokens = 0, longestQuestion = 0;
-  let included = new Set<number>();
-  inputs.forEach((text, item) => {
-    const stateCost = estimateTokens(text) + 20;
-    dimensions.forEach((d, dimension) => {
+  const groups: JevQuestionGroup<Cell>[] = [];
+  inputs.forEach((text, item) => dimensions.forEach((d, dimension) => {
       const question: Question = {
         type: "choice",
         instructions: `Which category does item i${item} belong to? Use only that item's text, ignoring other items in the state. ${dimensionInstructions(d, shared)}`,
         criteria: Object.fromEntries(d.labels.map((l) => [l, null])),
       };
-      const cost = estimateTokens(JSON.stringify(question)) + 16 * d.labels.length + 40;
-      if (stateCost + cost > 28000) throw new DimensionError("An input and dimension exceed Jev's context budget; shorten the input or dimension instructions");
-      let addedState = included.has(item) ? 0 : stateCost;
-      if (batch.cells.length && (stateTokens + addedState + questionTokens + cost > 48000 ||
-          stateTokens + addedState + Math.max(longestQuestion, cost) > 28000)) {
-        batches.push(batch);
-        batch = { state: [], cells: [] };
-        stateTokens = questionTokens = longestQuestion = 0;
-        included = new Set();
-        addedState = stateCost;
-      }
-      if (!included.has(item)) batch.state.push({ id: `i${item}`, text });
-      included.add(item);
-      stateTokens += addedState;
-      questionTokens += cost;
-      longestQuestion = Math.max(longestQuestion, cost);
-      batch.cells.push({ item, dimension, id: `i${item}_d${dimension}`, question });
-    });
-  });
-  if (batch.cells.length) batches.push(batch);
-  return batches;
+      const cell = { item, dimension, id: `i${item}_d${dimension}`, question };
+      groups.push({ state: { id: `i${item}`, text }, questions: { [cell.id]: question }, value: cell });
+    }));
+  try {
+    return prepareJevBatches(groups, { rejectOversized: true });
+  } catch (error) {
+    if (error instanceof JevContextError) {
+      throw new DimensionError("An input and dimension exceed Jev's context budget; shorten the input or dimension instructions");
+    }
+    throw error;
+  }
 }
 
 /** One result per matrix cell. Splitting by question also handles a single wide item. */
 export async function classifyDimensions(keys: JevKeys, batches: DimensionBatch[], meter?: Meter): Promise<JevResult[][]> {
-  const queue = [...batches];
   const results: JevResult[][] = [];
-  let next = 0;
-  let failure: unknown;
-  await Promise.all(Array.from({ length: Math.min(8, queue.length) }, async () => {
-    while (!failure && next < queue.length) {
-      const batch = queue[next++];
-      try {
-        const res = await jevAsk(keys, batch.state, Object.fromEntries(batch.cells.map((c) => [c.id, c.question])), meter);
-        for (const cell of batch.cells) {
-          const a = res.answers[cell.id]; // jevAsk validates every answer before returning.
-          (results[cell.item] ??= [])[cell.dimension] = {
-            label: a.choice!, confidence: a.confidence!,
-            scores: Object.fromEntries(Object.keys(cell.question.criteria).map((label) => [label, a.probabilities![label]])),
-            model: res.model,
-          };
-        }
-      } catch (e) {
-        if (e instanceof JevError && e.errorType === "max_tokens_exceeded" && batch.cells.length > 1) {
-          const mid = Math.ceil(batch.cells.length / 2);
-          for (const cells of [batch.cells.slice(0, mid), batch.cells.slice(mid)]) {
-            const ids = new Set(cells.map((c) => `i${c.item}`));
-            queue.push({ cells, state: batch.state.filter((s) => ids.has(s.id)) });
-          }
-        } else failure = e;
-      }
-    }
-  }));
-  if (failure) throw failure;
+  for (const { value: cell, model, answers } of await runJevBatches(keys, batches, meter)) {
+    const answer = answers[cell.id]; // The shared runner validates every answer before returning.
+    (results[cell.item] ??= [])[cell.dimension] = {
+      label: answer.choice!, confidence: answer.confidence!,
+      scores: Object.fromEntries(Object.keys(cell.question.criteria).map((label) => [label, answer.probabilities![label]])),
+      model,
+    };
+  }
   return results;
 }
