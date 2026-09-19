@@ -1,4 +1,5 @@
 import { callerId, type PrivacyEnv } from "./privacy";
+import type { ErrorCode } from "./openapi";
 
 export interface BillingEnv extends PrivacyEnv {
   BILLING?: DurableObjectNamespace;
@@ -12,7 +13,7 @@ export interface BillingEnv extends PrivacyEnv {
   BILLING_ORIGIN?: string;
 }
 export class BillingError extends Error {
-  get code(): string { return this.status === 401 ? "invalid_pro_key" : this.status === 403 ? "pro_inactive" : this.status === 503 ? "billing_unavailable" : "billing_error"; }
+  get code(): ErrorCode { return this.status === 401 ? "invalid_pro_key" : this.status === 403 ? "pro_inactive" : this.status === 503 ? "billing_unavailable" : "billing_error"; }
   constructor(public status: number, message: string) { super(message); }
 }
 const COOKIE = "classifier_session";

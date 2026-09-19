@@ -1645,8 +1645,8 @@ const worker = {
     if (!enterprise) {
       try { pro = await authenticatePro(req, env); }
       catch (error) {
-        if (error instanceof BillingError) return json({ error: error.message, code: error.code }, error.status, { "cache-control": "no-store" });
-        return json({ error: "Unable to verify Pro access. Try again shortly.", code: "billing_unavailable" }, 503, { "cache-control": "no-store" });
+        if (error instanceof BillingError) return json({ error: error.message, code: error.code }, error.status, { "cache-control": "no-store", "x-api-version": API_VERSION });
+        return json({ error: "Unable to verify Pro access. Try again shortly.", code: "billing_unavailable" }, 503, { "cache-control": "no-store", "x-api-version": API_VERSION });
       }
     }
     const multiplier = pro ? 10 : 1;

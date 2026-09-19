@@ -12,6 +12,8 @@ export const ERROR_CODES = [
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
   "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid",
+  // 401/403: paid classification credentials
+  "invalid_pro_key", "pro_inactive",
   // 404
   "not_found",
   // 409: the same skill text is already listed
@@ -23,7 +25,7 @@ export const ERROR_CODES = [
   // 500
   "internal",
   // 503: the skills review needs both models and one of them is down
-  "review_unavailable",
+  "review_unavailable", "billing_unavailable", "billing_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number] | `typesafe_${number}` | `openrouter_${number}`;
 export const UPSTREAM_CODE_PATTERN = "^(typesafe|openrouter)_[0-9]{3}$";
@@ -50,8 +52,11 @@ const RATE_LIMIT_HEADERS = {
 };
 const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
+  "401": err("Invalid or replaced Pro API key. Create a replacement at https://classifier.dev/pro."),
+  "403": err("Pro subscription is not active. Manage billing at https://classifier.dev/pro."),
+  "503": err("Pro subscription verification is temporarily unavailable. Retry later."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
-  "429": err("Per-IP limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day.", {
+  "429": err("Free per-IP or Pro per-account limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day.", {
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
     ...RATE_LIMIT_HEADERS,
   }, plain),
