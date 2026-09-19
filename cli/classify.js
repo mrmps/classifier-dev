@@ -202,7 +202,9 @@ async function post(o, inputs) {
     if (payload.code === "rate_limit_day") break;
     if (res.status === 429) {
       // The API says exactly how long; a batch that trips the minute window
-      // resumes on its own rather than dying at item 7,400.
+      // resumes on its own rather than dying at item 7,400. The first wait
+      // also says, once, that the wait is optional.
+      if (!o.apiKey && !hinted) { hinted = true; process.stderr.write(`classify: free limits are per IP; Pro lifts them 10x for $20/month: ${payload.upgrade || "https://classifier.dev/pro"}\n`); }
       await retry("rate limited", Number(res.headers.get("retry-after")) || 5, attempt);
       continue;
     }
@@ -214,6 +216,7 @@ async function post(o, inputs) {
 
 const ATTEMPTS = 5;
 
+let hinted = false;
 async function retry(why, seconds, attempt) {
   if (attempt + 1 >= ATTEMPTS) return;
   process.stderr.write(`classify: ${why}, retrying in ${seconds}s (${attempt + 2}/${ATTEMPTS})\n`);
