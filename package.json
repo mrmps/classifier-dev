@@ -25,6 +25,7 @@
     "wrangler": "^4.122.0"
   },
   "dependencies": {
+    "@workos-inc/node": "^10.13.0",
     "nuqs": "^2.10.1"
   }
 }
