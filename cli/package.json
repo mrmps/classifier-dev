@@ -2,15 +2,36 @@
   "name": "classifier-dev",
   "version": "0.1.0",
   "description": "Classify text from the command line with classifier.dev: up to 1,000 lines per request, calibrated confidence, no API key.",
-  "keywords": ["classify", "classification", "zero-shot", "cli", "agent", "triage", "labels"],
+  "keywords": [
+    "classify",
+    "classification",
+    "zero-shot",
+    "cli",
+    "agent",
+    "triage",
+    "labels"
+  ],
   "homepage": "https://classifier.dev",
   "bugs": "https://github.com/mrmps/classifier-dev/issues",
-  "repository": { "type": "git", "url": "git+https://github.com/mrmps/classifier-dev.git", "directory": "cli" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrmps/classifier-dev.git",
+    "directory": "cli"
+  },
   "license": "MIT",
   "type": "module",
-  "bin": { "classify": "./classify.js" },
-  "files": ["classify.js", "README.md", "CHANGELOG.md"],
-  "engines": { "node": ">=18" },
+  "bin": {
+    "classify": "./classify.js"
+  },
+  "files": [
+    "classify.js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --test",
     "smoke": "CLASSIFY_E2E=1 node --test",
