@@ -1,0 +1,22 @@
+name: live API tests
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc -p e2e/tsconfig.json
+      - name: Exercise production API and model providers
+        env:
+          CLASSIFIER_BASE_URL: https://classifier.dev
+          CLASSIFIER_API_KEY: ${{ secrets.CLASSIFIER_API_KEY }}
+        run: npm run test:e2e

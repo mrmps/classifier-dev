@@ -428,3 +428,6 @@ confident fails the test instead of silently skipping the reasoning provider.
 CI runs the live suite after publishing; `npm test` stays offline. Fault
 injection remains in `test/dimensions.test.ts` and
 `test/dimensions-observability.test.ts`.
+
+Run the **live API tests** workflow manually from GitHub Actions (or
+`gh workflow run e2e.yml`) to check production without deploying a Worker.
