@@ -115,7 +115,7 @@ export const OPENAPI = {
       post: {
         operationId: "subscribeToUpdates",
         summary: "Subscribe a human or agent inbox to product updates",
-        description: "Use your own email address, or one whose owner explicitly requested updates. No API key, browser, or email confirmation is required. Addresses are trimmed and lowercased. Repeated submissions keep one subscriber and return the same response. One email when a roadmap item ships; reply to unsubscribe. Limited to 5 requests/minute and 50/day per IP.",
+        description: "Use your own email address, or one whose owner explicitly requested updates. No API key or browser is required. Check the inbox and POST the emailed token to /subscribe/confirm before updates start. Tokens expire within 24 hours; repeated requests within the same clock hour send at most one email. Addresses are trimmed and lowercased. Signup does not add an active subscriber. Existing unsubscribes are preserved. One email when a roadmap item ships; reply to unsubscribe. Limited to 5 requests/minute and 50/day per IP.",
         security: [],
         requestBody: {
           required: true,
@@ -126,22 +126,40 @@ export const OPENAPI = {
         },
         responses: {
           "202": {
-            description: "Address subscribed, including repeat submissions. No confirmation step.",
+            description: "Confirmation email accepted by the mail provider. The address is not yet subscribed.",
             content: { "application/json": { schema: {
-              type: "object", required: ["ok", "subscribed"],
-              properties: { ok: { const: true }, subscribed: { type: "string", description: "The normalized email address." } },
-              example: { ok: true, subscribed: "agent@example.com" },
+              type: "object", required: ["ok", "status"],
+              properties: { ok: { const: true }, status: { const: "pending_confirmation" } },
+              example: { ok: true, status: "pending_confirmation" },
             } } },
           },
           ...Object.fromEntries([
             ["400", "Missing or invalid email address."],
             ["429", "Too many signups; wait Retry-After seconds before retrying."],
-            ["503", "Subscription storage unavailable; retry shortly."],
+            ["503", "Confirmation email unavailable; retry shortly."],
           ].map(([status, description]) => [status, {
             description,
             ...(status === "429" ? { headers: { "Retry-After": { schema: { type: "integer" } } } } : {}),
             content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } },
           }])),
+        },
+      },
+    },
+    "/subscribe/confirm": {
+      post: {
+        operationId: "confirmSubscription",
+        summary: "Confirm mailbox ownership using the emailed token",
+        description: "Submit the token from the confirmation email. Invalid or expired tokens cannot subscribe an address. Repeated confirmation is safe and never undoes an unsubscribe. GET renders a confirmation form without changing subscription state.",
+        security: [],
+        requestBody: { required: true, content: { "application/json": { schema: {
+          type: "object", required: ["token"], properties: { token: { type: "string", maxLength: 1500 } },
+        } } } },
+        responses: {
+          "200": { description: "Mailbox confirmed; existing unsubscribe preferences remain in effect.", content: { "application/json": { schema: {
+            type: "object", required: ["ok", "status"], properties: { ok: { const: true }, status: { const: "confirmed" } },
+          } } } },
+          "400": { description: "Invalid or expired token. Subscribe again for a fresh email.", content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } } },
+          "503": { description: "Confirmation storage unavailable. Retry the same token shortly.", content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } } },
         },
       },
     },

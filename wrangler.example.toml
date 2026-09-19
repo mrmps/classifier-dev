@@ -26,6 +26,7 @@ dataset = "classifier_events"
 [vars]
 CLOUDFLARE_ACCOUNT_ID = "YOUR_CLOUDFLARE_ACCOUNT_ID"
 REPORT_TO = "you@example.com"
+NEWSLETTER_FROM = "classifier.dev <updates@classifier.dev>"
 
 [[durable_objects.bindings]]
 name = "LIMITER"
