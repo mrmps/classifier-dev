@@ -45,7 +45,7 @@ jobs:
 
       # The same three checks AGENTS.md asks for before a deploy.
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
       - name: Worker tests
         run: npm test
       - name: CLI tests
@@ -103,4 +103,7 @@ jobs:
           echo "classify -> $label"
           test "$label" = "spam"
       - name: Check multidimensional classification end to end
-        run: node scripts/smoke-dimensions.mjs https://classifier.dev
+        env:
+          CLASSIFIER_BASE_URL: https://classifier.dev
+          CLASSIFIER_API_KEY: ${{ secrets.CLASSIFIER_API_KEY }}
+        run: npm run test:e2e
