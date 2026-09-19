@@ -160,9 +160,11 @@ not create a missing category.
 
 **2. Confidence predicts accuracy, not fit.** It tells you how likely the chosen
 label is right *among your labels*, which is exactly what you want for routing.
-It does not tell you whether the text belongs to any of them; see point 1. When
-the input is not natural language at all, confidence and scores come back null
-with an `unscored` field explaining why.
+It does not tell you whether the text belongs to any of them; see point 1.
+Scores express the model's choice among the labels you supplied. They do not
+validate the input or prove the choice is correct, so supply labels suitable
+for every kind of input your caller may send. Confidence and scores can be null
+when the provider returns none or the smart tier replaces the scored answer.
 
 ## Recipe: filter search results before reading them
 

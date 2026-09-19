@@ -182,7 +182,7 @@ MULTIPLE DIMENSIONS
   of correctness. Add an unknown category when evidence may be insufficient.
   Smart escalation happens per field. Escalated fields have null confidence
   and scores, since the original distribution no longer describes that answer.
-  Unreadable inputs also have null scores, with unscored explaining why.
+  Confidence and scores can also be null when the provider returns no score.
 
   usage reports items, dimensions, classifications (decisions), escalated,
   fallback, and ms. If Jev is unavailable, the LLM fallback accepts at most
@@ -230,26 +230,27 @@ CONFIDENCE
   Use it. Act on high-confidence answers, and route the rest to a person, a
   reasoning model, or the smart tier, which does exactly that for you.
 
-  Route null confidence to review: unreadable inputs and smart-escalated
-  answers have null confidence and scores, with an unscored explanation.
-  The first model's probabilities never describe a reasoning model's answer.
+  Route null confidence to review: the provider returned no score, or a smart
+  answer replaced the scored answer. The first model's probabilities never
+  describe a reasoning model's answer.
   Neither tier guarantees identical labels or scores across calls.
 
   Confidence and scores may be rounded to two decimals depending on which
   transport answered, so do not read meaning into the third digit.
 
-  Two things confidence does not measure.
-
-  It is not out-of-distribution detection. It says which of your labels fits
+  Confidence does not measure category fit. It says which of your labels fits
   best, not whether any of them fit. "The weather is nice today" against
   bug / feature / praise comes back "praise", with a confidence that looks
   like any other answer's. If none-of-the-above is a real outcome, add it as
   a label: the same text against those three plus "none of these" picks
   "none of these". That works; hoping for a low score does not.
 
-  It is withheld for input that is not language. A forced choice on
-  "asdkjfhaskdjfh" still lands somewhere, so the label ships with confidence
-  and scores null and an unscored field explaining why.
+  Scores likewise express the model's choice among the labels you supplied;
+  they do not validate the input or prove that the label is correct. Supply
+  labels that cover the inputs your caller may send.
+
+  Acronyms, identifiers, and non-language inputs retain the scores the model
+  returns.
 
 
 MULTI-LABEL

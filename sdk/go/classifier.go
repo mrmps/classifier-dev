@@ -44,7 +44,7 @@ type Request struct {
 type Result struct {
 	Label      string             `json:"label"`      // single-label
 	Labels     []string           `json:"labels"`     // multi-label
-	Confidence *float64           `json:"confidence"` // calibrated 0-1; nil when withheld
+	Confidence *float64           `json:"confidence"` // calibrated 0-1; nil when unavailable
 	Scores     map[string]float64 `json:"scores"`
 	Escalated  bool               `json:"escalated"`
 	Unscored   string             `json:"unscored,omitempty"`

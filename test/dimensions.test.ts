@@ -3,6 +3,7 @@ import Ajv from "ajv/dist/2020";
 import worker, { type Env } from "../src/index";
 import { packDimensions, readDimensions, classifyDimensions } from "../src/dimensions";
 import { OPENAPI } from "../src/openapi";
+import { assertMatrix } from "../e2e/matrix.mts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -91,11 +92,14 @@ describe("multidimensional HTTP contract", () => {
     expect(Object.keys(r.body.results[0].dimensions)).toEqual(["__proto__", "constructor"]);
     expect(r.body.results[0].dimensions.__proto__.label).toBe("__proto__");
   });
-  test("unreadable text withholds every field's scores", async () => {
-    fakeJev(); const r = await harness().post({ items: ["asdkjfhaskdjfh"], dimensions: dims });
+  test("identifier and acronym inputs preserve every field's provider scores", async () => {
+    const dimensions = { kind: ["technology", "identifier", "other"], shape: ["acronym", "hash", "other"] };
+    fakeJev(); const r = await harness().post({ items: ["SHA256", "HTTP"], dimensions });
     expect(r.response.status).toBe(200);
-    for (const v of Object.values(r.body.results[0].dimensions) as any[]) {
-      expect(v.confidence).toBeNull(); expect(v.scores).toBeNull(); expect(v.unscored).toBeDefined();
+    for (const row of r.body.results) for (const v of Object.values(row.dimensions) as any[]) {
+      expect(v.confidence).toBe(0.95);
+      expect(v.scores).not.toBeNull();
+      expect(v.unscored).toBeUndefined();
     }
   });
   const invalid = [null, [], {}, { a: ["one"] }, { a: ["same", "same"] }, { " ": ["a", "b"] }, { a: ["a", 2] }, { a: { labels: ["a", "b"], instructions: 1 } }, { a: { labels: ["a", "b"], extra: true } }, Object.fromEntries(Array.from({length:21},(_,i)=>[`d${i}`,["a","b"]]))];
@@ -162,6 +166,11 @@ describe("packing and recovery", () => {
     globalThis.fetch=(async()=>{calls++;return Response.json({choices:[{message:{content:"A"}}],usage:{cost:0.001}});}) as typeof fetch;
     const h=harness({TYPESAFE_API_KEY:undefined}); const r=await h.post({items,dimensions:dims});
     expect(r.response.status).toBe(200); expect(calls).toBe(4); expect(r.body.usage.fallback).toBe(4);
+    for (const row of r.body.results) for (const field of Object.values(row.dimensions) as any[]) {
+      expect(field).toMatchObject({ confidence: null, scores: null });
+      expect(field.unscored).toBeUndefined();
+    }
+    expect(() => assertMatrix(r.body, items.length, dims)).not.toThrow();
     expect(h.points[0].doubles[8]).toBe(4);
   });
   test("smart escalates only an uncertain cell and does not attach stale scores", async () => {

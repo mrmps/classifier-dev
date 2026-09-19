@@ -6,7 +6,7 @@ type Field<L extends string> = {
   label: L; model: string; ms: number; escalated?: boolean;
 } & (
   | { confidence: number; scores: Record<L, number>; unscored?: never }
-  | { confidence: null; scores: null; unscored: string }
+  | { confidence: null; scores: null; unscored?: string }
 );
 export type Matrix<D extends Dimensions> = {
   tier: "fast" | "smart";
@@ -56,11 +56,12 @@ export function assertMatrix<D extends Dimensions>(value: unknown, items: number
       if (field.escalated) {
         assert.equal(tier, "smart");
         assert.equal(field.confidence, null, "escalation must not retain stale confidence");
+        nonempty(field.unscored);
         escalated++;
       }
       if (field.confidence === null) {
         assert.equal(field.scores, null);
-        nonempty(field.unscored);
+        if (field.unscored !== undefined) nonempty(field.unscored);
       } else {
         probability(field.confidence); record(field.scores);
         assert.equal(field.unscored, undefined);
