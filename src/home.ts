@@ -12,8 +12,9 @@ import { DOCS, BENCHMARK } from "./docs";
 import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor } from "./vsjev";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
+import { chatPanel, CHAT_CSS, CHAT_SCRIPT } from "./chatui";
 
-const HOME_CSS = `${HL_CSS}
+const HOME_CSS = `${HL_CSS}${CHAT_CSS}
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
@@ -619,7 +620,7 @@ const navLink = (label: string, href: string, here: string, key: string) =>
   btn(label, { href, cls: here === key ? "on" : "", attrs: here === key ? ' aria-current="page"' : "" });
 
 const NAV = (here: string) =>
-  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
+  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
     href: "/skill.md",
     cls: "dim",
   })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
@@ -629,7 +630,7 @@ const NAV = (here: string) =>
 
 const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
 
-export function homeHtml(): string {
+export function homeHtml(o: { chat?: boolean } = {}): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";
   return page({
     title: "classifier.dev",
@@ -638,7 +639,7 @@ export function homeHtml(): string {
     body: `<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev</h1></header>
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
-  ${NAV("home")}
+  ${NAV(o.chat ? "chat" : "home")}
 
   <section class="agent" id="agent">
     <h2><span class="syn">## </span>Give your agent this prompt</h2>
@@ -700,8 +701,9 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt</code>   <span c
 
   ${FOOT}
 </article></main></div>
-${subscribeDock()}`,
-    script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT + HL_SCRIPT,
+${subscribeDock()}
+${chatPanel(!!o.chat)}`,
+    script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
 
@@ -717,8 +719,9 @@ export function docHtml(o: { title: string; desc: string; doc: string; path: str
   ${NAV(o.here)}
   ${renderDoc(o.doc, true)}
   ${FOOT}
-</article></main></div>`,
-    script: COPY_SCRIPT + HL_SCRIPT,
+</article></main></div>
+${chatPanel()}`,
+    script: COPY_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
 
@@ -734,7 +737,8 @@ export function benchmarkHtml(): string {
   ${NAV("benchmark")}
   ${renderDoc(BENCHMARK, true)}
   ${FOOT}
-</article></main></div>`,
-    script: COPY_SCRIPT + HL_SCRIPT,
+</article></main></div>
+${chatPanel()}`,
+    script: COPY_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
