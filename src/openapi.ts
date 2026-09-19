@@ -1224,5 +1224,6 @@ Exceeding a limit returns 429 with Retry-After.
 
 ## Contact
 
-- [Book a call](https://cal.com/michaelsf/coffee) for higher limits or a tuned classifier
+- [Book a call](https://cal.com/michaelsf/coffee) or email contact@classifier.dev for higher limits
+- On request: a dedicated deployment in your own cloud (AWS, GCP or another), private end-to-end encrypted inference, higher accuracy or lower latency from a model tuned to your data. Terms at [classifier.dev/pricing](https://classifier.dev/pricing)
 `;

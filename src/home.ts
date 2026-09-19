@@ -549,6 +549,11 @@ const JSON_LD = () => {
         },
         {
           "@type": "Question",
+          name: "Can I run classifier.dev in my own cloud, or keep my texts private?",
+          acceptedAnswer: { "@type": "Answer", text: "On request. A dedicated deployment in your own cloud account (AWS, GCP or another), private end-to-end encrypted inference, and higher accuracy or lower latency from a model tuned to your data are available by arrangement. Email contact@classifier.dev or book a call at https://cal.com/michaelsf/coffee. Terms at classifier.dev/pricing." },
+        },
+        {
+          "@type": "Question",
           name: "Can I use it from Claude or ChatGPT?",
           acceptedAnswer: { "@type": "Answer", text: "Yes. It is an MCP server at https://classifier.dev/mcp (Streamable HTTP, no auth). Add it as a custom connector in Claude, as a developer-mode app in ChatGPT, or with `claude mcp add --transport http classifier https://classifier.dev/mcp`. Steps at classifier.dev/mcp-setup." },
         },
