@@ -3,6 +3,32 @@
 All notable changes to the `classify` CLI. Semver; the API it talks to is
 versioned separately at https://classifier.dev.
 
+## Unreleased
+
+- `--max` without `--multi` printed `undefined` and `NaN`: the API reads
+  `max_labels` as multi-label, so `--max` now implies `--multi`. `--max` also
+  rejects `0`, negatives, fractions and words instead of ignoring them.
+- An API answer with fewer results than inputs, no results, or the wrong shape
+  is an error (exit 1) instead of silently fewer rows.
+- `--review` now applies to `--count` and to a single positional text; before
+  it was silently ignored in both. `--multi` on a single text prints labels
+  comma-joined, like every other row.
+- A missing confidence prints `-`, not `NaN`, and `--review` keeps it.
+- Retries say why and how long on stderr (only rate limits did). A timed-out
+  request is retried once rather than five times, so a dead endpoint fails in
+  minutes, not a quarter of an hour.
+- `--smart` reports on stderr when the smart tier could not re-ask uncertain
+  answers (`usage.escalation_failed`), and warns that it has no effect with
+  `--multi`.
+- Plain lines that start with `{` are plain text unless the first parses as
+  JSON; broken NDJSON names the line.
+- Update check: a failed registry lookup is cached for the day too, so being
+  offline costs one attempt rather than one per run; prereleases are never
+  suggested.
+- Environment variables share one prefix: `CLASSIFY_ENDPOINT` and
+  `CLASSIFY_API_KEY` (the old `CLASSIFIER_*` names still work). Help documents
+  the `--id` output column and every env var.
+
 ## 0.1.0 — 2026-09-18
 
 First release.

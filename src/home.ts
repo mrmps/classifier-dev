@@ -9,6 +9,7 @@
 
 import { esc, btn, page, COPY_ICON } from "./ui";
 import { DOCS, BENCHMARK } from "./docs";
+import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor } from "./vsjev";
 
 const HOME_CSS = `
 .prose section>*+*{margin-top:14px}
@@ -19,7 +20,32 @@ const HOME_CSS = `
 .block>.row{margin-top:4px}
 h2{scroll-margin-top:24px}
 .foot{color:var(--dim);border-top:1px solid var(--rule);padding-top:16px}
+.vs{width:auto;margin-top:10px}
+.vs th.set{text-align:center;color:var(--fg);border-bottom:0;padding-bottom:0}
+.vs td.win{color:var(--green)}
+.vs tbody th{font-weight:400;color:var(--fg);border-bottom:0}
 `;
+
+/** The headline: what the service adds over calling its own model directly. */
+function vsJevSection() {
+  const gains = smartGain();
+  const fmt = (p: number) => `${p >= 0 ? "+" : ""}${p.toFixed(1)}`;
+  const n = Object.values(VS_JEV.summary)[0]?.n ?? 0;
+  const floor = noiseFloor(n);
+  const clear = gains.filter((g) => g.points > floor || g.unsurePoints > floor * 2);
+  const title = smartWins() ? "Better than calling its own model directly" : "Against the model it runs on";
+  const lead =
+    `The model behind this service is Jev. The smart tier re-asks only what Jev was unsure about, and comes out ` +
+    gains.map((g) => `${fmt(g.points)} points on ${g.set} (${fmt(g.unsurePoints)} on the unsure items)`).join(", ") +
+    `. On ${n} items a gap under about ${floor.toFixed(0)} points is noise` +
+    (clear.length ? `; ${clear.map((g) => g.set).join(" and ")} clears it.` : ".");
+  return `<section>
+    <h2><span class="syn">## </span>${esc(title)}</h2>
+    <p class="lead">${esc(lead)} Same public test sets, measured live over this API on ${esc(VS_JEV.measured)}. No key, no cost.</p>
+    ${vsJevHtml()}
+    <p class="row">${btn("full benchmark", { href: "/benchmark" })}${btn("npm run vs-jev", { href: "https://github.com/mrmps/classifier-dev/blob/main/eval/vs_jev.py", cls: "dim" })}</p>
+  </section>`;
+}
 
 /** Bare URLs become links; trailing sentence punctuation stays outside. */
 function linkify(escaped: string) {
@@ -165,6 +191,8 @@ export function homeHtml(): string {
   <h1><span class="syn"># </span>classifier.dev</h1>
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
   ${NAV("home")}
+
+  ${vsJevSection()}
 
   <section>
     <h2><span class="syn">## </span>Try it</h2>

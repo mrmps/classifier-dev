@@ -1,3 +1,5 @@
+import { vsJevText } from "./vsjev";
+
 export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
@@ -9,6 +11,11 @@ paste it right now.
 If you are an agent or a code generator, the machine-readable description of
 this API lives at https://classifier.dev/openapi.json (OpenAPI 3.1), with a
 short index at https://classifier.dev/llms.txt
+
+
+AGAINST THE MODEL IT RUNS ON
+
+${vsJevText(false)}
 
 
 WHEN THIS IS WORTH A NETWORK CALL
@@ -215,6 +222,11 @@ export const BENCHMARK = `classifier.dev/benchmark
 Every number here comes from a real run, with cost taken from the providers'
 own usage accounting rather than a price list. Measured 2026-09-17. The eval
 code is in the repository (eval/), so all of this is re-runnable.
+
+
+AGAINST THE MODEL IT RUNS ON
+
+${vsJevText(true)}
 
 
 SINGLE LABEL
