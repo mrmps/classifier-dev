@@ -3,7 +3,14 @@ import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
-import { homeHtml, benchmarkHtml } from "./home";
+import { homeHtml, benchmarkHtml, docHtml } from "./home";
+import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
+import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, toMarkdown } from "./pages";
+import { AGENTS_MD } from "./agents";
+import {
+  AUTH_MD, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, agentCard, apiCatalog, ardCatalog, docsServerCard, oauthProtectedResource,
+  robotsTxt, serverCard, sitemapXml,
+} from "./wellknown";
 import { dailyReport } from "./report";
 import { runAlerts } from "./alerts";
 import * as feedback from "./feedback";
@@ -130,8 +137,102 @@ export function primaryModels(): string[] {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "Content-Type, Authorization",
+  "access-control-allow-headers": "Content-Type, Authorization, Accept, Idempotency-Key, Mcp-Session-Id, MCP-Protocol-Version",
+  "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, x-api-version, Idempotency-Key",
 };
+
+const API_VERSION = "v1";
+
+/** Markdown for agents that ask for it: same document, one content type over. */
+const markdown = (body: string, status = 200, extra: Record<string, string> = {}) =>
+  new Response(body, {
+    status,
+    headers: { "content-type": "text/markdown; charset=utf-8", vary: "accept", ...CORS, ...extra },
+  });
+
+/** RFC 8288 Link headers on the pages agents land on, so discovery needs no parsing. */
+const LINKS = (origin: string) =>
+  [
+    `<${origin}/sitemap.xml>; rel="sitemap"; type="application/xml"`,
+    `<${origin}/index.md>; rel="alternate"; type="text/markdown"`,
+    `<${origin}/openapi.json>; rel="service-desc"; type="application/openapi+json"`,
+    `<${origin}/developers>; rel="service-doc"`,
+    `<${origin}/.well-known/api-catalog>; rel="api-catalog"; type="${API_CATALOG_TYPE.replace(/"/g, "")}"`,
+    `<${origin}/.well-known/mcp/server-card.json>; rel="describedby"; type="application/json"; title="MCP server card"`,
+    `<${origin}/llms.txt>; rel="help"; type="text/plain"`,
+    `<${origin}/agents.md>; rel="help"; type="text/markdown"; title="For agents"`,
+  ].join(", ");
+
+/** The machine view of the front page: where everything is, in one JSON object. */
+const agentView = (origin: string) => ({
+  name: "classifier.dev",
+  description: "Zero-shot text classification over plain HTTP. No API key, no account.",
+  version: API_VERSION,
+  authentication: { required: false, optional_bearer: "partner key lifts per-IP limits", docs: `${origin}/auth.md` },
+  api: {
+    classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
+    classify_one: { method: "GET", url: `${origin}/{labels}/{text}` },
+    openapi: `${origin}/openapi.json`,
+  },
+  mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
+  cli: { install: "npm i -g classifier-dev", example: "classify bug,feature,praise < feedback.txt" },
+  skill: { install: `npx skills add ${origin}`, url: `${origin}/skill.md` },
+  limits: { fast: "3,000 classifications/min, 20,000/day per IP", smart: "200/min, 2,000/day per IP", headers: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Policy", "Retry-After"] },
+  pricing: { price: 0, currency: "USD", url: `${origin}/pricing` },
+  docs: { llms: `${origin}/llms.txt`, developers: `${origin}/developers`, benchmark: `${origin}/benchmark`, privacy: `${origin}/privacy`, contact: `${origin}/contact` },
+  discovery: [`${origin}/.well-known/ard.json`, `${origin}/.well-known/agent-card.json`, `${origin}/.well-known/api-catalog`, `${origin}/.well-known/agent-skills/index.json`, `${origin}/sitemap.xml`],
+});
+
+/** Everything that is not a route: a real 404 that says where to go, in the caller's format. */
+function notFound(req: Request, origin: string) {
+  const accept = req.headers.get("accept") ?? "";
+  const pointers = { docs: `${origin}/`, llms: `${origin}/llms.txt`, openapi: `${origin}/openapi.json`, sitemap: `${origin}/sitemap.xml` };
+  if (/\btext\/markdown\b/.test(accept)) {
+    return markdown(
+      `# Not found\n\nThere is nothing at this path. The API is \`POST ${origin}/v1/classify\` or \`GET ${origin}/{labels}/{text}\`. ` +
+        `Start at [llms.txt](${pointers.llms}), the [documentation](${pointers.docs}), the [OpenAPI spec](${pointers.openapi}) or the [sitemap](${pointers.sitemap}).\n`,
+      404,
+    );
+  }
+  if (/\bapplication\/json\b/.test(accept) || req.method !== "GET") {
+    return json({ error: "Not found. The API is POST /v1/classify or GET /{labels}/{text}.", code: "not_found", see: pointers }, 404);
+  }
+  return markdown(
+    `# Not found\n\nThere is nothing at this path. The API is \`POST ${origin}/v1/classify\` or \`GET ${origin}/{labels}/{text}\`.\n\n` +
+      `Start at ${pointers.llms}, the documentation at ${pointers.docs}, the OpenAPI spec at ${pointers.openapi} or the sitemap at ${pointers.sitemap}.\n`,
+    404,
+  );
+}
+
+/** The plain-text pages and how each is described to browsers and crawlers. */
+const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = {
+  developers: { doc: DEVELOPERS, title: "developers", desc: "Quickstart, every surface (REST, MCP, CLI, skill), limits, errors, versioning. No key needed." },
+  "mcp-setup": { doc: MCP_SETUP, title: "MCP setup", desc: "Connect classifier.dev to Claude, ChatGPT, Codex, Cursor or any MCP client, step by step." },
+  pricing: { doc: PRICING, title: "pricing", desc: "Free within per-IP limits. Partner keys by arrangement." },
+  about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
+  contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },
+  privacy: { doc: PRIVACY, title: "privacy", desc: "Inputs are not stored. What is logged, and what is not collected." },
+};
+
+const DOCS_MCP = docsServer([
+  { id: "api", title: "classifier.dev API reference", url: "https://classifier.dev/", text: DOCS },
+  { id: "developers", title: "Developer guide", url: "https://classifier.dev/developers", text: DEVELOPERS },
+  { id: "mcp-setup", title: "MCP setup", url: "https://classifier.dev/mcp-setup", text: MCP_SETUP },
+  { id: "benchmark", title: "Benchmark", url: "https://classifier.dev/benchmark", text: BENCHMARK },
+  { id: "skill", title: "Agent skill", url: "https://classifier.dev/skill.md", text: SKILL_MD },
+  { id: "llms", title: "llms.txt", url: "https://classifier.dev/llms.txt", text: LLMS_TXT },
+  { id: "pricing", title: "Pricing", url: "https://classifier.dev/pricing", text: PRICING },
+  { id: "auth", title: "Authentication", url: "https://classifier.dev/auth.md", text: AUTH_MD },
+  { id: "agents", title: "For agents: when and how to use classifier.dev", url: "https://classifier.dev/agents.md", text: AGENTS_MD },
+  { id: "privacy", title: "Privacy", url: "https://classifier.dev/privacy", text: PRIVACY },
+  { id: "about", title: "About", url: "https://classifier.dev/about", text: ABOUT },
+  { id: "contact", title: "Contact", url: "https://classifier.dev/contact", text: CONTACT },
+]);
+
+/** For the cards and catalogs, which describe the tools without running them. */
+const PRODUCT_MCP_STATIC = productServer(async () => ({ status: 503, body: { error: "static description only" } }));
+
+const CACHE_HOUR = { "cache-control": "public, max-age=3600" };
 
 const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
@@ -605,6 +706,7 @@ function agentFamily(ua: string) {
   const s = ua.toLowerCase().trim();
   if (!s) return "none";
   if (s.startsWith("classify-cli/")) return "classify-cli";
+  if (s.startsWith("mcp/")) return "mcp";
   if (s.startsWith("curl/")) return "curl";
   if (s.includes("python-requests") || s.includes("httpx") || s.includes("aiohttp") || s.startsWith("python-urllib"))
     return "python";
@@ -717,7 +819,7 @@ async function limited(env: Env, tier: Tier, ip: string, cost: number) {
   }
 }
 
-export default {
+const worker = {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const ip = req.headers.get("cf-connecting-ip") ?? "anon";
@@ -730,6 +832,11 @@ export default {
     const meter = newMeter();
 
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    // HEAD is GET without the body; crawlers and link checkers lean on it.
+    if (req.method === "HEAD") {
+      const r = await worker.fetch(new Request(req.url, { method: "GET", headers: req.headers }), env, ctx);
+      return new Response(null, { status: r.status, headers: r.headers });
+    }
 
     const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
     // Browsers announce text/html; curl sends */* and agents ask for text or
@@ -740,9 +847,79 @@ export default {
       req.method === "GET" &&
       url.searchParams.get("format") !== "text" &&
       /\btext\/html\b/.test(accept);
+    // Agents that ask for Markdown get the same document with Markdown headings.
+    const wantsMarkdown =
+      req.method === "GET" && (url.searchParams.get("format") === "markdown" || /\btext\/markdown\b/.test(accept));
+    const origin = url.origin;
     // The operator dashboard. Returns null for every other path.
     const admin = await adminResponse(req, env, path, ip);
     if (admin) return admin;
+
+    // ---- MCP -----------------------------------------------------------------
+    // Tools call the API through the same front door as everyone else, so the
+    // limits, the metering and the logging are identical; only the client
+    // family differs.
+    if (path === "mcp" || path === ".well-known/mcp" || path === "mcp/docs") {
+      const mcpClassify: ClassifyFn = async (body, original) => {
+        const headers: Record<string, string> = {
+          "content-type": "application/json",
+          "user-agent": `mcp/1.0 (${original.headers.get("user-agent") ?? "unknown client"})`,
+          "cf-connecting-ip": ip,
+        };
+        const auth = original.headers.get("authorization");
+        if (auth) headers.authorization = auth;
+        const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx);
+        const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
+        return { status: r.status, body: parsed };
+      };
+      return handleMcp(req, path === "mcp/docs" ? DOCS_MCP : productServer(mcpClassify));
+    }
+
+    // ---- discovery documents -------------------------------------------------
+    if (path === ".well-known/mcp/server-card.json") return json(serverCard(origin, PRODUCT_MCP_STATIC, DOCS_MCP), 200, CACHE_HOUR);
+    if (path === ".well-known/mcp/docs-server-card.json") return json(docsServerCard(origin, DOCS_MCP), 200, CACHE_HOUR);
+    if (path === ".well-known/ard.json" || path === ".well-known/ai-catalog.json") {
+      return json(ardCatalog(origin, PRODUCT_MCP_STATIC, DOCS_MCP), 200, CACHE_HOUR);
+    }
+    if (path === ".well-known/agent-card.json" || path === ".well-known/agent.json") return json(agentCard(origin, PRODUCT_MCP_STATIC), 200, CACHE_HOUR);
+    if (path === ".well-known/api-catalog") {
+      return new Response(JSON.stringify(apiCatalog(origin), null, 2), {
+        headers: { "content-type": API_CATALOG_TYPE, ...CORS, ...CACHE_HOUR },
+      });
+    }
+    if (path === ".well-known/oauth-protected-resource") return json(oauthProtectedResource(origin), 200, CACHE_HOUR);
+    if (path === "sitemap.xml") {
+      return new Response(sitemapXml(origin), { headers: { "content-type": "application/xml; charset=utf-8", ...CORS, ...CACHE_HOUR } });
+    }
+    if (path === ".well-known/mcp-registry-auth") return text(MCP_REGISTRY_AUTH + "\n", 200, CACHE_HOUR);
+    if (req.method === "GET" && (path === "v1/health" || path === "health")) {
+      return json({ ok: true, service: "classifier.dev", version: API_VERSION, time: new Date().toISOString(), docs: `${origin}/developers` }, 200, { "cache-control": "no-store" });
+    }
+    // .md twins for the machine-readable files, so appending .md to any URL works.
+    if (path === "openapi.json.md") {
+      const ops = Object.entries(OPENAPI.paths as Record<string, Record<string, { operationId?: string; summary?: string }>>).flatMap(([route, methods]) =>
+        Object.entries(methods).map(([m, op]) => `- \`${m.toUpperCase()} ${route}\` — ${op.summary ?? op.operationId ?? ""}`),
+      );
+      return markdown(`# classifier.dev OpenAPI\n\nThe full specification is JSON at ${origin}/openapi.json (OpenAPI 3.1). Operations:\n\n${ops.join("\n")}\n\nAuthentication: none. Errors: \`{error, code}\`. Rate limits in \`RateLimit-*\` headers. Guide: ${origin}/developers\n`, 200, CACHE_HOUR);
+    }
+    if (path === "llms.txt.md") return markdown(LLMS_TXT, 200, CACHE_HOUR);
+    if (path === "skill.md.md") return markdown(SKILL_MD, 200, CACHE_HOUR);
+    if (path === "auth.md") return markdown(AUTH_MD, 200, CACHE_HOUR);
+    if (path === "agents.md" || path === ".well-known/agents.md" || path === "agent-instructions.md") return markdown(AGENTS_MD, 200, CACHE_HOUR);
+    if (path === "pricing.md") {
+      return markdown(toMarkdown(PRICING, { title: "classifier.dev pricing", canonical: `${origin}/pricing`, description: PAGE_DOCS.pricing.desc }), 200, CACHE_HOUR);
+    }
+    if (req.method === "GET" && (path === "api" || path === "api/" || path === "agent.json")) return json(agentView(origin), 200, CACHE_HOUR);
+
+    // ---- the pages: text for curl, HTML for browsers, Markdown when asked ----
+    const pageKey = path.replace(/\.md$/, "");
+    if (req.method === "GET" && PAGE_DOCS[pageKey]) {
+      const pg = PAGE_DOCS[pageKey];
+      const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
+      if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
+      if (wantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey }));
+      return text(pg.doc, 200, { vary: "accept", ...CACHE_HOUR });
+    }
 
     // ---- agent feedback, to the feedback.now protocol ----------------------
     // These sit above the classify fallback on purpose: GET /{labels}/{text}
@@ -782,22 +959,31 @@ export default {
       }
       return json({ error: "no such endpoint", discovery: "/.well-known/agent-feedback.json" }, 404);
     }
-    if (req.method === "GET" && (path === "" || path === "index.html")) {
+    if (req.method === "GET" && (path === "" || path === "index.html" || path === "index.md")) {
+      const link = { link: LINKS(origin) };
+      if (url.searchParams.get("mode") === "agent") return json(agentView(origin), 200, link);
+      // Crawlers that exist to read get the Markdown even when they say text/html.
+      const ua = req.headers.get("user-agent") ?? "";
+      const readerBot = /GPTBot|ChatGPT-User|OAI-SearchBot|ClaudeBot|Claude-User|Claude-SearchBot|anthropic-ai|PerplexityBot|Perplexity-User|Google-Extended|Applebot-Extended|DeepSeekBot|meta-externalagent/i.test(ua);
+      if (path === "index.md" || wantsMarkdown || (readerBot && url.searchParams.get("format") !== "html")) {
+        return markdown(toMarkdown(DOCS, { title: "classifier.dev", canonical: `${origin}/`, description: "Zero-shot text classification over plain HTTP. No API key, no account." }), 200, link);
+      }
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
         return new Response(unfurlHtml(), {
-          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600", ...CORS },
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600", ...CORS, ...link },
         });
       }
-      if (wantsHtml) return html(homeHtml());
-      return text(DOCS, 200, { vary: "accept" });
+      if (wantsHtml) return html(homeHtml(), 200, link);
+      return text(DOCS, 200, { vary: "accept", ...link });
     }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
-      if (wantsHtml && path === "benchmark") return html(benchmarkHtml());
+      if (path === "benchmark.md" || wantsMarkdown) {
+        return markdown(toMarkdown(BENCHMARK, { title: "classifier.dev benchmark", canonical: `${origin}/benchmark`, description: "Measured accuracy, calibration, cost and latency." }));
+      }
+      if (wantsHtml) return html(benchmarkHtml());
       return text(BENCHMARK, 200, { vary: "accept" });
     }
-    if (path === "robots.txt") {
-      return text("User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: https://classifier.dev/llms.txt\n");
-    }
+    if (path === "robots.txt") return text(robotsTxt(origin), 200, CACHE_HOUR);
     // Machine-readable surfaces. /openapi.json is the conventional location;
     // /.well-known/ and /llms.txt are where agents increasingly look first.
     // Agent Skills discovery (RFC 8615). Lets `npx skills add https://classifier.dev`
@@ -913,7 +1099,7 @@ export default {
     } else {
       // GET /{labels}/{text}
       const slash = path.indexOf("/");
-      if (slash <= 0) return text(DOCS, 404);
+      if (slash <= 0) return notFound(req, origin);
       labels = path
         .slice(0, slash)
         .split(",")
@@ -929,10 +1115,31 @@ export default {
       }
     }
 
+    // Every API answer, success or not, says which version answered, how much
+    // room is left (IETF RateLimit header fields), and echoes an idempotency
+    // key if the caller sent one — classification has no side effects, so the
+    // echo is all a retrying client needs.
+    const apiHeaders = (remaining = -1): Record<string, string> => {
+      const limit = TIERS[tier].rpm;
+      const h: Record<string, string> = {
+        "x-api-version": API_VERSION,
+        "ratelimit-limit": enterprise ? "unlimited" : String(limit),
+        "ratelimit-policy": enterprise ? "unlimited" : `${limit};w=60, ${TIERS[tier].daily};w=86400`,
+        "x-ratelimit-limit": enterprise ? "unlimited" : `${limit}/min`,
+      };
+      if (remaining >= 0) {
+        h["ratelimit-remaining"] = String(remaining);
+        h["x-ratelimit-remaining"] = String(remaining);
+      }
+      const idem = req.headers.get("idempotency-key");
+      if (idem) h["idempotency-key"] = idem.slice(0, 255);
+      return h;
+    };
     const fail = (msg: string, status: number, reason: string, extra: Record<string, string> = {}, ms = 0) => {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0 });
-      return wantJson ? json({ error: msg }, status, extra) : text(`error: ${msg}\n`, status, extra);
+      const headers = { ...apiHeaders(), ...extra };
+      return wantJson ? json({ error: msg, code: reason }, status, headers) : text(`error: ${msg}\n`, status, headers);
     };
 
     if (!inputs.length || !inputs[0]) return fail("Provide text to classify. See https://classifier.dev", 400, "no_input");
@@ -983,10 +1190,7 @@ export default {
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
     // fabricated remaining count. The limit is also documented at GET /.
-    const headers: Record<string, string> = {
-      "x-ratelimit-limit": enterprise ? "unlimited" : `${rpm}/min`,
-    };
-    if (gate.remaining >= 0) headers["x-ratelimit-remaining"] = String(gate.remaining);
+    const headers = apiHeaders(gate.remaining);
 
     if (!wantJson) {
       // r.jina.ai style: the answer, nothing else. Multi-label answers are one
@@ -1041,3 +1245,5 @@ export default {
     ctx.waitUntil(dailyReport(env, { send: true, primaries: primaryModels() }));
   },
 };
+
+export default worker;
