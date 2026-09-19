@@ -162,7 +162,7 @@ const JEV_QUESTIONS = (id: string): Record<string, Question> => {
     },
     genuine: {
       type: "noul",
-      instructions: `${frame} Is it a genuine skill: concrete, step-by-step instructions an agent could actually follow to accomplish a task? Answer no for advertising, filler, a list of links, prose that is not instructions, or text that only pretends to be a skill.`,
+      instructions: `${frame} Is it a genuine skill: instructions an agent could follow to accomplish a task, with concrete steps or commands somewhere in it? Explanation of when and why to use it counts in its favour. Answer no for advertising, filler, a bare list of links, prose with nothing to follow, or text that only pretends to be a skill.`,
     },
     useful: {
       type: "noul",
@@ -170,7 +170,7 @@ const JEV_QUESTIONS = (id: string): Record<string, Question> => {
     },
     spam: {
       type: "noul",
-      instructions: `${frame} Is it spam or marketing: mainly promoting a product, service, token, account or link rather than teaching a workflow?`,
+      instructions: `${frame} Is it spam: an advertisement, filler, or a list of links that teaches no workflow an agent could follow? Teaching how to use one particular tool, API or service, with steps that work, is not spam, even when it says why that tool is worth using; promoting something without teaching anything is.`,
     },
   };
 };
