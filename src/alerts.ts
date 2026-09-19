@@ -129,10 +129,10 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
   try {
     recent = await sql(
       env,
-      `SELECT blob6 AS model, blob4 AS status, blob7 AS reason,
-              count() AS requests, sum(double2 * 1) AS ms_sum, sum(double3) AS usd, sum(double5) AS escfail
+      `SELECT blob6 AS model, blob4 AS status, blob7 AS reason, blob9 AS mode,
+              count() AS requests, sum(double2 * 1) AS ms_sum, sum(double3) AS usd, sum(double5) AS escfail, sum(double9) AS fallback
        FROM ${DATASET} WHERE timestamp > toDateTime(now()) - INTERVAL '${WINDOW_MIN}' MINUTE
-       GROUP BY model, status, reason`,
+       GROUP BY model, status, reason, mode`,
     );
     baseline = await sql(
       env,
@@ -208,6 +208,28 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
       detail:
         `${serverErrors} of ${requests} requests in the last ${WINDOW_MIN}m returned 5xx.\n` +
         `Causes: ${reasons || "not recorded"}.\n\n4xx is excluded — that is scanner noise, not a fault.`,
+    });
+  }
+
+  // A new feature can be completely broken while aggregate traffic looks healthy.
+  const dimensions = recent.filter((r) => r.mode === "dimensions");
+  const dimensionErrors = dimensions.filter((r) => String(r.status).startsWith("5"));
+  const dimensionFailures = dimensionErrors.reduce((n, r) => n + num(r.requests), 0);
+  const dimensionRequests = dimensions.reduce((n, r) => n + num(r.requests), 0);
+  const dimensionFallback = dimensions.reduce((n, r) => n + num(r.fallback), 0);
+  if (dimensionFailures >= 3 && dimensionFailures / dimensionRequests > 0.1) {
+    alerts.push({
+      id: "dimensions_5xx", severity: "critical",
+      title: "Multidimensional classification is failing",
+      detail: `${dimensionFailures} of ${dimensionRequests} requests in the last ${WINDOW_MIN}m returned 5xx. ` +
+        `Causes: ${dimensionErrors.map((r) => `${r.reason || "unknown"} (${num(r.requests)})`).join(", ")}. Check /admin and the Jev provider.`,
+    });
+  }
+  if (dimensionFallback > 0) {
+    alerts.push({
+      id: "dimensions_fallback", severity: "warning",
+      title: "Multidimensional classification is using the LLM fallback",
+      detail: `${dimensionFallback} fields used the fallback in the last ${WINDOW_MIN}m. Check Jev availability; requests above 20 decisions cannot use this fallback.`,
     });
   }
 

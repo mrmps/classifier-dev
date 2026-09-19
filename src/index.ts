@@ -20,6 +20,7 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
+import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
 import { callerId, labelFingerprint } from "./privacy";
@@ -255,6 +256,7 @@ const agentView = (origin: string) => ({
   authentication: { required: false, optional_bearer: "partner key lifts per-IP limits", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
+    classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
     subscribe: {
       method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
@@ -922,6 +924,39 @@ async function classifyMany(
   return { results: await llmClassifyMany(env, inputs, labels, tier, instructions, multi, meter), escalationFailed: 0 };
 }
 
+/** Keep each field independent, including smart escalation and the bounded LLM fallback. */
+async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter) {
+  const started = Date.now();
+  let jev: Awaited<ReturnType<typeof classifyDimensions>> | undefined;
+  if (env.TYPESAFE_API_KEY) {
+    try { jev = await classifyDimensions(env.TYPESAFE_API_KEY, batches, meter); }
+    catch (e) { console.warn(`dimensions Jev failed: ${(e as Error).message}`); }
+  }
+  if (!jev && inputs.length * dimensions.length > FALLBACK_MAX_INPUTS) {
+    throw new Error(`batch classification is temporarily unavailable; send up to ${FALLBACK_MAX_INPUTS} decisions or retry shortly`);
+  }
+  const results: Result[][] = inputs.map(() => []);
+  let escalationFailed = 0;
+  let fallbackDecisions = 0;
+  // Sequential dimensions bound fallback/escalation concurrency across the entire request.
+  for (const [d, dimension] of dimensions.entries()) {
+    const criteria = dimensionInstructions(dimension, instructions);
+    const column: Result[] = jev ? inputs.map((input, i) => ({
+      ...jev[i][d], ms: Date.now() - started,
+      ...(isUnintelligible(input) ? { confidence: null, scores: null, unscored: UNSCORED_REASON } : {}),
+    })) : await llmClassifyMany(env, inputs, dimension.labels, tier, criteria, undefined, meter);
+    if (!jev) fallbackDecisions += column.length;
+    if (jev && tier === "smart") {
+      // If the reasoning model changes a field, its predecessor's probabilities
+      // no longer describe that answer. Expose no mismatched confidence/scores.
+      escalationFailed += await escalate(env, inputs, dimension.labels, criteria, column, meter);
+      for (const r of column) if (r.escalated) { r.confidence = null; r.scores = null; r.unscored = "reasoning model does not return comparable probabilities"; }
+    }
+    column.forEach((r, i) => { results[i][d] = r; });
+  }
+  return { results, escalationFailed, fallbackDecisions };
+}
+
 /**
  * Which kind of client called, as a low-cardinality family rather than the raw
  * User-Agent. Enough to tell one broken integration from broad traffic without
@@ -1003,6 +1038,10 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   attempted: number;
   /** Smart-tier answers that could not reach the reasoning model. */
   escalationFailed: number;
+  mode?: "single" | "multi" | "dimensions";
+  dimensions?: number;
+  uncertain?: number;
+  fallbackDecisions?: number;
 }) {
   // Hashing is async, so the write moved off the response path entirely. The
   // point is unchanged apart from the two columns that used to carry the
@@ -1013,11 +1052,11 @@ export function record(env: Env, ctx: ExecutionContext, d: {
       const [caller, labels] = await Promise.all([callerId(env, d.ip), classifierId(env, d.labels)]);
       try {
         env.AE?.writeDataPoint({
-          blobs: [d.tier, labels, d.country, String(d.status), d.client, d.model, d.reason, d.agent],
+          blobs: [d.tier, labels, d.country, String(d.status), d.client, d.model, d.reason, d.agent, d.mode ?? "single"],
           // double3 and blob7/blob8 were added after launch: rows written before
           // that read back as 0 and "", so cost and failure reasons are only
           // meaningful from that deploy forward.
-          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed],
+          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed, d.status === 200 ? d.attempted : 0, d.dimensions ?? 1, d.uncertain ?? 0, d.fallbackDecisions ?? 0],
           indexes: [caller],
         });
       } catch {
@@ -1597,6 +1636,9 @@ const worker = {
     let tier: Tier = "fast";
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
+    let dimensions: Dimension[] | undefined;
+    let dimensionBatches: DimensionBatch[] = [];
+    let mode: "single" | "multi" | "dimensions" = "single";
     // JSON for every POST, and for a GET that asked with ?verbose=1 or Accept: application/json.
     let wantJson = req.method === "POST" || /\bapplication\/json\b/.test(accept);
     // Set for GET so a failed request can be answered with a URL that would have worked.
@@ -1624,7 +1666,7 @@ const worker = {
     };
     const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1) => {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
-        usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0 });
+        usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
       const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
@@ -1651,6 +1693,12 @@ const worker = {
         return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
       }
       const b = body as Record<string, unknown>;
+      if (Object.hasOwn(b, "dimensions")) mode = "dimensions";
+      if (mode === "dimensions" && ["items", "inputs", "input"].filter((k) => Object.hasOwn(b, k)).length > 1) return fail("Use only one of items, inputs or input", 400, "bad_dimensions");
+      if (mode === "dimensions" && Object.hasOwn(b, "items")) {
+        if (!Array.isArray(b.items)) return fail("items must be an array of strings", 400, "bad_dimensions");
+        b.inputs = b.items;
+      }
       inputs = Array.isArray(b.inputs)
         ? (b.inputs as string[])
         : typeof b.inputs === "string"
@@ -1659,6 +1707,14 @@ const worker = {
             ? [b.input]
             : [];
       labels = Array.isArray(b.labels) ? (b.labels as string[]) : [];
+      if (mode === "dimensions") {
+        if (["labels", "multi", "max_labels"].some((k) => Object.hasOwn(b, k))) return fail("dimensions cannot be combined with labels, multi or max_labels", 400, "bad_dimensions");
+        if (b.instructions !== undefined && (typeof b.instructions !== "string" || b.instructions.length > 4000)) return fail("instructions must be a string of at most 4,000 characters", 400, "bad_dimensions");
+        try { dimensions = readDimensions(b.dimensions); }
+        catch (e) { return fail((e as Error).message, 400, "bad_dimensions"); }
+        // Fingerprint the whole configuration, including field names and rubrics, never store it.
+        labels = [JSON.stringify(dimensions)];
+      }
       const named = readTier(b.tier);
       if (named === null) return fail(`tier must be "fast" or "smart"; got ${JSON.stringify(b.tier).slice(0, 40)}`, 400, "bad_tier");
       tier = named;
@@ -1693,7 +1749,7 @@ const worker = {
       );
     }
     if (inputs.length > MAX_INPUTS) return fail(`Maximum ${MAX_INPUTS} inputs per request`, 400, "too_many_inputs");
-    if (labels.length < 2) {
+    if (!dimensions && labels.length < 2) {
       return fail(
         labels.length
           ? `Provide at least 2 labels; got ${labels.length} (${shown(labels)}).` + (getReq ? " Separate labels with commas." : "")
@@ -1708,12 +1764,18 @@ const worker = {
     if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400, "empty_input");
     if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be at most ${MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
 
+    if (dimensions) {
+      if (inputs.length * dimensions.length > MAX_DECISIONS) return fail(`Maximum ${MAX_DECISIONS} decisions (items × dimensions) per request`, 400, "too_many_decisions");
+      try { dimensionBatches = packDimensions(inputs, dimensions, instructions); }
+      catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
+    } else mode = multi ? "multi" : "single";
+    const decisions = inputs.length * (dimensions?.length ?? 1);
     const rpm = TIERS[tier].rpm;
     // Waiting cannot make a batch larger than the entire window fit.
-    if (!enterprise && inputs.length > rpm) return fail(`Maximum ${rpm} inputs per public ${tier} request; split the batch to fit the per-minute quota`, 400, "too_many_inputs");
+    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per public ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const gate = enterprise
       ? { limited: false, remaining: -1 }
-      : await limited(env, tier, ip, inputs.length);
+      : await limited(env, tier, ip, decisions);
     if (gate.limited) {
       const perDay = gate.scope === "day";
       return fail(
@@ -1733,9 +1795,17 @@ const worker = {
 
     const started = Date.now();
     let results: Result[];
+    let matrix: Result[][] | undefined;
+    let fallbackDecisions = 0;
     let escalationFailed = 0;
     try {
-      ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter));
+      if (dimensions) {
+        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter);
+        matrix = r.results;
+        results = matrix.flat();
+        escalationFailed = r.escalationFailed;
+        fallbackDecisions = r.fallbackDecisions;
+      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter));
     } catch (e) {
       const msg = (e as Error).message;
       return fail(`upstream: ${msg}`, 502, upstreamReason(msg), {}, Date.now() - started);
@@ -1745,13 +1815,26 @@ const worker = {
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
       model: modelSummary.modelsUsed.join(","), usd: meter.usd,
-      reason: "", agent, attempted: inputs.length, escalationFailed,
+      reason: "", agent, attempted: inputs.length, escalationFailed, mode,
+      dimensions: dimensions?.length ?? 1,
+      uncertain: results.filter((r) => r.confidence === null || r.confidence < ESCALATE_BELOW).length,
+      fallbackDecisions,
     });
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
     // fabricated remaining count. The limit is also documented at GET /.
     const headers = apiHeaders(gate.remaining);
 
+    if (dimensions && matrix) {
+      return json({
+        tier, ...modelSummary,
+        results: matrix.map((row) => ({ dimensions: Object.fromEntries(dimensions.map((d, i) => [d.name, row[i]])) })),
+        usage: { items: inputs.length, dimensions: dimensions.length, classifications: results.length,
+          escalated: results.filter((r) => r.escalated).length,
+          ...(escalationFailed ? { escalation_failed: escalationFailed } : {}),
+          fallback: fallbackDecisions, ms },
+      }, 200, headers);
+    }
     if (!wantJson) {
       // r.jina.ai style: the answer, nothing else. Multi-label answers are one
       // label per line, so the response stays greppable.

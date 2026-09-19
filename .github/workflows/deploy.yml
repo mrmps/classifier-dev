@@ -102,3 +102,5 @@ jobs:
           label=$(curl --fail --silent --show-error https://classifier.dev/spam,not+spam/Win+a+free+iPhone)
           echo "classify -> $label"
           test "$label" = "spam"
+      - name: Check multidimensional classification end to end
+        run: node scripts/smoke-dimensions.mjs https://classifier.dev

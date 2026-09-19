@@ -192,7 +192,7 @@ async function load(env: Env, range: RangeKey) {
   };
 
   const [totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets,
-         byReason, byAgent, failLabels] =
+         byReason, byAgent, failLabels, dimensionTraffic, dimensionCallers, dimensionSeries] =
     await Promise.all([
       q(
         `SELECT count() AS requests, sum(double1) AS classifications,
@@ -282,10 +282,31 @@ async function load(env: Env, range: RangeKey) {
         [] as Row[],
         (x) => x,
       ),
+      q(
+        `SELECT blob4 AS status, blob7 AS reason, count() AS requests,
+                sum(double1) AS classifications, sum(double6) AS items,
+                sum(double7) AS dimensions, sum(double8) AS uncertain,
+                sum(double9) AS fallback, sum(double3) AS usd, sum(double2) AS ms_sum
+         FROM ${DATASET} WHERE timestamp > ${since} AND blob9 = 'dimensions'
+         GROUP BY status, reason`,
+        [] as Row[], (x) => x,
+      ),
+      q(
+        `SELECT index1, count() AS n FROM ${DATASET}
+         WHERE timestamp > ${since} AND blob9 = 'dimensions' GROUP BY index1`,
+        0, (x) => x.length,
+      ),
+      q(
+        `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
+                count() AS requests, sum(double1) AS classifications
+         FROM ${DATASET} WHERE timestamp > ${since} AND blob9 = 'dimensions'
+         GROUP BY t ORDER BY t`,
+        [] as Row[], (x) => x,
+      ),
     ]);
 
   return { totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets,
-    byReason, byAgent, failLabels, errors };
+    byReason, byAgent, failLabels, dimensionTraffic, dimensionCallers, dimensionSeries, errors };
 }
 
 // ---------------------------------------------------------------- charts
@@ -472,6 +493,9 @@ const REASON_TEXT: Record<string, string> = {
   input_too_long: "an input was over 32,000 characters",
   rate_limit_minute: "per-minute rate limit",
   rate_limit_day: "daily rate limit",
+  bad_dimensions: "invalid dimension definitions or conflicting options",
+  too_many_decisions: "too many item × dimension decisions",
+  dimension_context_too_large: "input and dimension exceed the model context",
   chain_exhausted: "every model in the chain failed",
   batch_unavailable: "batch too large for the LLM fallback",
   timeout: "upstream timed out",
@@ -489,6 +513,13 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
   const ok = d.byStatus.filter((r) => String(r.status) === "200").reduce((a, r) => a + num(r.requests), 0);
   const failed = requests - ok;
   const errRate = requests ? (failed / requests) * 100 : 0;
+  const dimSum = (key: string, rows = d.dimensionTraffic) => rows.reduce((n, r) => n + num(r[key]), 0);
+  const dimRequests = dimSum("requests");
+  const dimDecisions = dimSum("classifications");
+  const dim5xx = dimSum("requests", d.dimensionTraffic.filter((r) => String(r.status).startsWith("5")));
+  const dim4xx = dimSum("requests", d.dimensionTraffic.filter((r) => String(r.status).startsWith("4")));
+  const dimOk = dimSum("requests", d.dimensionTraffic.filter((r) => String(r.status) === "200"));
+  const dimPercent = (n: number, total: number) => total ? `${(100 * n / total).toFixed(1)}%` : "0.0%";
   const per1k = classifications ? (spend / classifications) * 1000 : 0;
 
   const fmtT = (iso: unknown) => {
@@ -540,6 +571,16 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
     `  unique callers    ${group(d.visitors)}`,
     `  classifiers       ${group(d.labelSets)}`,
     "",
+    "MULTIDIMENSIONAL CLASSIFICATION",
+    `  requests          ${group(dimRequests)} (${dimPercent(dimRequests, requests)} of traffic)`,
+    `  successful items  ${group(dimSum("items"))}`,
+    `  decisions         ${group(dimDecisions)}`,
+    `  unique callers    ${group(d.dimensionCallers)} (day-scoped)`,
+    `  server failures   ${group(dim5xx)}`,
+    `  rejected requests ${group(dim4xx)}`,
+    `  uncertain fields  ${group(dimSum("uncertain"))}`,
+    `  fallback fields   ${group(dimSum("fallback"))}`,
+    "",
     ...(reasonRows.length
       ? ["WHY REQUESTS FAIL", ...reasonRows.map(([r, v]) => `  ${pad(reasonText(r), 38)} ${group(v.requests)}`), ""]
       : []),
@@ -581,6 +622,30 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
       ["unique callers", group(d.visitors), range === "24h" ? "" : "counts caller-days"],
       ["classifiers", group(d.labelSets)],
     ]),
+  )}
+
+  ${section(
+    "Multidimensional classification",
+    `<p class="quote">Each item × dimension is one decision. Counts start when this feature shipped; caller text and dimension names are never stored.</p>` +
+    kv([
+      ["requests", group(dimRequests), `${dimPercent(dimRequests, requests)} of all requests`],
+      ["successful requests", group(dimOk)],
+      ["successful items", group(dimSum("items"))],
+      ["decisions", group(dimDecisions)],
+      ["unique callers", group(d.dimensionCallers), range === "24h" ? "day-scoped" : "counts caller-days"],
+      ["server failures", group(dim5xx), dimPercent(dim5xx, dimRequests)],
+      ["rejected requests", group(dim4xx), "validation or quota"],
+      ["uncertain fields", group(dimSum("uncertain")), "confidence < 0.7 or unscored"],
+      ["fallback fields", group(dimSum("fallback")), "Jev unavailable"],
+      ["upstream spend", usd(dimSum("usd"))],
+      ["avg latency", ms(dimRequests ? dimSum("ms_sum") / dimRequests : 0)],
+    ]) +
+    areaChart("dimensions", d.dimensionSeries.map((r) => ({ t: fmtT(r.t), v: num(r.classifications) })), "var(--blue)", group) +
+    `<p class="sub">Decisions over time</p>` +
+    (d.dimensionTraffic.some((r) => String(r.status) !== "200") ?
+      `<div class="scroll"><table><thead><tr><th>failure cause</th><th>status</th><th>requests</th></tr></thead><tbody>${d.dimensionTraffic.filter((r) => String(r.status) !== "200").map((r) =>
+        `<tr><td>${esc(reasonText(String(r.reason || "unknown")))}</td><td>${esc(r.status)}</td><td>${group(num(r.requests))}</td></tr>`).join("")}</tbody></table></div>` :
+      `<div class="empty">no multidimensional failures recorded in this range</div>`),
   )}
 
   ${section("Requests over time", areaChart("req", pts.map((p) => ({ t: p.t, v: p.reqs })), "var(--blue)", group))}
@@ -734,11 +799,16 @@ function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: 
       .join("")}
     </tbody></table></div></details>`,
   )}
+  <details><summary>multidimensional buckets (${d.dimensionSeries.length})</summary><div class="scroll"><table>
+  <thead><tr><th>bucket</th><th>requests</th><th>decisions</th></tr></thead><tbody>
+  ${d.dimensionSeries.map((r) => `<tr><td>${esc(fmtT(r.t))}</td><td>${group(num(r.requests))}</td><td>${group(num(r.classifications))}</td></tr>`).join("")}
+  </tbody></table></div></details>
 </article></div>`,
     `<script nonce="${nonce}">
 const DATA = ${JSON.stringify({
       req: pts.map((p) => [p.t, `${group(p.reqs)} requests`]),
       usd: pts.map((p) => [p.t, `${usd(p.usd)} spend`]),
+      dimensions: d.dimensionSeries.map((r) => [fmtT(r.t), `${group(num(r.classifications))} decisions`]),
     }).replace(/</g, "\\u003c")};
 const REPORT = ${JSON.stringify(report).replace(/</g, "\\u003c")};
 const copy = document.getElementById("copy");

@@ -56,7 +56,7 @@ about five items you can already see, just decide yourself.
 - \`instructions\`: extra criteria in a sentence.
 
 Over MCP (Claude, ChatGPT, Codex, Cursor): https://classifier.dev/mcp — tools
-\`classify_texts\`, \`classify_multi_label\`, \`count_labels\`, \`review_uncertain\`.
+\`classify_texts\`, \`classify_dimensions\`, \`classify_multi_label\`, \`count_labels\`, \`review_uncertain\`.
 Setup per client: https://classifier.dev/mcp-setup. From a shell:
 \`npm i -g classifier-dev\` then \`classify bug,feature,praise < feedback.txt\`.
 
