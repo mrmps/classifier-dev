@@ -25,6 +25,7 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
     src/jev.ts      TypeSafe's Jev: packs inputs into requests, reads probabilities
     src/limiter.ts  Durable Object: per-IP rate limiting
     src/report.ts   digest — Analytics Engine SQL -> Resend, flags model fallbacks
+    src/alerts.ts   every 15 minutes; emails only when something is wrong
     src/admin.ts    /admin — the operator dashboard, same data as the digest
     src/cost.ts     per-request upstream spend, from the providers' own accounting
     src/docs.ts     the site (GET / and GET /benchmark), plain text
@@ -106,6 +107,25 @@ per-request meter (`src/cost.ts`) and lands in `double3`. That column was added
 after launch, so it reads 0 for anything older than that deploy.
 
 A cron at 15:00 UTC queries it and emails a digest via Resend.
+
+### Alerts
+
+A separate cron runs every fifteen minutes and stays silent unless something
+fires. It only watches conditions with an action attached: Jev not answering
+(the fallback chain serving quietly, which has happened), 5xx rates, smart-tier
+escalations failing (the shape an exhausted `OPENROUTER_API_KEY` takes), mean
+latency, a spend spike against the trailing day, and traffic stopping outright.
+4xx is ignored — that is scanners probing for `/wp-admin`, not a fault.
+
+Each condition emails once when it starts, again every six hours while it
+lasts, and once when it clears, with the state in KV under `alert:`. Thresholds
+are the `T` object at the top of `src/alerts.ts`.
+
+    curl -H "authorization: Bearer $REPORT_KEY" https://classifier.dev/alerts
+    curl -H "authorization: Bearer $REPORT_KEY" "https://classifier.dev/alerts?demo=1&send=1"
+
+The first previews without sending or touching state; the second emails a
+sample through the real path, to prove delivery works.
 
 ### /admin
 

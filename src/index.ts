@@ -5,6 +5,7 @@ import { OPENAPI, LLMS_TXT } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { homeHtml, benchmarkHtml } from "./home";
 import { dailyReport } from "./report";
+import { runAlerts } from "./alerts";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -39,6 +40,8 @@ const MAX_LABELS_SINGLE = 26;
 // The fallback is one upstream call per input, so it cannot take a real batch.
 const FALLBACK_MAX_INPUTS = 20;
 const MAX_CHARS = 32_000;
+/** The schedule that runs the alert check rather than the digest. */
+const ALERT_CRON = "*/15 * * * *";
 // Smart tier: a fast answer below this confidence is re-asked of the reasoning chain.
 const ESCALATE_BELOW = 0.7;
 
@@ -662,6 +665,8 @@ function record(env: Env, ctx: ExecutionContext, d: {
   agent: string;
   /** Inputs the caller sent, even when validation rejected them. */
   attempted: number;
+  /** Smart-tier answers that could not reach the reasoning model. */
+  escalationFailed: number;
 }) {
   try {
     env.AE?.writeDataPoint({
@@ -669,7 +674,7 @@ function record(env: Env, ctx: ExecutionContext, d: {
       // double3 and blob7/blob8 were added after launch: rows written before
       // that read back as 0 and "", so cost and failure reasons are only
       // meaningful from that deploy forward.
-      doubles: [d.n, d.ms, d.usd, d.attempted],
+      doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed],
       indexes: [d.ip.slice(0, 32)],
     });
   } catch {
@@ -775,6 +780,25 @@ export default {
     if (path === "llms.txt" || path === ".well-known/llms.txt") {
       return text(LLMS_TXT, 200, { "cache-control": "public, max-age=3600" });
     }
+    // Preview the alert check on demand, without waiting a quarter hour.
+    if (req.method === "GET" && path === "alerts") {
+      const bearer = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
+      const given = bearer || url.searchParams.get("key") || "";
+      if (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY))) {
+        return text("not found\n", 404);
+      }
+      try {
+        return text(
+          await runAlerts(env, {
+            send: url.searchParams.get("send") === "1",
+            demo: url.searchParams.get("demo") === "1",
+          }),
+        );
+      } catch (e) {
+        return text(`alerts failed: ${(e as Error).message}\n`, 500);
+      }
+    }
+
     // Preview the daily digest on demand (also proves the cron path works).
     if (req.method === "GET" && path === "report") {
       // A query string is copied into logs, history and Referer headers, so
@@ -831,7 +855,7 @@ export default {
         body = (await req.json()) as Record<string, unknown>;
       } catch {
         record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 400, client, model: "",
-          usd: meter.usd, reason: "bad_json", agent, attempted: 0 });
+          usd: meter.usd, reason: "bad_json", agent, attempted: 0, escalationFailed: 0 });
         return json({ error: "Body must be JSON. See https://classifier.dev" }, 400);
       }
       inputs = Array.isArray(body.inputs)
@@ -867,7 +891,7 @@ export default {
 
     const fail = (msg: string, status: number, reason: string, extra: Record<string, string> = {}, ms = 0) => {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
-        usd: meter.usd, reason, agent, attempted: inputs.length });
+        usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0 });
       return wantJson ? json({ error: msg }, status, extra) : text(`error: ${msg}\n`, status, extra);
     };
 
@@ -914,7 +938,7 @@ export default {
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
       model: modelSummary.modelsUsed.join(","), usd: meter.usd,
-      reason: "", agent, attempted: inputs.length,
+      reason: "", agent, attempted: inputs.length, escalationFailed,
     });
 
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
@@ -964,7 +988,16 @@ export default {
     );
   },
 
-  async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    // The quarter-hourly trigger is the alert check; the three daily ones are
+    // the digest. An alert failure must not be silent, since silence is what
+    // this is here to prevent.
+    if (controller.cron === ALERT_CRON) {
+      ctx.waitUntil(
+        runAlerts(env, { send: true }).catch((e) => console.error(`alerts failed: ${(e as Error).message}`)),
+      );
+      return;
+    }
     ctx.waitUntil(dailyReport(env, { send: true, primaries: primaryModels() }));
   },
 };
