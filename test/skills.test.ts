@@ -324,7 +324,7 @@ describe("the pages", () => {
     const env = {} as Env;
     const page = await get(env, "/skills", { accept: "text/html", "user-agent": "Mozilla/5.0" });
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("Nothing has passed yet");
+    expect(await page.text()).toContain("No skills listed yet");
     expect((await get(env, "/skills.md")).headers.get("content-type")).toContain("text/markdown");
     expect((await get(env, "/skills/nothing")).status).toBe(404);
     expect((await get(env, "/skills/nothing.md")).status).toBe(404);
