@@ -768,7 +768,7 @@ export default {
         }
         const attach = path.match(/^api\/v1\/feedback\/([A-Za-z0-9_]+)\/attachments$/);
         if (attach && req.method === "POST") {
-          return json(await feedback.addAttachments(env, attach[1], await readBody()), 200);
+          return json(await feedback.addAttachments(env, attach[1], await readBody(), ip), 200);
         }
         const receipt = path.match(/^api\/v1\/receipts\/([A-Za-z0-9_]+)$/);
         if (receipt && req.method === "GET") {
