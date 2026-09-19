@@ -24,6 +24,12 @@ export const MAX_MESSAGES = 40;
 export const MAX_MESSAGE_CHARS = 8000;
 /** A tool result the model reads in full; the browser gets the head of it. */
 const RESULT_PREVIEW = 1200;
+/**
+ * Texts per classify call from the chat. The chat's calls carry the service's
+ * own key, so this and the per-turn gate in index.ts are what bound a visitor's
+ * spend, not the public per-IP quota.
+ */
+export const CHAT_MAX_INPUTS = 300;
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -139,7 +145,8 @@ export function systemPrompt(server: McpServer, today = new Date().toISOString()
     "and say that you did; never ask the visitor for material you can fetch or make up yourself.\n\n" +
     "Answer in plain text: short sentences, no markdown headings, no bold, no tables. A tab-separated list is fine. " +
     "Keep answers under about 120 words unless the visitor asks for more. " +
-    "Never invent results; every label and confidence you quote comes from a tool result. " +
+    "Never invent results; every label and confidence you quote comes from a tool result. If a classify tool fails, " +
+    "say what it said (a rate limit, an error) and stop there: do not label anything yourself, not even provisionally. " +
     "The API needs no key: curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone returns `spam`, " +
     "and POST https://classifier.dev/v1/classify takes {inputs, labels}. " +
     "Docs are at https://classifier.dev/docs and the MCP server at https://classifier.dev/mcp.\n\n" +
@@ -250,7 +257,13 @@ async function callTool(server: McpServer, req: Request, name: string, args: Rec
   const r = await handleMcp(
     new Request(new URL("/mcp", req.url), {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json", "user-agent": req.headers.get("user-agent") ?? "" },
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        "user-agent": req.headers.get("user-agent") ?? "",
+        // The chat's own credentials, when the route gave it any.
+        ...(req.headers.get("authorization") ? { authorization: req.headers.get("authorization")! } : {}),
+      },
       body: JSON.stringify(rpc),
     }),
     server,
@@ -303,7 +316,12 @@ export function chatStream(o: { key: string; webKey?: string; server: McpServer;
               /* the tool reports the bad arguments */
             }
             send({ t: "tool", name: c.name, args });
-            const r = isWeb(c.name) && o.webKey ? await runWebTool(o.webKey, c.name, args) : await callTool(o.server, o.req, c.name, args);
+            const r =
+              Array.isArray(args.inputs) && args.inputs.length > CHAT_MAX_INPUTS
+                ? { text: `error: the chat classifies at most ${CHAT_MAX_INPUTS} texts per call; send fewer`, error: true }
+                : isWeb(c.name) && o.webKey
+                  ? await runWebTool(o.webKey, c.name, args)
+                  : await callTool(o.server, o.req, c.name, args);
             send({ t: "result", name: c.name, text: r.text.slice(0, RESULT_PREVIEW), ...(r.error ? { error: true } : {}) });
             messages.push({ role: "tool", tool_call_id: c.id, content: r.text });
           }
