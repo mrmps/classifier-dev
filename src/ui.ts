@@ -45,7 +45,9 @@ p{margin:0}
 .b.on{background:var(--blue-bg);color:#fff}
 .b.on .br{color:var(--blue-fg)}
 .b svg{width:15px;height:15px;flex:none}
-a.inline{color:var(--blue);text-decoration:none;padding:0 2px;transition:background-color .1s,color .1s}
+/* A bare URL is longer than a phone is wide; let it break rather than widen the page. */
+a.inline{color:var(--blue);text-decoration:none;padding:0 2px;transition:background-color .1s,color .1s;
+  overflow-wrap:anywhere}
 a.inline:hover,a.inline:focus-visible{background:var(--blue-bg);color:#fff;outline:none}
 .note{border-left:2px solid var(--amber);padding-left:12px;color:var(--muted)}
 .note b{color:var(--fg);font-weight:600}
@@ -75,13 +77,13 @@ export const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 /** A bracketed control — the one interactive idiom on either page. */
 export function btn(
   label: string,
-  opts: { href?: string; cls?: string; icon?: string; attrs?: string } = {},
+  opts: { href?: string; cls?: string; icon?: string; attrs?: string; type?: "button" | "submit" } = {},
 ) {
   const inner = `<span class="br">[</span>${opts.icon ?? ""}<span class="lbl">${esc(label)}</span><span class="br">]</span>`;
   const cls = `b${opts.cls ? ` ${opts.cls}` : ""}`;
   return opts.href
     ? `<a class="${cls}" href="${opts.href}"${opts.attrs ?? ""}>${inner}</a>`
-    : `<button type="button" class="${cls}"${opts.attrs ?? ""}>${inner}</button>`;
+    : `<button type="${opts.type ?? "button"}" class="${cls}"${opts.attrs ?? ""}>${inner}</button>`;
 }
 
 export function page(o: { title: string; head?: string; css?: string; body: string; script?: string }) {

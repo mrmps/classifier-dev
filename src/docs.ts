@@ -1,11 +1,11 @@
 import { vsJevText } from "./vsjev";
+import { roadmapDoc } from "./newsletter";
 
 export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
 labels, you get back the label that fits and how sure the model is. There is no
-API key to obtain and no account to create, so the example below works if you
-paste it right now.
+API key and no account, so the example below works the moment you paste it.
 
 
 If you are an agent or a code generator, the machine-readable description of
@@ -21,8 +21,7 @@ ${vsJevText(false)}
 WHEN THIS IS WORTH A NETWORK CALL
 
   If you are a language model, you can already classify any text you can see,
-  for free. So the question is never "can I classify this" — it is whether you
-  want the text in your context at all.
+  for free. The question is whether you want the text in your context at all.
 
   This is worth calling when reading the input is the expensive part:
 
@@ -40,9 +39,9 @@ WHEN THIS IS WORTH A NETWORK CALL
   Deterministic routing. A pipeline branch that must take the same path for the
   same input on every run, instead of drifting with a model's reasoning.
 
-  The thread joining those: classify ten thousand things without reading them
-  yourself. A thousand inputs go in one request and come back in about a
-  second. Below about five items, skip it — you have already paid the context
+  All four are the same move: classify ten thousand things without reading
+  them yourself. A thousand inputs go in one request and come back in about a
+  second. Below about five items, skip it. You have already paid the context
   cost, so just decide.
 
 
@@ -149,9 +148,9 @@ PARAMETERS
 
 CONFIDENCE
 
-  The model behind this is not a language model prompted to classify. It is a
-  decision model that returns a calibrated probability for every label, so the
-  confidence is a real forecast of whether the label is right, measured:
+  The model behind this is a decision model, not a language model prompted to
+  classify. It returns a calibrated probability for every label, so the
+  confidence is a real forecast of whether the label is right. Measured:
 
     six-way emotion, 400 items      confidence >= 0.9   right 82% of the time
                                     confidence <  0.5   right 29% of the time
@@ -229,19 +228,21 @@ LIMITS
   Each input is capped at 32,000 characters, and a request may carry up to a
   thousand inputs. Every response carries an X-RateLimit-Limit header and, where
   it can be determined, X-RateLimit-Remaining. Exceeding a limit returns 429
-  with a Retry-After header rather than a slow or silently dropped request.
+  with a Retry-After header. Nothing is slowed down or silently dropped.
 
   If you need more than this, or you want a classifier tuned to your own data,
   the fastest path is a short call: https://cal.com/michaelsf/coffee
 
 
+${roadmapDoc()}
+
 PRIVACY
 
   The text you send is never stored or logged here. It is forwarded to the
-  model provider for the classification and nothing else. What gets recorded
-  is the label names, which tier ran, which model answered, the latency, the
-  response status and a coarse country, which is what makes the usage counts
-  on this service possible.
+  model provider for the classification and nothing else. What is recorded is
+  the label names, which tier ran, which model answered, the latency, the
+  response status and a coarse country. The usage counts on this service are
+  built from those.
 
 
 Built by @michael_chomsky — https://x.com/michael_chomsky
@@ -249,9 +250,9 @@ Built by @michael_chomsky — https://x.com/michael_chomsky
 
 export const BENCHMARK = `classifier.dev/benchmark
 
-Every number here comes from a real run, with cost taken from the providers'
-own usage accounting rather than a price list. Measured 2026-09-17. The eval
-code is in the repository (eval/), so all of this is re-runnable.
+Every number here comes from a real run, and the cost column is what the
+providers actually billed. Measured 2026-09-17. The eval code is in the
+repository (eval/), so all of this is re-runnable.
 
 
 AGAINST THE MODEL IT RUNS ON
@@ -344,9 +345,9 @@ request of 1,000 short inputs returns in about 1.5 seconds.
 CAVEATS
 
 Public benchmarks are likely present in training data, so treat the accuracy
-figures as optimistic and use them to rank rather than to predict what you will
-see on your own task. The calibration table is the number to trust: it says
-how much to believe an answer, which is the thing you can act on.
+figures as optimistic. Use them to rank the models; they will not predict what
+you see on your own task. The calibration table is the one to trust, because it
+says how much to believe a given answer.
 
 If you want help measuring your own data, the offer of a call stands:
 https://cal.com/michaelsf/coffee

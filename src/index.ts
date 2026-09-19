@@ -15,6 +15,7 @@ import {
 import { dailyReport } from "./report";
 import { runAlerts } from "./alerts";
 import * as feedback from "./feedback";
+import * as newsletter from "./newsletter";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -38,6 +39,12 @@ export interface Env {
   ADMIN_PASSWORD?: string;
   /** Signs the /admin session cookie. Random, and unrelated to the password. */
   ADMIN_SIGNING_KEY?: string;
+  /**
+   * Postgres for the updates list, and nothing else. A separate Neon project on
+   * purpose: the addresses share a database with no other data, so there is
+   * nothing they could be joined against.
+   */
+  NEWSLETTER_DATABASE_URL?: string;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -1042,6 +1049,61 @@ const worker = {
       }
       return json({ error: "no such endpoint", discovery: "/.well-known/agent-feedback.json" }, 404);
     }
+    if (path === newsletter.SUBSCRIBE_PATH) {
+      if (req.method !== "POST") {
+        return json(
+          { error: "POST an email address to subscribe", example: { email: "you@example.com" } },
+          405,
+          { allow: "POST" },
+        );
+      }
+
+      // A form post means a browser with no JavaScript, and it wants a page back.
+      const form = (req.headers.get("content-type") ?? "").includes("form-");
+      const body = form
+        ? Object.fromEntries(await req.formData())
+        : await req.json().catch(() => ({}));
+      const email = newsletter.normalise((body as Record<string, unknown>).email);
+
+      if (!email) {
+        return form
+          ? html(newsletter.resultPage(false, "That does not look like an email address."), 400)
+          : json({ error: "that does not look like an email address" }, 400);
+      }
+
+      // Enough to stop a script filling the table, loose enough that a shared
+      // office address never notices. The IP gates the request and is not stored.
+      const slow = await (async () => {
+        try {
+          const id = env.LIMITER.idFromName(`subscribe:${ip}`);
+          const res = await env.LIMITER.get(id).fetch("https://limiter/?limit=5&daily=50&cost=1");
+          return ((await res.json()) as { limited?: boolean }).limited === true;
+        } catch {
+          return false; // A limiter wobble must not eat a signup.
+        }
+      })();
+      if (slow) {
+        return form
+          ? html(newsletter.resultPage(false, "That was a lot of signups. Try again in a minute."), 429)
+          : json({ error: "too many signups from this address; try again in a minute" }, 429, {
+              "retry-after": "60",
+            });
+      }
+
+      try {
+        await newsletter.subscribe(env, email, form ? "form" : "api");
+      } catch (e) {
+        console.error(`subscribe failed: ${(e as Error).message}`);
+        return form
+          ? html(newsletter.resultPage(false, "Could not save that just now. Try again shortly."), 503)
+          : json({ error: "could not record that address; try again shortly" }, 503);
+      }
+
+      return form
+        ? html(newsletter.resultPage(true, "You are on the list."))
+        : json({ ok: true, subscribed: email }, 202);
+    }
+
     if (req.method === "GET" && !classifyByQuery && (path === "" || path === "index.html" || path === "index.md")) {
       const link = { link: LINKS(origin) };
       const wantsJson = /\bapplication\/json\b/.test(accept) && !wantsHtml;

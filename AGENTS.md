@@ -21,3 +21,7 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
 - The MCP servers (`src/mcp.ts`) are stateless Streamable HTTP; tools call the API through `worker.fetch` so limits and logging are shared.
 - Never commit secrets; `.secrets.env`, `.dev.vars` are ignored. `eval/data/` is ignored except the summary copied to `src/vs-jev.json`.
 - Measured numbers on the site come from `eval/`; do not type numbers in by hand.
+- The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
+  text, the signup form and the Markdown all render from it. Addresses go to a
+  separate Neon project and the table stores nothing that could join them to API
+  traffic — keep it that way.

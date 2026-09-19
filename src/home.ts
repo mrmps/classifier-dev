@@ -11,6 +11,7 @@ import { esc, btn, page, COPY_ICON } from "./ui";
 import { DOCS, BENCHMARK } from "./docs";
 import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor } from "./vsjev";
 import { SITE, SITE_UPDATED } from "./wellknown";
+import { ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
 
 const HOME_CSS = `
 .prose section>*+*{margin-top:14px}
@@ -60,7 +61,41 @@ h2{scroll-margin-top:24px}
 .agent .alt{margin-top:14px}
 .or{color:var(--dim)}
 @media (max-width:640px){.agent{padding:14px 14px 16px}}
+/* The updates list: two columns of plain text, and one field. Still not a card. */
+.roadmap td:first-child{color:var(--bright);padding-right:20px}
+.roadmap td:last-child{text-align:left;color:var(--muted);white-space:normal}
+.sub{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}
+.sub input{flex:1 1 280px;min-width:0;padding:6px 8px;background:#11161f;color:var(--fg);
+  border:1px solid var(--line);font:inherit;outline:none}
+.sub input:focus{border-color:var(--accent-text)}
+.sub input::placeholder{color:var(--syntax)}
+.sub .said{color:var(--green)}
+.sub .said.bad{color:var(--red)}
+.terms{color:var(--dim);margin-top:10px}
+@media (max-width:640px){.roadmap td{display:block}.roadmap td:first-child{padding-bottom:0}
+  .roadmap tr+tr td:first-child{padding-top:10px}}
 `;
+
+/** The updates list. ROADMAP is the same constant `curl classifier.dev` prints. */
+function updatesSection() {
+  const rows = ROADMAP.map(
+    (r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.what)}</td></tr>`,
+  ).join("");
+  return `<section id="updates">
+    <h2><span class="syn">## </span>Get the updates</h2>
+    <p class="lead">The free tier is the whole service today. What is being built on top of it:</p>
+    <div class="scroll"><table class="roadmap"><tbody>${rows}</tbody></table></div>
+    <form class="sub" method="post" action="/${SUBSCRIBE_PATH}" data-subscribe="1">
+      <input type="email" name="email" required autocomplete="email" spellcheck="false"
+        placeholder="you@example.com" aria-label="Your email address">
+      ${btn("subscribe", { cls: "cta", type: "submit" })}
+      <span class="said" role="status" aria-live="polite"></span>
+    </form>
+    <p class="terms">One mail when something on that list ships, and nothing in between.
+      The list holds the address and the date it arrived, in a database with no other
+      table, so there is nothing to join it to. Unsubscribing is a reply.</p>
+  </section>`;
+}
 
 /** The headline: what the service adds over calling its own model directly. */
 function vsJevSection() {
@@ -130,8 +165,14 @@ function renderBlocks(body: string[]): string {
   return out.join("");
 }
 
-/** Turn one of the plain-text documents into sections. */
-function renderDoc(doc: string, skipTitle: boolean) {
+/**
+ * Turn one of the plain-text documents into sections.
+ *
+ * `swap` replaces one section by its UPPERCASE heading, for the few that have a
+ * richer HTML form than their plain text — the section keeps its place in the
+ * document, so the order a reader sees matches `curl classifier.dev`.
+ */
+function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string> = {}) {
   const lines = doc.split("\n");
   const out: string[] = [];
   let i = 0;
@@ -156,6 +197,10 @@ function renderDoc(doc: string, skipTitle: boolean) {
     i++;
     const body: string[] = [];
     while (i < lines.length && !isHeading(lines[i])) body.push(lines[i++]);
+    if (title in swap) {
+      out.push(swap[title]);
+      continue;
+    }
     const name = (title.charAt(0) + title.slice(1).toLowerCase())
       .replace(/\b(cli|api|mcp|json|ndjson|url|http|rfc|chatgpt)\b/gi, (m) => (m.toLowerCase() === "chatgpt" ? "ChatGPT" : m.toUpperCase()))
       .replace(/\bClaude code\b/, "Claude Code");
@@ -367,6 +412,30 @@ for (const b of document.querySelectorAll("[data-copy]")) {
 }
 </script>`;
 
+const SUBSCRIBE_SCRIPT = `<script>
+// The form posts on its own without this; here it just answers in place.
+{ // A block, so nothing here becomes a global the other two scripts could collide with.
+const f = document.querySelector("[data-subscribe]");
+if (f) f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const said = f.querySelector(".said"), input = f.querySelector("input"), lbl = f.querySelector(".lbl");
+  const was = lbl.textContent;
+  lbl.textContent = "sending"; said.className = "said"; said.textContent = "";
+  try {
+    const res = await fetch(f.action, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: input.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) { said.textContent = "on the list."; input.value = ""; }
+    else { said.className = "said bad"; said.textContent = body.error || "that did not work."; }
+  } catch { said.className = "said bad"; said.textContent = "no network."; }
+  lbl.textContent = was;
+});
+}
+</script>`;
+
 const NAV = (here: string) =>
   `<nav><p class="row">${btn("home", { href: "/", cls: here === "home" ? "on" : "" })}${btn("benchmark", {
     href: "/benchmark",
@@ -397,7 +466,7 @@ export function homeHtml(): string {
 
   <section class="agent" id="agent">
     <h2><span class="syn">## </span>Give your agent this prompt</h2>
-    <p class="lead">Paste it into any coding agent. It installs the skill and teaches the agent to classify text through this API &#8212; no key, no setup.</p>
+    <p class="lead">Paste it into any coding agent. It installs the skill and teaches the agent to classify text through this API. No key, no setup.</p>
     <div class="block prompt"><pre>${esc(AGENT_PROMPT)}</pre>
     <p class="row">${btn("copy prompt", {
       cls: "cta",
@@ -451,11 +520,11 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt   <span class="o
     })}</p></div>
   </section>
 
-  ${renderDoc(DOCS, true)}
+  ${renderDoc(DOCS, true, { UPDATES: updatesSection() })}
 
   ${FOOT}
 </article></main></div>`,
-    script: COPY_SCRIPT + WEBMCP_SCRIPT,
+    script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT,
   });
 }
 

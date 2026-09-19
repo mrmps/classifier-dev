@@ -132,6 +132,43 @@ The digest reports which model actually answered, with a `FALLBACK` marker,
 because the previous primary was delisted upstream and served its backup for
 weeks at F1 0.546 without anything saying so.
 
+## Updates list
+
+The form at the foot of the home page posts to `POST /subscribe`, which appends
+the address to Postgres in its own Neon project (`classifier-newsletter`; the
+id is in `.secrets.env`, or from `neonctl projects list`). The table has four
+columns and no others: the address, where it came from, when it arrived, and a
+column for unsubscribing.
+There is deliberately no IP and no request id, so there is no column an address
+could be joined on. `on conflict (email) do nothing` makes a repeat submission a
+no-op, which also stops the response being used to test whether an address is
+already on the list.
+
+    npx wrangler secret put NEWSLETTER_DATABASE_URL
+
+The Worker writes over Neon's HTTP SQL endpoint rather than a Postgres driver:
+a Worker has no TCP, and this is one parameterised INSERT.
+
+Read the list:
+
+    neonctl connection-string --project-id "$NEWSLETTER_PROJECT_ID" \
+      --role-name neondb_owner --database-name neondb \
+      | xargs -I{} psql {} -c "select email, created_at from subscriber order by id"
+
+The Worker connects as `newsletter_writer`, which is granted `INSERT` on that
+one table and nothing else. Do not read more into that than it deserves: Neon
+puts every role it creates into `neon_superuser`, which can read any table
+whatever the grants say, and neither the project owner nor `ALTER ROLE` can
+revoke that membership. So the connection string can in fact read the list.
+What actually keeps the addresses apart is the separate project and the absent
+columns, not the grant. To rotate the credential, delete and recreate the role
+(`neonctl roles delete newsletter_writer`, then `create`) and put the new
+string back with `wrangler secret put`.
+
+The copy is one constant — `ROADMAP` in `src/newsletter.ts`. The plain text at
+`curl classifier.dev`, the form on the rendered page and `index.md` all read it,
+so a change to the roadmap changes all three or none.
+
 ## Analytics
 
 Every request writes one Analytics Engine datapoint (tier, label-set fingerprint,

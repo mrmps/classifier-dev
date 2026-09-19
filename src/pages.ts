@@ -147,8 +147,8 @@ COMING SOON
                            the input is unreadable in transit and unreadable to
                            the service that classifies it.
 
-  If either is on your roadmap, say so while it is still being shaped and it
-  gets built against your case.
+  If either is on your roadmap, say so now and it gets built against your
+  case.
 
     Book a call   ${SITE.author.cal}
     Email         ${SITE.email}
@@ -358,23 +358,23 @@ call works the moment you read the example.
 
 WHY IT EXISTS
 
-  Language models can classify anything they can see — but seeing is the
+  Language models can classify anything they can see, but seeing is the
   expensive part. An agent with forty search results, a thousand log lines or a
   backlog of tickets has to pull all of it into context to judge it. This
-  service lets it classify ten thousand things without reading them: one
-  request, a second later, labels and confidences for all of them, and only the
-  survivors get read.
+  service classifies ten thousand things without reading them: one request, a
+  second later, labels and confidences for all of them, and only the survivors
+  get read.
 
-  The confidence is the point. It is calibrated, so an agent can act on the
-  sure answers and hand the rest to a person or a stronger model. That split
-  is what makes bulk classification safe to automate.
+  The confidence is calibrated, so an agent can act on the sure answers and
+  hand the rest to a person or a stronger model. Without that split you would
+  have to trust every answer equally.
 
 
 WHAT IT RUNS ON
 
-  The model is Jev, TypeSafe's decision model, which returns a calibrated
-  probability per label rather than generating text. The smart tier re-asks
-  the answers Jev was unsure about of a reasoning model. Both are measured on
+  The model is Jev, TypeSafe's decision model. It returns a calibrated
+  probability per label instead of generating text. The smart tier re-asks the
+  answers Jev was unsure about of a reasoning model. Both are measured on
   public test sets at https://classifier.dev/benchmark, including how the
   service compares with calling Jev directly.
 
@@ -387,8 +387,8 @@ WHO
 
   Built and run by ${SITE.author.name} (https://x.com/${SITE.author.handle}), an
   independent developer in San Francisco. It started as a tool for agents that
-  needed to filter search results before reading them, and grew a public API
-  when the tool turned out to be the interesting part.
+  needed to filter search results before reading them, and got a public API
+  once other people wanted the same thing.
 
 
 CONTACT AND POLICIES
@@ -432,8 +432,8 @@ AGENTS
 SECURITY
 
   Found something sensitive? Email ${SITE.email} with "security" in the subject
-  rather than opening a public issue. There is no bug bounty, but there is a
-  prompt fix and a thank-you in the changelog.
+  instead of opening a public issue. There is no bug bounty, but there is a
+  quick fix and a thank-you in the changelog.
 `;
 
 export const PRIVACY = `classifier.dev privacy
@@ -461,6 +461,20 @@ WHAT IS LOGGED
   input text. These records power the usage counts and the alerting that
   keeps the service up, and are kept for 90 days in Cloudflare Analytics
   Engine.
+
+
+IF YOU ASK FOR UPDATES
+
+  The form at the foot of the home page keeps two things: the address you
+  typed and the date it arrived. They live in a separate database with no
+  other table in it, and the row holds no IP, no user agent and no request id.
+  There is nothing an address could be joined on, here or later. Your IP gates
+  that form the way it gates the API, and is not stored beside the address.
+
+  The address is used to send occasional news about this service and for
+  nothing else. It is never sold, never shared, and never passed to an
+  advertiser. Unsubscribing is a reply to any mail that arrives; ask at
+  ${SITE.email} and the row is deleted, not flagged.
 
 
 WHAT IS NOT COLLECTED
