@@ -218,9 +218,10 @@ ENDPOINTS
 
 AUTHENTICATION
 
-  None. Every endpoint above answers anonymous requests, as
-  /.well-known/oauth-protected-resource and https://classifier.dev/auth.md also
-  say. A partner key only lifts the per-IP limits: Authorization: Bearer <key>.
+  Classification works without a key within the free limits. Pro ($20/month)
+  gives 10x those limits. Send Authorization: Bearer <key> on REST or MCP;
+  Pro keys start with classifier_pro_. Sign in at https://classifier.dev/pro to subscribe and
+  create a key. Partner keys remain supported. https://classifier.dev/auth.md
 
 
 EXAMPLES
@@ -268,13 +269,15 @@ EXAMPLES
 
 KEYS AND LIMITS
 
-  No key is needed and none is issued for normal use. Limits are per IP and
+  No key is needed for free use. Free limits are per IP and
   counted in classifications, not requests: 3,000 a minute and 20,000 a day on
   the fast tier, 200 a minute and 2,000 a day on smart. Every classification
   response carries RateLimit-Limit and RateLimit-Policy, and RateLimit-Remaining
   once the limiter has been consulted (every 200 and 429); a 429 adds
-  Retry-After. Need more? A partner key lifts the limits — https://cal.com/michaelsf/coffee.
-  How authentication works (it does not): https://classifier.dev/auth.md
+  Retry-After. Pro ($20/month) gives 10x the minute and daily allowances per
+  billing account, across IPs: https://classifier.dev/pro. Both Pro tiers
+  accept up to 1,000 inputs per request. Use --api-key with the CLI, or set
+  CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). https://classifier.dev/auth.md
 
 
 SANDBOX
@@ -328,8 +331,9 @@ SOURCE AND SUPPORT
 
 export const PRICING = `classifier.dev pricing
 
-Free. No API key, no account, no card. The whole API, both tiers, the MCP
-servers, the CLI and the skill, within per-IP limits.
+Start free with no API key, account or card. Pro is $20/month for 10x the
+classification rate limits. Both plans include fast and smart classification,
+the MCP servers and the CLI.
 
 
 FREE TIER
@@ -347,16 +351,31 @@ FREE TIER
   label.
 
 
+PRO
+
+  Price                    $20/month
+  Fast tier                30,000 classifications a minute, 200,000 a day
+  Smart tier               2,000 a minute, 20,000 a day
+  Inputs per request       up to 1,000 on either tier
+  Allowance                per billing account, shared across keys and IPs
+  Sign-up and billing      https://classifier.dev/pro
+
+  Sign in with a one-time email link, then subscribe through Stripe checkout,
+  managed by Autumn. Create an API key after subscribing and save it when
+  shown; it is shown only once. You can rotate it from your account.
+  Send Authorization: Bearer classifier_pro_... on REST or MCP requests.
+  With the CLI, use --api-key or CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works).
+  Manage payment details and cancellation from your account.
+
+
 PARTNER
 
   Price                    by arrangement
   Limits                   lifted, on a bearer key
-  For                      teams past 20,000 classifications a day, or who need a contract
+  For                      teams beyond Pro limits, or who need a contract
   How                      https://cal.com/michaelsf/coffee
 
-  There is no self-serve paid tier yet because the free one is not metered per
-  account. If you need more than a single IP's allowance, book a call; keys are
-  issued the same day.
+  Contact us for limits beyond Pro or a separate agreement.
 
 
 WHAT COUNTS
@@ -371,7 +390,8 @@ WHAT COUNTS
                                        re-asks are included, not extra
 
   Both tiers, the MCP servers (https://classifier.dev/mcp) and the CLI draw
-  on the same per-IP allowance. Limits reset each minute and each day;
+  on the same allowance: per IP on Free, per billing account on Pro.
+  Limits reset each minute and each UTC day;
   every response carries RateLimit-Remaining and a 429 says how long to wait.
 
 
@@ -389,7 +409,7 @@ export const ABOUT = `About classifier.dev
 
 classifier.dev is a zero-shot text classification service: you send texts and
 a list of labels over plain HTTP, and get back the label that fits each text
-and how sure the model is. There is no API key and no account, so the first
+and how sure the model is. Free use needs no API key or account, so the first
 call works the moment you read the example.
 
 
@@ -521,16 +541,30 @@ IF YOU ASK FOR UPDATES
 
 WHAT IS NOT COLLECTED
 
-  No accounts, no cookies, no analytics or tracking scripts, no advertising.
-  The pages load one file from elsewhere, the syntax highlighter from
-  cdnjs.cloudflare.com, and the Content-Security-Policy header lets a browser
-  load nothing else. The only thing kept in your browser is the flag above.
+  Free classification needs no account. There are no analytics or tracking
+  scripts, and no advertising. The pages load one file from elsewhere, the
+  syntax highlighter from cdnjs.cloudflare.com; Content-Security-Policy
+  restricts other sources. Anonymous use keeps only the flag above.
+  Pro sign-in also sets an HttpOnly session cookie for billing endpoints only,
+  which expires after 30 days or when you sign out.
 
 
 AGENTS AND THE MCP SERVERS
 
   The MCP servers are stateless: nothing about a session is remembered between
   calls. Tool inputs are handled exactly like API inputs above.
+
+
+PRO BILLING
+
+  Your billing email and account are held in separate Cloudflare Durable
+  Object storage and with Autumn and Stripe for subscriptions and payments.
+  They are separate from the newsletter database. Billing identity is never
+  included in classification analytics; the daily caller fingerprints above
+  continue to apply. Payment details are entered in Stripe checkout.
+  Only hashes of API keys are stored on our server. A key is shown once when
+  created; rotating it replaces the old credential.
+  Subscription access is checked with a cache of at most 60 seconds.
 
 
 PARTNER KEYS
@@ -549,8 +583,9 @@ export const TERMS = `classifier.dev terms
 
 The short version: the service is free within the published limits, it is
 offered as it is, you are responsible for what you send and for what you do
-with the answers, and it can change or stop. There is no contract unless you
-hold a partner key with one.
+with the answers, and it can change or stop. Pro is a monthly subscription
+you can cancel at any time; there is no other contract unless you hold a
+partner key with one.
 
 
 WHAT YOU GET
@@ -595,6 +630,18 @@ NO WARRANTY, NO LIABILITY
   person who runs it are not liable for any loss arising from its use or from
   its unavailability; where liability cannot be excluded, it is limited to
   what you paid for the service, which for the free tier is nothing.
+
+
+PRO
+
+  Pro is $20 a month, billed by Stripe through Autumn against the card you
+  give at checkout, and renews monthly until you cancel from your account at
+  https://classifier.dev/pro. Cancelling stops the next charge; the
+  allowance stays until the paid month ends. The price and the Pro limits at
+  https://classifier.dev/pricing can change with notice on that page before
+  a renewal. Your API key is yours to keep secret; requests made with it
+  count against your allowance whoever sends them, and you can rotate it
+  from your account at any time.
 
 
 PARTNER KEYS

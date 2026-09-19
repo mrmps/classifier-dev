@@ -20,6 +20,7 @@
     "@cloudflare/workers-types": "^5.20260813.1",
     "@types/node": "^22.20.4",
     "ajv": "^8.20.0",
+    "atmn": "2.0.8",
     "typescript": "^7.0.2",
     "wrangler": "^4.122.0"
   },

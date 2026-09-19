@@ -14,3 +14,7 @@ sdk/python/*.egg-info/
 !.agents/plugins/
 .claude/
 skills-lock.json
+
+# Local billing credentials
+.env
+.env.local

@@ -5,7 +5,8 @@ export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
 labels, you get back the label that fits and how sure the model is. There is no
-API key and no account, so the example below works the moment you paste it.
+API key or account required for free use, so the example below works the
+moment you paste it.
 
 
 Agents: the OpenAPI 3.1 description is at https://classifier.dev/openapi.json
@@ -292,12 +293,16 @@ TIERS
 
 LIMITS
 
-  Limits are counted per IP address in classifications, not requests, so a
+  Free limits are counted per IP address in classifications, not requests, so a
   batch of a thousand inputs spends a thousand of them. The fast tier allows
   3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
   per day. A batch must fit the remaining quota in full. Public smart
   requests accept at most 200 inputs; larger batches return 400 so callers
-  can split them. Operator and partner keys retain the 1,000-input ceiling.
+  can split them. Pro ($20/month) allows 30,000/minute and 200,000/day on
+  fast, 2,000/minute and 20,000/day on smart, per billing account across IPs.
+  Pro, operator and partner keys retain the 1,000-input ceiling.
+  Subscribe and create a key at https://classifier.dev/pro; send it as
+  Authorization: Bearer classifier_pro_... on REST or MCP requests.
 
   Every classification response carries RateLimit-Limit and RateLimit-Policy,
   plus RateLimit-Remaining once the limiter has been consulted (every 200 and
