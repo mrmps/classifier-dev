@@ -8,7 +8,8 @@ import { describe, it, expect } from "bun:test";
 import { hasClassifyQuery, readGet, readQuery, suggest, USAGE } from "../src/query";
 
 const u = (s: string) => new URL(`https://classifier.dev${s}`);
-const path = (s: string) => decodeURIComponent(u(s).pathname).replace(/^\/+/, "");
+// readGet takes the raw pathname and decodes each piece itself.
+const path = (s: string) => u(s).pathname.replace(/^\/+/, "");
 const get = (s: string) => readGet(path(s), u(s));
 
 describe("query form", () => {
@@ -35,10 +36,25 @@ describe("query form", () => {
     expect(get("/?labels=a,b&text=x&multi=0").multi).toBeUndefined();
   });
 
-  it("falls back to defaults on values it cannot read instead of throwing", () => {
+  it("falls back to defaults on values it cannot read instead of throwing, and names a tier it could not read", () => {
     const r = get("/?labels=a,b&text=x&tier=bogus&max_labels=lots");
     expect(r.tier).toBe("fast");
+    expect(r.badTier).toBe("bogus");
     expect(r.multi).toBeUndefined();
+    // Any case of the two real tiers is fine, and nothing is reported.
+    expect(get("/?labels=a,b&text=x&tier=Smart").tier).toBe("smart");
+    expect(get("/?labels=a,b&text=x&tier=Smart").badTier).toBeUndefined();
+  });
+
+  it("keeps a percent-encoded comma, slash or plus inside a label or the text", () => {
+    expect(get("/C%2B%2B,python/templates").labels).toEqual(["C++", "python"]);
+    expect(get("/a%2Fb,c/hello").labels).toEqual(["a/b", "c"]);
+    expect(get("/a%2Cb,c/hello").labels).toEqual(["a,b", "c"]);
+    expect(get("/a,b/one%2Ftwo+three%2Bfour").text).toBe("one/two three+four");
+    expect(get("/r%C3%A9sum%C3%A9,%E6%97%A5%E6%9C%AC%E8%AA%9E/x").labels).toEqual(["résumé", "日本語"]);
+    // The query form: + is a space, %2B a plus, and nuqs reads a comma inside a label as %252C.
+    expect(get("/?labels=C%2B%2B,python&text=x").labels).toEqual(["C++", "python"]);
+    expect(get("/?labels=a%252Cb,c&text=x").labels).toEqual(["a,b", "c"]);
   });
 
   it("honours the names agents guess", () => {

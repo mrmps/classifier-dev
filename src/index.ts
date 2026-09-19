@@ -2,7 +2,7 @@ import { HL_ORIGIN } from "./ui";
 import { isUnintelligible, UNSCORED_REASON } from "./unintelligible";
 import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
-import { OPENAPI, LLMS_TXT } from "./openapi";
+import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
 import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
@@ -22,7 +22,7 @@ import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
 import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
-import { hasClassifyQuery, readGet, suggest, USAGE, type GetRequest } from "./query";
+import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
 
 export interface Env {
@@ -855,12 +855,14 @@ function agentFamily(ua: string) {
  * provider ids and timings that would make every row unique; the dashboard
  * wants to know which *kind* of failure is happening and how often.
  */
-function upstreamReason(msg: string) {
+function upstreamReason(msg: string): ErrorCode {
   const m = msg.toLowerCase();
   if (m.includes("typesafe")) {
     const code = m.match(/typesafe (\d{3})/);
-    return code ? `typesafe_${code[1]}` : "typesafe";
+    return code ? `typesafe_${Number(code[1])}` : "typesafe";
   }
+  const openrouter = m.match(/^upstream (\d{3})$/);
+  if (openrouter) return `openrouter_${Number(openrouter[1])}`;
   if (m.includes("all models failed")) return "chain_exhausted";
   if (m.includes("batch classification is temporarily unavailable")) return "batch_unavailable";
   if (m.includes("timeout") || m.includes("timed out")) return "timeout";
@@ -974,7 +976,17 @@ const worker = {
     // the isolate serves concurrent requests.
     const meter = newMeter();
 
-    const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    // The pathname as the caller wrote it, and decoded for routing. A stray
+    // "%" is not valid percent-encoding: decodeURIComponent throws on it, and
+    // an uncaught throw here was a 500 for every scanner that sent one. It is
+    // not a route, so it is a 404.
+    const rawPath = url.pathname.replace(/^\/+/, "");
+    let path: string;
+    try {
+      path = decodeURIComponent(rawPath);
+    } catch {
+      return notFound(req, url.origin);
+    }
     if (req.method === "OPTIONS") {
       // The MCP transport names its own headers and methods in its preflight.
       if (MCP_PATHS.has(path)) return handleMcp(req, DOCS_MCP);
@@ -995,7 +1007,7 @@ const worker = {
     const wantsHtml =
       req.method === "GET" &&
       url.searchParams.get("format") !== "text" &&
-      /\btext\/html\b/.test(accept);
+      (url.searchParams.get("format") === "html" || /\btext\/html\b/.test(accept));
     // Agents that ask for Markdown get the same document with Markdown headings.
     const wantsMarkdown =
       req.method === "GET" && (url.searchParams.get("format") === "markdown" || /\btext\/markdown\b/.test(accept));
@@ -1163,14 +1175,14 @@ const worker = {
         const receipt = path.match(/^api\/v1\/receipts\/([A-Za-z0-9_]+)$/);
         if (receipt && req.method === "GET") {
           const found = await feedback.getReceipt(env, receipt[1]);
-          return found ? json(found) : json({ error: "no such receipt" }, 404);
+          return found ? json(found) : json({ error: "no such receipt", code: "not_found" }, 404);
         }
       } catch (e) {
-        if (e instanceof feedback.Invalid) return json({ error: e.message }, 400);
+        if (e instanceof feedback.Invalid) return json({ error: e.message, code: "invalid_submission" }, 400);
         console.error(`feedback failed: ${(e as Error).message}`);
-        return json({ error: "could not record that submission" }, 500);
+        return json({ error: "could not record that submission", code: "internal" }, 500);
       }
-      return json({ error: "no such endpoint", discovery: "/.well-known/agent-feedback.json" }, 404);
+      return json({ error: "no such endpoint", code: "not_found", discovery: "/.well-known/agent-feedback.json" }, 404);
     }
     if (path === newsletter.SUBSCRIBE_PATH) {
       if (req.method !== "POST") {
@@ -1366,42 +1378,10 @@ const worker = {
     let tier: Tier = "fast";
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
-    let wantJson = req.method === "POST";
+    // JSON for every POST, and for a GET that asked with ?verbose=1 or Accept: application/json.
+    let wantJson = req.method === "POST" || /\bapplication\/json\b/.test(accept);
     // Set for GET so a failed request can be answered with a URL that would have worked.
     let getReq: GetRequest | undefined;
-
-    if (req.method === "POST") {
-      let body: Record<string, unknown>;
-      try {
-        body = (await req.json()) as Record<string, unknown>;
-      } catch {
-        record(env, ctx, { tier, n: 0, ms: 0, labels, ip, country, status: 400, client, model: "",
-          usd: meter.usd, reason: "bad_json", agent, attempted: 0, escalationFailed: 0 });
-        return json({ error: "Body must be JSON. See https://classifier.dev" }, 400);
-      }
-      inputs = Array.isArray(body.inputs)
-        ? (body.inputs as string[])
-        : typeof body.input === "string"
-          ? [body.input]
-          : [];
-      labels = Array.isArray(body.labels) ? (body.labels as string[]) : [];
-      if (body.tier === "smart") tier = "smart";
-      if (typeof body.instructions === "string") instructions = body.instructions;
-      if (body.multi === true || typeof body.max_labels === "number") {
-        const max = typeof body.max_labels === "number" ? body.max_labels : undefined;
-        multi = { max: max && max > 0 ? Math.floor(max) : undefined };
-      }
-    } else {
-      // GET /{labels}/{text}, GET /?labels=a,b&text=..., or a mix of the two.
-      getReq = readGet(classifyPath, url);
-      if (getReq.nothing) return notFound(req, origin);
-      labels = getReq.labels;
-      inputs = [getReq.text];
-      tier = getReq.tier;
-      instructions = getReq.instructions;
-      multi = getReq.multi;
-      wantJson = getReq.verbose;
-    }
 
     // Every API answer, success or not, says which version answered, how much
     // room is left (IETF RateLimit header fields), and echoes an idempotency
@@ -1423,18 +1403,66 @@ const worker = {
       if (idem) h["idempotency-key"] = idem.slice(0, 255);
       return h;
     };
-    const fail = (msg: string, status: number, reason: string, extra: Record<string, string> = {}, ms = 0) => {
+    const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1) => {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0 });
-      const headers = { ...apiHeaders(), ...extra };
+      const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
       const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
       if (wantJson) return json({ error: msg, code: reason, ...hint }, status, headers);
       return text(`error: ${msg}\n` + (hint ? `usage: ${hint.usage}\ntry:   ${hint.try}\n` : ""), status, headers);
     };
-    // How the labels read back in an error: enough to recognise, never the whole text.
-    const shown = (ls: string[]) =>
-      ls.slice(0, 5).map((l) => `"${l.length > 40 ? l.slice(0, 37) + "..." : l}"`).join(", ") + (ls.length > 5 ? ", ..." : "");
+    // How the labels read back in an error: enough to recognise, never the whole
+    // text. Anything can be in the list at this point, so it is stringified first.
+    const shown = (ls: unknown[]) =>
+      ls.slice(0, 5).map((v) => { const l = String(v); return `"${l.length > 40 ? l.slice(0, 37) + "..." : l}"`; }).join(", ") + (ls.length > 5 ? ", ..." : "");
+    /** true, "true", 1 and "1" all mean yes; a boolean field should not fail silently on a string. */
+    const truthy = (v: unknown) => v === true || v === 1 || (typeof v === "string" && /^(1|true|yes|on)$/i.test(v.trim()));
+
+    if (req.method === "POST") {
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        return fail("Body must be JSON. See https://classifier.dev", 400, "bad_json");
+      }
+      // JSON that is not an object (null, an array, a string) has no fields to
+      // read; saying so beats the 500 that reading `.inputs` off null used to be.
+      if (body === null || typeof body !== "object" || Array.isArray(body)) {
+        return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
+      }
+      const b = body as Record<string, unknown>;
+      inputs = Array.isArray(b.inputs)
+        ? (b.inputs as string[])
+        : typeof b.inputs === "string"
+          ? [b.inputs]
+          : typeof b.input === "string"
+            ? [b.input]
+            : [];
+      labels = Array.isArray(b.labels) ? (b.labels as string[]) : [];
+      const named = readTier(b.tier);
+      if (named === null) return fail(`tier must be "fast" or "smart"; got ${JSON.stringify(b.tier).slice(0, 40)}`, 400, "bad_tier");
+      tier = named;
+      if (typeof b.instructions === "string") instructions = b.instructions;
+      // A numeric string counts: "2" is a cap, not a request to be ignored.
+      const maxRaw = typeof b.max_labels === "string" && b.max_labels.trim() ? Number(b.max_labels) : b.max_labels;
+      if (truthy(b.multi) || typeof maxRaw === "number") {
+        const max = typeof maxRaw === "number" && Number.isFinite(maxRaw) ? Math.floor(maxRaw) : undefined;
+        multi = { max: max && max > 0 ? max : undefined };
+      }
+    } else {
+      // GET /{labels}/{text}, GET /?labels=a,b&text=..., or a mix of the two.
+      // The path goes in undecoded so a %2C, %2F or %2B inside a label survives.
+      getReq = readGet(CLASSIFY_ALIASES.has(path) ? "" : rawPath, url);
+      if (getReq.nothing) return notFound(req, origin);
+      labels = getReq.labels;
+      inputs = [getReq.text];
+      tier = getReq.tier;
+      instructions = getReq.instructions;
+      multi = getReq.multi;
+      wantJson = getReq.verbose || wantJson;
+      if (getReq.badTier !== undefined) return fail(`tier must be "fast" or "smart"; got ${JSON.stringify(getReq.badTier).slice(0, 40)}`, 400, "bad_tier");
+    }
 
     if (!inputs.length || !inputs[0]) {
       return fail(
@@ -1459,7 +1487,7 @@ const worker = {
     if (labels.some((l) => typeof l !== "string" || !l.trim())) return fail("Labels must be non-empty strings", 400, "empty_label");
     if (new Set(labels).size !== labels.length) return fail("Labels must be distinct", 400, "duplicate_labels");
     if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400, "empty_input");
-    if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be under ${MAX_CHARS} characters`, 400, "input_too_long");
+    if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be at most ${MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
 
     const rpm = TIERS[tier].rpm;
     const gate = enterprise
@@ -1476,8 +1504,9 @@ const worker = {
         {
           "retry-after": String(gate.resetIn ?? 60),
           "x-ratelimit-limit": perDay ? `${TIERS[tier].daily}/day` : `${rpm}/min`,
-          "x-ratelimit-remaining": "0",
         },
+        0,
+        0,
       );
     }
 
