@@ -43,40 +43,129 @@ h2{scroll-margin-top:24px}
   --surface-2:#0d1118; --surface-2:color(display-p3 .052 .066 .094);
   --hair:rgba(255,255,255,.08); --hair-2:rgba(255,255,255,.12);
 }
-.agent{padding:18px 18px 20px;border-radius:8px;background:var(--surface);
+/* Concentric radii: the card wraps the prompt at --pad, so its own radius has
+   to be the prompt's plus that inset, or the two curves are not parallel. The
+   padding changes on a phone and the radius follows it. */
+.agent{--pad:18px;padding:var(--pad) var(--pad) calc(var(--pad) + 2px);
+  border-radius:calc(var(--r) + var(--pad));background:var(--surface);
   box-shadow:0 0 0 1px var(--hair),inset 0 1px 0 rgba(255,255,255,.04)}
 .agent h2{color:var(--bright)}
 .agent .prompt>pre{white-space:pre-wrap;word-break:break-word;color:var(--bright);
-  border:0;border-radius:6px;background:var(--surface-2);box-shadow:0 0 0 1px var(--hair)}
+  border:0;border-radius:var(--r);background:var(--surface-2);box-shadow:0 0 0 1px var(--hair)}
 .agent .block>.row{margin-top:12px}
-.b.cta{background:var(--accent);color:#fff;font-weight:600;font-size:15px;padding:9px 16px;border-radius:6px;
+.b.cta{background:var(--accent);color:#fff;font-weight:600;font-size:15px;padding:9px 16px;border-radius:var(--r);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.4);
-  transition:background-color .12s,transform .12s}
+  transition:background-color .12s,scale .12s}
 .b.cta .br{color:rgba(255,255,255,.45)}
 .b.cta:hover,.b.cta:focus-visible{background:var(--accent-hover);color:#fff}
 .b.cta:focus-visible{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 0 2px var(--bg),0 0 0 4px var(--accent-text)}
-.b.cta:active{transform:translateY(1px)}
+.b.cta:active{scale:.96}
 .b.cta:hover .br,.b.cta:focus-visible .br{color:rgba(255,255,255,.6)}
 .b.cta svg{width:16px;height:16px}
 .agent .alt{margin-top:14px}
 .or{color:var(--dim)}
-@media (max-width:640px){.agent{padding:14px 14px 16px}}
+@media (max-width:640px){.agent{--pad:14px}}
 /* The updates list: two columns of plain text, and one field. Still not a card. */
 .roadmap td:first-child{color:var(--bright);padding-right:20px}
 .roadmap td:last-child{text-align:left;color:var(--muted);white-space:normal}
 .sub{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}
+/* The field matches the button it sits beside: same radius, same height.
+   16px is a floor, not a preference — iOS Safari zooms the page on focus
+   below it, and the rest of the page is 13px on a phone. */
 .sub input{flex:1 1 280px;min-width:0;padding:6px 8px;background:#11161f;color:var(--fg);
-  border:1px solid var(--line);font:inherit;outline:none}
-.sub input:focus{border-color:var(--accent-text)}
-.sub input::placeholder{color:var(--syntax)}
+  border:1px solid var(--line);border-radius:var(--r);font:inherit;
+  font-size:max(16px,1em);min-height:36px}
+.sub input:focus-visible{border-color:var(--accent-text);
+  outline:2px solid var(--accent-text);outline-offset:2px}
+.sub input::placeholder{color:var(--dim)}
 .sub .said{color:var(--green)}
 .sub .said.bad{color:var(--red)}
 .terms{color:var(--dim);margin-top:10px}
+/* Screen-reader-only, for labels the sighted layout carries visually. */
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip-path:inset(50%);white-space:nowrap;border:0}
+/* The floating dock: the one rounded object on the site, and deliberately so.
+   After jakub.kr — a capsule held by a hairline ring rather than a border, a
+   field with no chrome of its own inside it, and a filled pill that presses
+   when you click it. It shows once you are reading and retires for good when
+   the UPDATES section arrives, so the page never shows two of the same form. */
+.dock{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;justify-content:center;
+  flex-direction:column;align-items:center;gap:8px;
+  padding:0 16px calc(16px + env(safe-area-inset-bottom,0px));pointer-events:none;
+  opacity:0;transform:translateY(10px);
+  transition:opacity .24s ease-out,transform .24s ease-out}
+.dock.in{opacity:1;transform:none}
+.dock form{pointer-events:auto;display:flex;align-items:center;gap:10px;
+  width:100%;max-width:560px;padding:6px 6px 6px 18px;border-radius:999px;
+  background:#11161f;
+  box-shadow:0 0 0 1px #ffffff14,0 10px 30px -10px rgba(0,0,0,.7)}
+/* Whatever the server said. Empty is invisible, so nothing has to toggle it,
+   and it sits above the capsule rather than inside it — a long message can be
+   read in full instead of stretching the field it is complaining about. */
+.dock .msg{margin:0;max-width:560px;padding:7px 16px;border-radius:999px;
+  background:#11161f;box-shadow:0 0 0 1px #ffffff14;color:var(--muted)}
+.dock .msg:empty{display:none}
+.dock .msg.bad{color:var(--red)}
+/* The standing label, divided from the field so the two do not read as one line. */
+.dock .lead{flex:none;color:var(--muted);white-space:nowrap;
+  padding-right:12px;border-right:1px solid #ffffff14}
+/* Radius 20 is the field's own half-height, which is also the capsule's 26
+   less the 6px it is inset by — the focus ring lands parallel to the capsule. */
+.dock input{flex:1 1 auto;min-width:0;height:40px;padding:0;border:0;border-radius:20px;
+  background:none;color:var(--fg);font:inherit;font-size:max(16px,1em)}
+.dock input:focus-visible{outline:2px solid var(--accent-text);outline-offset:0}
+.dock input::placeholder{color:var(--dim)}
+/* The pill. jakub.kr inverts it against the page; here it takes the accent the
+   rest of the site already uses for the one action worth taking. */
+.pill{flex:none;height:40px;min-width:116px;padding:0 18px;border:0;border-radius:999px;
+  background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer;
+  white-space:nowrap;-webkit-appearance:none;appearance:none;
+  transition:background-color .2s ease-out,scale .2s ease-out}
+.pill:active{scale:.96}
+.pill:focus-visible{outline:none;box-shadow:0 0 0 2px #11161f,0 0 0 4px var(--accent-text)}
+.dock .x{flex:none;width:30px;height:30px;border:0;border-radius:999px;background:none;
+  color:var(--dim);font:inherit;font-size:15px;line-height:1;cursor:pointer;
+  transition:color .2s ease-out,background-color .2s ease-out}
+.dock .x:focus-visible{outline:none;color:var(--fg);box-shadow:0 0 0 2px var(--accent-text)}
+@media (hover:hover){
+  .pill:hover{background:var(--accent-hover)}
+  .dock .x:hover{color:var(--fg);background:#ffffff14}
+}
+@media (max-width:640px){.dock .lead{display:none}.dock form{padding-left:14px}}
+@media (max-width:420px){.pill{min-width:0;padding:0 14px}}
+@media (prefers-reduced-motion:reduce){
+  .dock,.dock form,.pill,.dock .x{transition:none}
+  .dock{transform:none}
+  .pill:active{scale:1}
+}
 @media (max-width:640px){.roadmap td{display:block}.roadmap td:first-child{padding-bottom:0}
   .roadmap tr+tr td:first-child{padding-top:10px}}
 `;
 
 /** The updates list. ROADMAP is the same constant `curl classifier.dev` prints. */
+/**
+ * The floating signup.
+ *
+ * The same form as the one in the document, in the one place a reader can
+ * always reach it. It appears once they are past the fold and disappears for
+ * good when the UPDATES section scrolls in, so the two are never on screen
+ * together and the footer is never covered.
+ */
+function subscribeDock() {
+  return `<aside class="dock" id="dock" hidden aria-label="Subscribe to updates">
+    <p class="msg" data-say="1" aria-hidden="true"></p>
+    <form method="post" action="/${SUBSCRIBE_PATH}" data-subscribe="1" data-done="subscribed">
+      <span class="lead" aria-hidden="true">Get the updates</span>
+      <label class="sr" for="dock-email">Your email address</label>
+      <input id="dock-email" type="email" name="email" required autocomplete="email"
+        spellcheck="false" placeholder="you@example.com">
+      <button type="submit" class="pill"><span class="lbl">Subscribe</span></button>
+      <button type="button" class="x" aria-label="Dismiss">&#215;</button>
+      <span class="sr" role="status" aria-live="polite" data-announce="1"></span>
+    </form>
+  </aside>`;
+}
+
 function updatesSection() {
   const rows = ROADMAP.map(
     (r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.what)}</td></tr>`,
@@ -89,7 +178,7 @@ function updatesSection() {
       <input type="email" name="email" required autocomplete="email" spellcheck="false"
         placeholder="you@example.com" aria-label="Your email address">
       ${btn("subscribe", { cls: "cta", type: "submit" })}
-      <span class="said" role="status" aria-live="polite"></span>
+      <span class="said" role="status" aria-live="polite" data-say="1"></span>
     </form>
     <p class="terms">One mail when something on that list ships, and nothing in between.
       The list holds the address and the date it arrived, in a database with no other
@@ -413,26 +502,79 @@ for (const b of document.querySelectorAll("[data-copy]")) {
 </script>`;
 
 const SUBSCRIBE_SCRIPT = `<script>
-// The form posts on its own without this; here it just answers in place.
 { // A block, so nothing here becomes a global the other two scripts could collide with.
-const f = document.querySelector("[data-subscribe]");
-if (f) f.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const said = f.querySelector(".said"), input = f.querySelector("input"), lbl = f.querySelector(".lbl");
-  const was = lbl.textContent;
-  lbl.textContent = "sending"; said.className = "said"; said.textContent = "";
-  try {
-    const res = await fetch(f.action, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: input.value }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (res.ok) { said.textContent = "on the list."; input.value = ""; }
-    else { said.className = "said bad"; said.textContent = body.error || "that did not work."; }
-  } catch { said.className = "said bad"; said.textContent = "no network."; }
-  lbl.textContent = was;
-});
+// Both forms — the one in the document and the floating dock — post the same
+// way. Without this script they still post, and the server answers with a page.
+const dock = document.querySelector(".dock");
+const KEY = "classifier.updates";
+const off = () => { try { return localStorage.getItem(KEY) === "off"; } catch { return false; } };
+
+let retired = false;
+function retire(remember) {
+  retired = true;
+  if (remember) { try { localStorage.setItem(KEY, "off"); } catch {} }
+  if (!dock) return;
+  dock.classList.remove("in");
+  setTimeout(() => { dock.hidden = true; }, 240);
+}
+
+if (dock && !off()) {
+  // Once the reader reaches the real section, the dock has done its job.
+  const section = document.getElementById("updates");
+  if (section) {
+    new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) retire(false);
+    }).observe(section);
+  }
+  const onScroll = () => {
+    if (retired || !dock.hidden) return;
+    if (scrollY > 600) {
+      dock.hidden = false;
+      requestAnimationFrame(() => dock.classList.add("in"));
+    }
+  };
+  addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  dock.querySelector(".x").addEventListener("click", () => retire(true));
+}
+
+for (const f of document.querySelectorAll("[data-subscribe]")) {
+  const scope = f.closest(".dock") || f;
+  const say = scope.querySelector("[data-say]");
+  const announce = f.querySelector("[data-announce]");
+  const lbl = f.querySelector(".lbl");
+  const input = f.querySelector("input[type=email]");
+  const idle = lbl.textContent;
+  const said = say ? say.textContent : "";
+
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (say) { say.className = say.className.replace(" bad", ""); say.textContent = said; }
+    lbl.textContent = "sending";
+    try {
+      const res = await fetch(f.action, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: input.value }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        input.value = "";
+        lbl.textContent = f.dataset.done || "on the list";
+        if (announce) announce.textContent = "Subscribed.";
+        if (say && !f.dataset.done) say.textContent = "on the list.";
+        if (f.closest(".dock")) setTimeout(() => retire(true), 2400);
+        return;
+      }
+      const msg = body.error || "that did not work.";
+      if (announce) announce.textContent = msg;
+      if (say) { say.className += " bad"; say.textContent = msg; }
+    } catch {
+      if (say) { say.className += " bad"; say.textContent = "no network."; }
+    }
+    lbl.textContent = idle;
+  });
+}
 }
 </script>`;
 
@@ -523,7 +665,8 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt   <span class="o
   ${renderDoc(DOCS, true, { UPDATES: updatesSection() })}
 
   ${FOOT}
-</article></main></div>`,
+</article></main></div>
+${subscribeDock()}`,
     script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT,
   });
 }
