@@ -249,6 +249,15 @@ const agentView = (origin: string) => ({
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
+    subscribe: {
+      method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
+      content_type: "application/json", body: { email: "agent@example.com" },
+      description: "Subscribe your own inbox to product updates. Use an address you control, or one whose owner explicitly requested updates. No API key or browser needed.",
+      confirmation_required: false,
+      response: { status: 202, body: { ok: true, subscribed: "agent@example.com" } },
+      limits: "5 signups/min, 50/day per IP; retry a 429 after Retry-After seconds",
+      unsubscribe: "Reply to an update to unsubscribe.",
+    },
     openapi: `${origin}/openapi.json`,
   },
   mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
