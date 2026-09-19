@@ -9,6 +9,11 @@ import { BillingAccount, handleBilling, type BillingEnv } from "../src/billing";
 export const CLIENT_ID = "client_test_01";
 export const ISSUER = `https://api.workos.com/user_management/${CLIENT_ID}`;
 export const ORIGIN = "https://classifier.dev";
+/** Test-only Stripe configuration. The real endpoint secret and product ID live in Wrangler secrets. */
+export const WEBHOOK_SECRET = "whsec_test_0123456789abcdef";
+export const PRO_PRODUCT = "prod_test_pro";
+/** The private operator address the notifications go to; never a real one, and never in the source. */
+export const OWNER = "owner@example.com";
 const encoder = new TextEncoder();
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2, "0")).join("");
 const base64url = (bytes: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -31,6 +36,16 @@ export async function legacyId(email: string, signingKey = "test-billing-secret"
   const key = await crypto.subtle.importKey("raw", encoder.encode(signingKey), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
   return hex(await crypto.subtle.sign("HMAC", key, encoder.encode(email)));
 }
+/** Stripe's scheme, signed for real: HMAC-SHA256 over `<t>.<raw body>` with the endpoint secret. */
+export async function stripeSignature(body: string, options: {secret?: string; timestamp?: number} = {}) {
+  const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
+  const key = await crypto.subtle.importKey("raw", encoder.encode(options.secret ?? WEBHOOK_SECRET), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
+  return {timestamp, v1: hex(await crypto.subtle.sign("HMAC", key, encoder.encode(`${timestamp}.${body}`)))};
+}
+export async function stripeHeader(body: string, options: {secret?: string; timestamp?: number} = {}) {
+  const {timestamp, v1} = await stripeSignature(body, options);
+  return `t=${timestamp},v1=${v1}`;
+}
 export const cookieOf = (response: Response, name: string) => response.headers.getSetCookie().find(c => c.startsWith(`${name}=`));
 export const cookieValue = (response: Response, name: string) => cookieOf(response, name)?.split(";")[0];
 
@@ -52,22 +67,46 @@ export function setup() {
     challenges: new Map<string, string>(), refreshTokens: new Map<string, string>(), sessions: [] as WorkOSSession[],
     exchanges: [] as Record<string, unknown>[], revoked: [] as string[],
   };
+  /** Scheduled alarms, per instance. They outlive the instance, exactly as the real ones do. */
+  const alarms = new Map<string, number>();
+  const resend = {requests: [] as {headers: Headers; body: Record<string, any>}[], accepted: new Map<string, string>(), status: 200, id: "email_test_01" as string | null, unreachable: false};
+  const storageFailure = {sent: false};
   const env: BillingEnv = {
     BILLING_SIGNING_KEY: "test-billing-secret", AUTUMN_SECRET_KEY: "test-autumn",
     WORKOS_API_KEY: apiKey, WORKOS_CLIENT_ID: CLIENT_ID, WORKOS_COOKIE_PASSWORD: "cookie-password-for-tests-0123456789", WORKOS_REDIRECT_URI: `${ORIGIN}/v1/billing/callback`,
+    RESEND_API_KEY: "re_test_key", REPORT_TO: OWNER, STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, STRIPE_PRO_PRODUCT_ID: PRO_PRODUCT,
     LIMITER: {idFromName: (x: string) => x, get: () => ({fetch: async () => Response.json({limited: false})})} as unknown as DurableObjectNamespace,
   };
+  const storage = (id: string) => ({
+    get: async (key: string) => structuredClone(data.get(id + key)),
+    put: async (key: string, value: unknown) => {
+      if (storageFailure.sent && (value as {sent?: boolean})?.sent) throw new Error("storage unavailable after send");
+      data.set(id + key, structuredClone(value));
+    },
+    delete: async (key: string) => data.delete(id + key),
+    getAlarm: async () => alarms.get(id) ?? null,
+    setAlarm: async (at: number) => {alarms.set(id, at);},
+    deleteAlarm: async () => {alarms.delete(id);},
+  });
   env.BILLING = {idFromName: (x: string) => x, get: (id: string) => {
     if (!instances.has(id)) instances.set(id, new BillingAccount({storage: {
-      get: async (key: string) => structuredClone(data.get(id + key)),
-      put: async (key: string, value: unknown) => {data.set(id + key, structuredClone(value));},
-      transaction: async (callback: (storage: unknown) => Promise<unknown>) => callback({
-        get: async (key: string) => structuredClone(data.get(id + key)),
-        put: async (key: string, value: unknown) => {data.set(id + key, structuredClone(value));},
-      }),
+      ...storage(id),
+      transaction: async (callback: (storage: unknown) => Promise<unknown>) => callback(storage(id)),
     }} as unknown as DurableObjectState, env));
     return instances.get(id);
   }} as unknown as DurableObjectNamespace;
+  /** Fire every alarm that is due, as the runtime would: the alarm is cleared before the handler runs. */
+  const runAlarms = async (at = Date.now()) => {
+    let fired = 0;
+    for (const [id, scheduled] of [...alarms]) {
+      if (scheduled > at) continue;
+      alarms.delete(id);
+      env.BILLING!.get(env.BILLING!.idFromName(id));
+      await instances.get(id)!.alarm();
+      fired++;
+    }
+    return fired;
+  };
   const failure = (code: number) => Response.json(code === 400 ? {error: "invalid_grant", error_description: "PRIVATE PROVIDER DETAILS"} : {message: "PRIVATE PROVIDER DETAILS", code: "private"}, {status: code});
   const issue = async (userId: string, sid: string) => {
     const refresh = `rt_${random()}`;
@@ -129,6 +168,16 @@ export function setup() {
     const method = init?.method ?? (input instanceof Request ? input.method : "GET");
     const text = typeof init?.body === "string" ? init.body : "";
     if (url.hostname === "api.workos.com") return api(url, method, text, new Headers(init?.headers as HeadersInit));
+    if (url.hostname === "api.resend.com") {
+      resend.requests.push({headers: new Headers(init?.headers as HeadersInit), body: JSON.parse(text)});
+      if (resend.unreachable) throw new Error("resend unreachable");
+      const key = new Headers(init?.headers as HeadersInit).get("Idempotency-Key")!;
+      if (resend.status === 200 && resend.id) {
+        if (resend.accepted.has(key) && resend.accepted.get(key) !== text) return Response.json({error: "idempotency conflict"}, {status: 409});
+        resend.accepted.set(key, text);
+      }
+      return Response.json(resend.id === null ? {} : {id: resend.id}, {status: resend.status});
+    }
     const body = JSON.parse(text);
     if (fail) return Response.json({error: "PRIVATE PROVIDER DETAILS"}, {status: 500});
     if (url.pathname.endsWith("customers.get_or_create")) return Response.json({id: body.customer_id});
@@ -142,9 +191,18 @@ export function setup() {
     }
     return Response.json({url: "https://billing.stripe.com/session"});
   });
-  const call = (path: string, init: {method?: string; cookie?: string; origin?: string; body?: string} = {}) => handleBilling(new Request(`${ORIGIN}/v1/billing/${path}`, {
-    method: init.method ?? "GET", headers: {...(init.origin ? {Origin: init.origin} : {}), ...(init.cookie ? {Cookie: init.cookie} : {})}, ...(init.body !== undefined ? {body: init.body} : {}),
+  const call = (path: string, init: {method?: string; cookie?: string; origin?: string; body?: string; headers?: Record<string, string>} = {}) => handleBilling(new Request(`${ORIGIN}/v1/billing/${path}`, {
+    method: init.method ?? "GET", headers: {...(init.origin ? {Origin: init.origin} : {}), ...(init.cookie ? {Cookie: init.cookie} : {}), ...init.headers}, ...(init.body !== undefined ? {body: init.body} : {}),
   }), env).then(response => response!);
+  /**
+   * POST a Stripe event as Stripe would. The body is signed for real unless the test supplies its own
+   * header, which is how a forged, missing, stale or future signature gets in front of the endpoint.
+   */
+  const stripe = async (event: unknown, options: {secret?: string; timestamp?: number; header?: string | null; body?: string; method?: string} = {}) => {
+    const body = options.body ?? JSON.stringify(event);
+    const header = options.header === undefined ? await stripeHeader(body, options) : options.header;
+    return call("stripe-webhook", {method: options.method ?? "POST", body, headers: header === null ? {} : {"Stripe-Signature": header}});
+  };
   /** What the /pro page does: GET for account, an empty JSON POST for everything else. */
   const request = (action: string, cookie?: string, origin = ORIGIN) => call(action, action === "account" ? {cookie} : {method: "POST", cookie, origin, body: "{}"});
   /** GET /login, then play WorkOS: remember the PKCE challenge behind a fresh authorization code. */
@@ -163,5 +221,10 @@ export function setup() {
     expect(response.status).toBe(303);
     return cookieValue(response, "classifier_auth")!;
   };
-  return {env, apiKey, workos, data, status, call, request, login, callback, signIn, get calls() {return calls;}, set fail(value: boolean) {fail = value;}};
+  /** Drop the live instances: the next call rebuilds them over the same storage, as a restart does. */
+  const restart = () => instances.clear();
+  return {
+    env, apiKey, workos, data, storageFailure, status, alarms, resend, call, request, login, callback, signIn, stripe, runAlarms, restart,
+    get calls() {return calls;}, set fail(value: boolean) {fail = value;},
+  };
 }

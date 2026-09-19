@@ -107,8 +107,11 @@ async function openLoginCookie(env: AuthEnv, raw: string | undefined): Promise<{
   } catch { return null; }
 }
 
-/** Finishes hosted sign-in: state must match this browser's cookie, then the code and PKCE verifier are exchanged. */
-export async function completeLogin(req: Request, env: AuthEnv): Promise<{user: User; sealedSession: string}> {
+/**
+ * Finishes hosted sign-in: state must match this browser's cookie, then the code and PKCE verifier are
+ * exchanged. The session ID comes from the claim just checked, so naming this sign-in costs no second call.
+ */
+export async function completeLogin(req: Request, env: AuthEnv): Promise<{user: User; sealedSession: string; sessionId: string}> {
   const {workos, clientId, cookiePassword, issuer} = config(env);
   const url = new URL(req.url);
   const code = url.searchParams.get("code"), state = url.searchParams.get("state");
@@ -119,8 +122,9 @@ export async function completeLogin(req: Request, env: AuthEnv): Promise<{user: 
     result = await workos.userManagement.authenticateWithCode({code, codeVerifier: login.verifier, clientId, session: {sealSession: true, cookiePassword}});
   } catch (error) { throw providerFailure(error); }
   if (!result.sealedSession || typeof result.user?.id !== "string" || typeof result.user.email !== "string") throw unavailable();
-  if (!sessionClaim(result.accessToken, {issuer, clientId, userId: result.user.id})) throw unauthorized();
-  return {user: result.user, sealedSession: result.sealedSession};
+  const sessionId = sessionClaim(result.accessToken, {issuer, clientId, userId: result.user.id});
+  if (!sessionId) throw unauthorized();
+  return {user: result.user, sealedSession: result.sealedSession, sessionId};
 }
 
 export type Session = {userId: string; email: string; sessionId: string};

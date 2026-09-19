@@ -3,9 +3,10 @@ import {
   authenticateSession, beginLogin, BillingError, clearCookie, clearLoginCookie, completeLogin, endSession, SESSION_COOKIE, sessionCookie,
   unauthorized, unavailable, type AuthEnv,
 } from "./auth";
+import { enqueue, flush, loginNotification, stripeEvent, type NotifyEnv, type Notification } from "./billing-notifications";
 
 export { BillingError } from "./auth";
-export interface BillingEnv extends PrivacyEnv, AuthEnv {
+export interface BillingEnv extends PrivacyEnv, AuthEnv, NotifyEnv {
   BILLING?: DurableObjectNamespace;
   LIMITER: DurableObjectNamespace;
   BILLING_SIGNING_KEY?: string;
@@ -88,6 +89,8 @@ async function durable(env: BillingEnv, name: string, action: string, data: Reco
     throw unavailable();
   }
 }
+/** Storage only: the instance named by the event writes a record, and its alarm does the sending. */
+const notify = (env: BillingEnv, note: Notification) => durable(env, note.id, "notify", note);
 const identityName = (userId: string) => `workos:${userId}`;
 /**
  * The customer behind a WorkOS user. A bound identity answers directly and never looks at the email again.
@@ -109,6 +112,8 @@ async function resolveCustomer(env: BillingEnv, user: {id: string; email: string
 }
 
 const METHODS: Record<string, string> = {login: "GET", callback: "GET", account: "GET", key: "POST", checkout: "POST", portal: "POST", logout: "POST"};
+/** Stripe signs its own requests and has no browser, session or Origin header to offer. */
+const WEBHOOK = "stripe-webhook";
 /** Browser billing routes. Mutations are same-origin; sessions are WorkOS-sealed cookies; nothing identifying is logged. */
 export async function handleBilling(req: Request, env: BillingEnv): Promise<Response | null> {
   const url = new URL(req.url);
@@ -124,6 +129,13 @@ export async function handleBilling(req: Request, env: BillingEnv): Promise<Resp
   try {
     const origin = env.BILLING_ORIGIN || "https://classifier.dev";
     if (url.origin !== origin) throw new BillingError(403, "Open billing on classifier.dev to continue.");
+    if (action === WEBHOOK) {
+      if (req.method !== "POST") return json({error: "Method not allowed."}, 405);
+      // The record is durable before Stripe is told 200, and a storage failure asks Stripe to try again.
+      const paid = await stripeEvent(req, env);
+      if (paid) { try { await notify(env, paid); } catch { throw unavailable(); } }
+      return json({received: true}, 200, headers());
+    }
     if (!Object.hasOwn(METHODS, action)) return json({error: "Not found."}, 404);
     if (req.method !== METHODS[action]) return json({error: "Method not allowed."}, 405);
     if (req.method === "POST" && req.headers.get("Origin") !== url.origin) throw new BillingError(403, "Open billing on this site to continue.");
@@ -141,8 +153,10 @@ export async function handleBilling(req: Request, env: BillingEnv): Promise<Resp
     }
     if (action === "callback") {
       cookies.push(clearLoginCookie());
-      const {user, sealedSession} = await completeLogin(req, env);
+      const {user, sealedSession, sessionId} = await completeLogin(req, env);
       await resolveCustomer(env, user);
+      // Only a callback that got this far is a sign-in worth reporting, and only once per session.
+      await notify(env, loginNotification({sessionId, email: user.email, at: Date.now()}));
       cookies.push(sessionCookie(sealedSession));
       return new Response(null, {status: 303, headers: headers({Location: `${origin}/pro`})});
     }
@@ -173,8 +187,9 @@ type Account = {email: string; workosUserId?: string; apiKeyHash?: string; autum
 type Identity = {customerId?: string; candidate?: string};
 const USER_ID = /^[A-Za-z0-9_-]{1,128}$/;
 /**
- * One instance per customer (billing state, credential hashes) and one per WorkOS user (its customer mapping).
- * Only the worker reaches these routes. A queue serializes operations; storage transactions guard the claims.
+ * One instance per customer (billing state, credential hashes), one per WorkOS user (its customer mapping),
+ * and one per operator notification (its outbox). Only the worker reaches these routes. A queue serializes
+ * operations — the alarm included, so a redelivery cannot race its own send — and transactions guard the claims.
  */
 export class BillingAccount implements DurableObject {
   private queue: Promise<unknown> = Promise.resolve();
@@ -182,6 +197,12 @@ export class BillingAccount implements DurableObject {
   constructor(private state: DurableObjectState, private env: BillingEnv) {}
   fetch(req: Request): Promise<Response> {
     const operation = this.queue.then(() => this.dispatch(req));
+    this.queue = operation.catch(() => {});
+    return operation;
+  }
+  /** Notification instances only. Failing here keeps the record and the alarm, so nothing is lost. */
+  alarm(): Promise<void> {
+    const operation = this.queue.then(() => flush(this.state.storage, this.env));
     this.queue = operation.catch(() => {});
     return operation;
   }
@@ -227,6 +248,12 @@ export class BillingAccount implements DurableObject {
       const input = await body(req);
       const action = new URL(req.url).pathname.slice(1);
       if (["identity", "candidate", "bind"].includes(action)) return await this.identity(action, input);
+      // A notification instance holds no account, so this is answered before anything asks for one.
+      if (action === "notify") {
+        const {id, subject, text} = input;
+        if (typeof id !== "string" || typeof subject !== "string" || typeof text !== "string") throw new BillingError(400, "A valid notification is required.");
+        return json({queued: await enqueue(this.state.storage, {id, subject, text}, this.env)});
+      }
       const {customerId, secret, userId} = input;
       if (typeof customerId !== "string" || !/^[a-f0-9]{64}$/.test(customerId)) throw unauthorized();
       let account = await this.state.storage.get<Account>("account");

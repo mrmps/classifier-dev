@@ -240,8 +240,8 @@ function subscribeDock() {
 function updatesSection() {
   return `<section id="updates">
     <h2><span class="syn">## </span>Get the updates</h2>
-    <p class="lead">The free tier is the whole service today. What is being built on top of it,
-      in the order people ask for it — tick what you would use first:</p>
+    <p class="lead">What is being built next, in the order people ask for it — tick what you
+      would use first:</p>
     <form method="post" action="/${SUBSCRIBE_PATH}" data-subscribe="1">
       ${roadmapPick("want", "What you would use first")}
       <div class="sub">
@@ -752,7 +752,8 @@ export function homeHtml(o: { chat?: boolean } = {}): string {
     css: HOME_CSS,
     body: `<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev</h1></header>
-  <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
+  <p class="quote">zero-shot text classification over plain HTTP — no API key, no account<br>
+    free forever — <a class="inline" href="/pro">Pro · $20/mo · 10× limits</a></p>
   ${NAV(o.chat ? "chat" : "home")}
 
   <section class="agent" id="agent">

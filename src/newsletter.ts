@@ -31,6 +31,7 @@
 
 import type { Env } from "./index";
 import { btn, esc, page } from "./ui";
+import { SITE } from "./wellknown";
 
 /**
  * What an address is worth. Honest about being work in progress, not a promise
@@ -171,7 +172,8 @@ export async function requestConfirmation(env: Env, email: string, wants: Readon
     body: JSON.stringify({
       from: env.NEWSLETTER_FROM,
       to: [email],
-      ...(env.REPORT_TO ? { reply_to: env.REPORT_TO } : {}),
+      // Customer-facing replies use the public alias, never the private alert recipient.
+      reply_to: SITE.email,
       subject: "Confirm your classifier.dev updates subscription",
       text: [
         "Confirm that you want classifier.dev product updates:", link, "",

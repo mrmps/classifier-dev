@@ -521,8 +521,8 @@ SECURITY
 
 export const PRIVACY = `classifier.dev privacy
 
-The short version: the texts you classify are not stored, and there are no
-accounts to attach anything to.
+The short version: the texts you classify are not stored. Pro billing accounts
+are kept separate from classification traffic.
 
 
 WHAT IS SENT WHERE
@@ -589,6 +589,10 @@ PRO BILLING
   newsletter database. Billing identity is never included in classification
   analytics; the daily caller fingerprints above continue to apply. Payment
   details are entered in Stripe checkout.
+  Account sign-ins and new paid subscriptions send an operational notification
+  to the person who runs the service. It carries billing identity — the account
+  email and the provider's own reference — and nothing you have classified; it
+  is never linked to API traffic.
   Only hashes of API keys are stored on our server. A key is shown once when
   created; rotating it replaces the old credential.
   Subscription access is checked with a cache of at most 60 seconds.

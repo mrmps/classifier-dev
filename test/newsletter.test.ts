@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { ROADMAP, ROADMAP_KEYS, normalise, wanted, roadmapDoc, subscribe, notify, Unavailable, confirmationToken, verifyToken, requestConfirmation } from "../src/newsletter";
 import worker, { type Env } from "../src/index";
 import { OPENAPI } from "../src/openapi";
+import { SITE } from "../src/wellknown";
 
 const CONN = "postgresql://writer:pw@ep-test.us-east-1.aws.neon.tech/neondb?sslmode=require";
 const env = { NEWSLETTER_DATABASE_URL: CONN, NEWSLETTER_CONFIRMATION_SECRET: "test-secret-long-enough-for-confirmation", NEWSLETTER_RESEND_API_KEY: "test-resend", NEWSLETTER_FROM: "classifier.dev <updates@classifier.dev>" } as Env;
@@ -19,12 +20,13 @@ afterEach(() => void (globalThis.fetch = realFetch));
 
 /** Records the one request subscribe() makes. */
 function capture(status = 200) {
-  const seen: { url: string; headers: Headers; body: { query: string; params: unknown[]; to: string[]; text: string } }[] = [];
+  const seen: { url: string; headers: Headers; body: { query: string; params: unknown[]; to: string[]; text: string; reply_to?: string }; raw: string }[] = [];
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     seen.push({
       url: String(url),
       headers: new Headers(init?.headers),
       body: JSON.parse(String(init?.body)),
+      raw: String(init?.body),
     });
     return new Response(JSON.stringify({ rowCount: 1, rows: [{ added: true }] }), { status });
   }) as typeof globalThis.fetch;
@@ -364,6 +366,14 @@ describe("email confirmation", () => {
     await requestConfirmation(env, "agent@example.com");
     expect(seen[0].headers.get("idempotency-key")).toMatch(/^newsletter-confirm\//);
     expect(seen[0].body.text).not.toContain(env.NEWSLETTER_CONFIRMATION_SECRET!);
+  });
+
+  it("replies to the published address, never the owner's private REPORT_TO", async () => {
+    const seen = capture();
+    await requestConfirmation({ ...env, REPORT_TO: "owner-private@example.com" } as Env, "agent@example.com");
+    expect(seen[0].body.reply_to).toBe(SITE.email);
+    // The address a subscriber never asked to learn is nowhere in what Resend is sent.
+    expect(seen[0].raw).not.toContain("owner-private@example.com");
   });
 
   it("GET previews without persisting or sending mail; POST confirms", async () => {
