@@ -33,6 +33,13 @@ export const BASE_CSS = `
   --ink:color(display-p3 .075 .018 .13)}}
 *{box-sizing:border-box}
 html{color-scheme:dark}
+/* Grayscale antialiasing, not subpixel. On a dark ground the subpixel method
+   draws light type heavy and colour-fringed; grayscale is lighter and closer
+   to the letterforms. The property inherits, so the body is the one place it
+   is set. It is a macOS property: Windows keeps ClearType regardless. Since
+   grayscale takes weight out of every glyph, nothing on the site is drawn
+   below the regular weight, and text under the base size steps its weight up
+   (the dashboard's 11px axis labels and 12px tooltip are the two cases). */
 body{margin:0;background:var(--bg);color:var(--fg);
   font:14px/1.625 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}

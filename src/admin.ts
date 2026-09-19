@@ -383,13 +383,15 @@ const STYLE = BASE_CSS + `
 .chartwrap{position:relative}
 .chartwrap svg{width:100%;height:180px;display:block;overflow:visible}
 .gridline{stroke:var(--rule);stroke-width:1}
-.ylab,.xlab{fill:var(--dim);font-size:11px;font-family:inherit}
+/* Under the base size the weight steps up (see the body rule in ui.ts): the
+   axis labels and the tooltip are the smallest type on the site. */
+.ylab,.xlab{fill:var(--dim);font-size:11px;font-weight:500;font-family:inherit}
 .ylab{text-anchor:end}
 .cross{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3}
 .dot{stroke:var(--bg);stroke-width:2}
 .hit{fill:transparent}
 .tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);
-  color:var(--fg);font-size:12px;padding:4px 8px;white-space:nowrap;
+  color:var(--fg);font-size:12px;font-weight:500;padding:4px 8px;white-space:nowrap;
   transform:translate(-50%,-145%);z-index:5;font-variant-numeric:tabular-nums}
 td.lab{max-width:38ch;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 @media (max-width:640px){.bname{max-width:20ch}}
