@@ -92,7 +92,7 @@ export const OPENAPI = {
       "POST /v1/classify/batch is an alias for callers that look for one.",
     contact: { name: "Michael Ryaboy", url: "https://cal.com/michaelsf/coffee", email: "contact@classifier.dev" },
     license: { name: "MIT", url: "https://github.com/mrmps/classifier-dev/blob/main/LICENSE" },
-    termsOfService: "https://classifier.dev/privacy",
+    termsOfService: "https://classifier.dev/terms",
     "x-api-versioning": {
       scheme: "url-path",
       current: "v1",
@@ -1193,7 +1193,7 @@ with a score. Labels scoring >= 0.7 are returned, most likely first;
 - [MCP setup](https://classifier.dev/mcp-setup): Claude, ChatGPT, Codex, Cursor
 - [Pricing](https://classifier.dev/pricing): free; limits; partner keys
 - [Authentication](https://classifier.dev/auth.md): there is none
-- [Privacy](https://classifier.dev/privacy), [About](https://classifier.dev/about), [Contact](https://classifier.dev/contact)
+- [Privacy](https://classifier.dev/privacy), [Terms](https://classifier.dev/terms), [About](https://classifier.dev/about), [Contact](https://classifier.dev/contact)
 - [Documentation](https://classifier.dev): full parameter list, tiers, limits
 - [OpenAPI specification](https://classifier.dev/openapi.json): machine-readable, OpenAPI 3.1
 - [Benchmark](https://classifier.dev/benchmark): measured accuracy, calibration, cost and latency

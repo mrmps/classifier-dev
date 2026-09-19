@@ -12,7 +12,7 @@ const get = (path: string, headers: Record<string, string>) =>
 const html = (path: string) => get(path, { accept: "text/html", "user-agent": "Mozilla/5.0" });
 const markdown = (path: string) => get(path, { accept: "text/markdown" });
 
-const PAGES = ["/", "/developers", "/benchmark", "/mcp-setup", "/pricing", "/privacy", "/about", "/contact"];
+const PAGES = ["/", "/developers", "/benchmark", "/mcp-setup", "/pricing", "/privacy", "/terms", "/about", "/contact"];
 
 const hrefs = (page: string) => [...page.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
 const htmlHeadings = (page: string) => [...page.matchAll(/<h2>(?:<span class="syn">## <\/span>)?([^<]+)<\/h2>/g)].map((m) => m[1]);

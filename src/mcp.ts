@@ -411,7 +411,7 @@ export function docsServer(docs: Doc[]): McpServer {
       name: "list_docs",
       title: "List the classifier.dev documents",
       description:
-        "List every classifier.dev document available over this server — the API reference, the benchmark, the agent skill, the CLI, pricing, privacy and " +
+        "List every classifier.dev document available over this server — the API reference, the benchmark, the agent skill, the CLI, pricing, privacy, terms and " +
         "the MCP setup guide — with an id, a title, its section headings and its size. Call this first, then read_doc for the one you need.",
       inputSchema: {
         type: "object",
@@ -561,7 +561,7 @@ export function docsServer(docs: Doc[]): McpServer {
   return {
     name: "classifier.dev docs",
     title: "classifier.dev documentation",
-    description: "The classifier.dev documentation as tools: list, read and search the API reference, benchmark, agent skill, CLI, pricing, privacy and MCP setup guide.",
+    description: "The classifier.dev documentation as tools: list, read and search the API reference, benchmark, agent skill, CLI, pricing, privacy, terms and MCP setup guide.",
     version: SERVER_VERSION,
     instructions:
       "This server answers questions about classifier.dev, the keyless text-classification API; it does not classify anything itself — " +
@@ -603,6 +603,9 @@ export function describeTool(t: Tool) {
     inputSchema: t.inputSchema,
     ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
     annotations: { title: t.title, ...t.annotations },
+    // Every tool is callable anonymously; ChatGPT and other clients that read
+    // per-tool security schemes then know not to ask the user to sign in.
+    securitySchemes: [{ type: "noauth" }],
   };
 }
 

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "classifier-dev",
+  "owner": {
+    "name": "Michael Ryaboy",
+    "email": "contact@classifier.dev",
+    "url": "https://classifier.dev"
+  },
+  "metadata": {
+    "description": "Plugins from classifier.dev: zero-shot text classification with a calibrated confidence per answer, no API key.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "classifier",
+      "source": "./plugins/classifier",
+      "description": "Sort up to 1,000 texts into your own labels in one call, with a calibrated confidence per answer. No API key.",
+      "version": "1.0.0",
+      "author": { "name": "Michael Ryaboy", "email": "contact@classifier.dev", "url": "https://classifier.dev" },
+      "homepage": "https://classifier.dev/mcp-setup",
+      "repository": "https://github.com/mrmps/classifier-dev",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": ["classification", "triage", "filtering", "routing", "labels", "zero-shot"]
+    }
+  ]
+}
