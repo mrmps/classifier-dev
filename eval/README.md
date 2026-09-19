@@ -1,11 +1,27 @@
 # Eval
 
-Three harnesses. `single.py` runs public single-label test sets (AG News,
+Four harnesses. `vs_jev.py` (`npm run vs-jev`) measures the deployed service
+against Jev called directly, on the public single-label sets — the one number
+the home page leads with, see "Against Jev" below. `single.py` runs public single-label test sets (AG News,
 dair-ai/emotion) through Jev or any OpenRouter model, prints accuracy, latency,
 cost and a calibration table, and caches raw results; `escalate.py` reads two
 caches and reports what replacing low-confidence answers with a second model
 buys. Both are documented in their docstrings. The rest of this file is about
 the multi-label set.
+
+## Against Jev
+
+    npm run vs-jev                          # ag_news + emotion, 400 each, fast + smart
+    npm run vs-jev -- --dataset emotion --tier smart --fresh
+
+Both tiers of the deployed worker, measured live over the public API with no
+key, against `single.py`'s cached Jev run (or a fresh one when
+`TYPESAFE_API_KEY` is set). Reports accuracy overall and on the items Jev put
+under 0.7 confidence — the only items the smart tier touches — plus agreement
+with Jev, how many were re-asked, latency and cost. Writes the summary to
+`src/vs-jev.json` (tracked; `src/vsjev.ts` imports it), so the table on the
+site is the measurement, not a transcription of it. The raw per-item runs stay
+under `data/results/`, ignored like the rest of `data/`.
 
 ## Multi-label
 

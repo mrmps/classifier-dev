@@ -17,9 +17,10 @@ every answer, no API key.
     praise    0.97    love the new dark mode
     feature   0.61    would be nice to export as CSV
 
-One line per input, in input order: `label`, `confidence`, `text`, tab-separated.
-`--json` gives NDJSON with everything the API returns; `--quiet` gives labels
-only; `--count` gives a histogram.
+One line per input, in input order: `label`, `confidence`, `text`, tab-separated
+(`--id` adds the id between confidence and text). `--json` gives NDJSON with
+everything the API returns; `--quiet` gives labels only; `--count` gives a
+histogram.
 
 ## Built for agents
 
@@ -43,7 +44,7 @@ pauses and resumes rather than failing. Errors go to stderr with exit code 1.
 ## Options
 
     -m, --multi                every label that applies, plus a score per label
-    -k, --max <n>              with --multi, at most n labels
+    -k, --max <n>              at most n labels (implies --multi)
     -s, --smart                re-ask uncertain answers of a reasoning model
     -i, --instructions <text>  extra criteria
     -r, --review <t>           print only inputs with confidence below t
@@ -52,11 +53,21 @@ pauses and resumes rather than failing. Errors go to stderr with exit code 1.
     -q, --quiet                labels only
         --field <name>         text field for JSON / NDJSON input (default: text)
         --id <name>            id field to carry through
-        --endpoint <url>       API base (env CLASSIFIER_ENDPOINT)
-        --api-key <key>        bearer token for higher limits (env CLASSIFIER_API_KEY)
+        --endpoint <url>       API base (env CLASSIFY_ENDPOINT)
+        --api-key <key>        bearer token for higher limits (env CLASSIFY_API_KEY)
 
-`classify --help` has examples. Set `CLASSIFY_NO_UPDATE_CHECK=1` to skip the
-once-a-day version check.
+`classify --help` has examples. Environment: `CLASSIFY_TIMEOUT` (seconds per
+request, default 180), `CLASSIFY_NO_PROGRESS`, and `CLASSIFY_NO_UPDATE_CHECK=1`
+to skip the once-a-day version check.
+
+## What it refuses to do quietly
+
+An answer from the API that is short, empty, or in the wrong shape stops the
+run with exit 1 rather than printing fewer rows. Every retry — rate limit,
+upstream error, network — is announced on stderr, and a timed-out request is
+retried once, not five times. With `--smart`, answers the reasoning model could
+not re-ask are counted on stderr, so a degraded smart tier never looks like a
+normal one.
 
 ## Versioning
 
