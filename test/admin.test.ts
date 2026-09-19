@@ -91,6 +91,23 @@ describe("the door", () => {
     expect(session(res)).toBeUndefined();
   });
 
+  test("Chrome says `Origin: null` for our own form, and the token still lets it in", async () => {
+    // `Referrer-Policy: no-referrer` on the login page is what makes Chrome say
+    // this. It was read as a mismatched origin, and /admin could not be opened
+    // in a real browser at all.
+    const page = (await adminResponse(get(), env, "admin", IP))!;
+    const { inField, cookie } = await formToken(page);
+    const res = (await adminResponse(post(PASSWORD, { origin: "null", cookie }, inField), env, "admin", IP))!;
+    expect(res.status).toBe(302);
+    expect(session(res)).toContain("__Secure-cd_admin=");
+  });
+
+  test("`Origin: null` is no pass on its own — a sandboxed frame says it too", async () => {
+    const res = (await adminResponse(post(PASSWORD, { origin: "null" }), env, "admin", IP))!;
+    expect(res.status).toBe(403);
+    expect(session(res)).toBeUndefined();
+  });
+
   test("a post with no origin and no token is refused too", async () => {
     const res = (await adminResponse(post(PASSWORD, {}), env, "admin", IP))!;
     expect(res.status).toBe(403);
