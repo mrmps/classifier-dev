@@ -462,5 +462,9 @@ export async function main(argv) {
 // be compared with this file; without that a global install runs nothing.
 const invokedAs = (() => { try { return realpathSync(process.argv[1] ?? ""); } catch { return ""; } })();
 if (invokedAs === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => fail(e.message));
+  // Set the code and let the process end on its own. A write to a pipe is not
+  // always synchronous: a full pipe (the reader is slow, or the runner has
+  // capped pipes at a page) queues the rest, and process.exit() drops what is
+  // queued. That is how `classify ... | head -c` and CI both saw short output.
+  main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => fail(e.message));
 }
