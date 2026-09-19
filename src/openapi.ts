@@ -1,3 +1,22 @@
+const ERROR_SCHEMA = { $ref: "#/components/schemas/Error" };
+/** Every non-2xx answer is the same {error, code} object; spelled out inline on each operation. */
+const err = (description: string, headers?: Record<string, unknown>) => ({
+  description,
+  ...(headers ? { headers } : {}),
+  content: { "application/json": { schema: ERROR_SCHEMA } },
+});
+const ERRORS = {
+  "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, or a body that is not JSON. `code` says which."),
+  "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap."),
+  "429": err("Per-IP limit reached. Wait `Retry-After` seconds.", {
+    "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
+    "RateLimit-Limit": { schema: { type: "string" } },
+    "RateLimit-Policy": { schema: { type: "string" } },
+  }),
+  "502": err("The model provider failed after retries; retry with backoff. `code` is typesafe_<status>, openrouter_<status> or upstream."),
+  default: err("Any other error, same {error, code} shape."),
+};
+
 /** Served at /openapi.json and /.well-known/openapi.json */
 export const OPENAPI = {
   openapi: "3.1.0",
@@ -37,10 +56,11 @@ export const OPENAPI = {
     "x-mcp": { url: "https://classifier.dev/mcp", docs: "https://classifier.dev/mcp/docs", card: "https://classifier.dev/.well-known/mcp/server-card.json" },
   },
   externalDocs: { description: "Developer guide", url: "https://classifier.dev/developers" },
-  security: [{}, { partnerKey: [] }],
+  security: [],
   tags: [
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
     { name: "docs", description: "Documentation served over HTTP." },
+    { name: "feedback", description: "Structured feedback from agents (feedback.now protocol): submit, then poll a receipt." },
   ],
   servers: [{ url: "https://classifier.dev" }],
   paths: {
@@ -55,7 +75,7 @@ export const OPENAPI = {
             description: "The service is up.",
             content: { "application/json": { schema: { type: "object", required: ["ok", "version"], properties: { ok: { type: "boolean" }, service: { type: "string" }, version: { type: "string" }, time: { type: "string", format: "date-time" }, docs: { type: "string" } } } } },
           },
-          default: { $ref: "#/components/responses/Error" },
+          ...ERRORS,
         },
       },
     },
@@ -66,8 +86,103 @@ export const OPENAPI = {
         description: "The same information as the home page, shaped for agents: API URLs and body shape, MCP servers, CLI, skill, limits, pricing and discovery files. Also served for GET /?mode=agent.",
         tags: ["docs"],
         responses: {
-          "200": { description: "The index.", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
-          default: { $ref: "#/components/responses/Error" },
+          "200": { description: "The index.", content: { "application/json": { schema: { $ref: "#/components/schemas/AgentIndex" } } } },
+          ...ERRORS,
+        },
+      },
+    },
+    "/api/v1/feedback": {
+      post: {
+        operationId: "submitFeedback",
+        summary: "Agents report a problem or a suggestion (feedback.now protocol). Returns a receipt to poll.",
+        description:
+          "Asynchronous: the report is accepted immediately and scored, deduplicated and forwarded in the background. " +
+          "The response carries a receipt with an `id` and a `status`; poll GET /api/v1/receipts/{id} until `status` is final. " +
+          "Categories, evidence types and limits are at GET /api/v1/policy and /.well-known/agent-feedback.json. No authentication.",
+        tags: ["feedback"],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["category", "summary"],
+                properties: {
+                  category: { type: "string", description: "One of the categories in GET /api/v1/policy." },
+                  summary: { type: "string", maxLength: 500 },
+                  details: { type: "string" },
+                  surface: { type: "object", properties: { kind: { type: "string", enum: ["api_endpoint", "docs_page", "cli_command", "sdk_method", "other"] }, ref: { type: "string" } } },
+                  evidence: { type: "array", items: { type: "object", properties: { type: { type: "string" }, content: { type: "string" } } } },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "202": {
+            description: "Accepted for processing. `Location` points at the receipt to poll; the body carries the same id.",
+            headers: { Location: { schema: { type: "string", format: "uri" }, description: "GET here until status is final." } },
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["receipt"],
+                  properties: {
+                    receipt: {
+                      type: "object",
+                      required: ["id", "status"],
+                      properties: {
+                        id: { type: "string", description: "Job id; GET /api/v1/receipts/{id} returns its state." },
+                        status: { type: "string", enum: ["accepted", "duplicate"] },
+                        quality_score: { type: "number" },
+                        duplicate_of: { type: ["string", "null"] },
+                        budget_remaining: { type: "integer" },
+                        poll: { type: "string", description: "URL to poll for the final state." },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          ...ERRORS,
+        },
+      },
+    },
+    "/api/v1/receipts/{id}": {
+      get: {
+        operationId: "getReceipt",
+        summary: "Poll a feedback receipt (the async job's state).",
+        tags: ["feedback"],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" }, description: "The receipt id returned by POST /api/v1/feedback or /api/v1/observations." }],
+        responses: {
+          "200": {
+            description: "The receipt.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["id", "status"],
+                      properties: {
+                        id: { type: "string" },
+                        feedback_id: { type: "string" },
+                        observation_id: { type: "string" },
+                        status: { type: "string", enum: ["accepted", "duplicate", "processed"] },
+                        quality_score: { type: "number" },
+                        duplicate_of: { type: ["string", "null"] },
+                        budget_remaining: { type: "integer" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          ...ERRORS,
         },
       },
     },
@@ -94,10 +209,7 @@ export const OPENAPI = {
             },
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
           },
-          "400": { $ref: "#/components/responses/BadRequest" },
-          "429": { $ref: "#/components/responses/RateLimited" },
-          "502": { $ref: "#/components/responses/Upstream" },
-          default: { $ref: "#/components/responses/Error" },
+          ...ERRORS,
         },
       },
     },
@@ -113,24 +225,32 @@ export const OPENAPI = {
           content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } },
         },
         responses: {
-          default: { $ref: "#/components/responses/Error" },
+          ...ERRORS,
           "200": {
             description: "One result per input, in order.",
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
           },
-          "400": { $ref: "#/components/responses/BadRequest" },
-          "429": { $ref: "#/components/responses/RateLimited" },
-          "502": { $ref: "#/components/responses/Upstream" },
+          ...ERRORS,
         },
       },
     },
     "/": {
       get: {
         operationId: "getDocs",
-        summary: "Human- and agent-readable documentation as plain text.",
+        summary: "The documentation: plain text by default, Markdown or HTML by Accept, JSON index for application/json.",
+        description: "Content negotiation on Accept: text/plain (default, what curl prints), text/markdown, text/html, or application/json for the same machine-readable index as GET /api.",
+        tags: ["docs"],
         responses: {
-          default: { $ref: "#/components/responses/Error" },
-          "200": { description: "Documentation", content: { "text/plain": { schema: { type: "string" } } } },
+          ...ERRORS,
+          "200": {
+            description: "Documentation, in the negotiated format.",
+            content: {
+              "text/plain": { schema: { type: "string" } },
+              "text/markdown": { schema: { type: "string" } },
+              "text/html": { schema: { type: "string" } },
+              "application/json": { schema: { $ref: "#/components/schemas/AgentIndex" } },
+            },
+          },
         },
       },
       post: {
@@ -162,7 +282,7 @@ export const OPENAPI = {
           },
         },
         responses: {
-          default: { $ref: "#/components/responses/Error" },
+          ...ERRORS,
           "200": {
             description: "Classification results",
             headers: {
@@ -171,9 +291,7 @@ export const OPENAPI = {
             },
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
           },
-          "400": { $ref: "#/components/responses/BadRequest" },
-          "429": { $ref: "#/components/responses/RateLimited" },
-          "502": { $ref: "#/components/responses/Upstream" },
+          ...ERRORS,
         },
       },
     },
@@ -238,7 +356,7 @@ export const OPENAPI = {
           },
         ],
         responses: {
-          default: { $ref: "#/components/responses/Error" },
+          ...ERRORS,
           "200": {
             description: "The chosen label, or JSON when verbose=1",
             content: {
@@ -246,19 +364,24 @@ export const OPENAPI = {
               "application/json": { schema: { $ref: "#/components/schemas/SingleResult" } },
             },
           },
-          "400": { $ref: "#/components/responses/BadRequest" },
-          "429": { $ref: "#/components/responses/RateLimited" },
-          "502": { $ref: "#/components/responses/Upstream" },
+          ...ERRORS,
         },
       },
     },
     "/benchmark": {
       get: {
         operationId: "getBenchmark",
+        description: "Measured accuracy, calibration, cost and latency. Accept: application/json returns the live measurement summary the tables are generated from (eval/vs_jev.py).",
+        tags: ["docs"],
         summary: "Measured accuracy, cost and latency for every model considered.",
         responses: {
-          default: { $ref: "#/components/responses/Error" },
-          "200": { description: "Benchmark", content: { "text/plain": { schema: { type: "string" } } } },
+          ...ERRORS,
+          "200": { description: "Benchmark", content: {
+              "text/plain": { schema: { type: "string" } },
+              "text/markdown": { schema: { type: "string" } },
+              "text/html": { schema: { type: "string" } },
+              "application/json": { schema: { $ref: "#/components/schemas/BenchmarkSummary" } },
+            } },
         },
       },
     },
@@ -268,6 +391,10 @@ export const OPENAPI = {
       ClassifyRequest: {
         type: "object",
         required: ["labels"],
+        examples: [
+          { inputs: ["the checkout button does nothing", "love the new dark mode"], labels: ["bug", "praise", "feature"] },
+          { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
+        ],
         properties: {
           input: { type: "string", description: "A single text. Provide this or inputs." },
           inputs: {
@@ -364,6 +491,54 @@ export const OPENAPI = {
               ms: { type: "integer" },
             },
           },
+        },
+      },
+      BenchmarkSummary: {
+        type: "object",
+        required: ["measured", "summary"],
+        properties: {
+          measured: { type: "string", format: "date", description: "When the live measurement ran." },
+          summary: {
+            type: "object",
+            description: "Per test set (ag_news, emotion): n, how many items Jev was unsure about, and one row per run (jev, fast, smart).",
+            additionalProperties: {
+              type: "object",
+              required: ["n", "unsure", "rows"],
+              properties: {
+                n: { type: "integer" },
+                unsure: { type: "integer" },
+                rows: {
+                  type: "object",
+                  additionalProperties: {
+                    type: "object",
+                    properties: {
+                      acc: { type: "number" }, acc_unsure: { type: ["number", "null"] }, acc_sure: { type: ["number", "null"] },
+                      agree_with_jev: { type: "number" }, disagreements: { type: "integer" }, disagreements_unsure: { type: "integer" },
+                      escalated: { type: "integer" }, ms_item: { type: "number" }, cost_per_1k: { type: "number" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      AgentIndex: {
+        type: "object",
+        required: ["name", "version", "api", "mcp", "limits"],
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          version: { type: "string" },
+          authentication: { type: "object", properties: { required: { type: "boolean" }, optional_bearer: { type: "string" }, docs: { type: "string" } } },
+          api: { type: "object", properties: { classify: { type: "object", properties: { method: { type: "string" }, url: { type: "string" }, alias: { type: "string" } } }, classify_one: { type: "object", properties: { method: { type: "string" }, url: { type: "string" } } }, openapi: { type: "string" } } },
+          mcp: { type: "object", properties: { tools: { type: "string" }, docs: { type: "string" }, card: { type: "string" }, setup: { type: "string" } } },
+          cli: { type: "object", properties: { install: { type: "string" }, example: { type: "string" } } },
+          skill: { type: "object", properties: { install: { type: "string" }, url: { type: "string" } } },
+          limits: { type: "object", properties: { fast: { type: "string" }, smart: { type: "string" }, headers: { type: "array", items: { type: "string" } } } },
+          pricing: { type: "object", properties: { price: { type: "number" }, currency: { type: "string" }, url: { type: "string" } } },
+          docs: { type: "object", additionalProperties: { type: "string" } },
+          discovery: { type: "array", items: { type: "string", format: "uri" } },
         },
       },
       Error: {
@@ -465,6 +640,8 @@ classify_texts, classify_multi_label, count_labels, review_uncertain) and
 https://classifier.dev/mcp/docs (list_docs, read_doc, search_docs). Setup for
 Claude, ChatGPT, Codex and Cursor: [mcp-setup](https://classifier.dev/mcp-setup).
 Server card: [server-card.json](https://classifier.dev/.well-known/mcp/server-card.json).
+Registry: [dev.classifier/classifier and dev.classifier/docs](https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier)
+in the official MCP registry.
 
 ## CLI
 

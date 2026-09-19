@@ -73,6 +73,9 @@ MCP
     claude mcp add --transport http classifier https://classifier.dev/mcp
     codex mcp add classifier --url https://classifier.dev/mcp
 
+  Listed in the official MCP registry as dev.classifier/classifier and
+  dev.classifier/docs: https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier
+
   Claude.ai: Customize > Connectors > Add custom connector > paste the URL.
   ChatGPT: Settings > Security and login > Developer mode, then create an app
   with the URL and "No Authentication". Step by step for every client, plus
