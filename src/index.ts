@@ -253,7 +253,7 @@ const agentView = (origin: string) => ({
   },
   mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
   cli: { install: "npm i -g classifier-dev", example: "classify bug,feature,praise < feedback.txt" },
-  sdks: { python: "pip install classifier-dev", go: "go get github.com/mrmps/classifier-dev/sdk/go", javascript: "fetch(); no package needed" },
+  sdks: { python: 'pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"', go: "go get github.com/mrmps/classifier-dev/sdk/go", javascript: "fetch(); no package needed" },
   skill: { install: `npx skills add ${origin}`, url: `${origin}/skill.md` },
   limits: { fast: "3,000 classifications/min, 20,000/day per IP", smart: "200/min, 2,000/day per IP", headers: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Policy", "Retry-After"] },
   pricing: { price: 0, currency: "USD", url: `${origin}/pricing` },

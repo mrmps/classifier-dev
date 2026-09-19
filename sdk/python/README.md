@@ -2,7 +2,10 @@
 
 Official client for [classifier.dev](https://classifier.dev): zero-shot text classification over HTTP, calibrated confidence per answer, no API key. Standard library only.
 
-    pip install classifier-dev
+    pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"
+
+Requires Git. Installs the tagged Python release from GitHub; the SDK has no
+runtime dependencies.
 
 ```python
 from classifier_dev import classify

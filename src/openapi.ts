@@ -647,6 +647,10 @@ export const OPENAPI = {
           content: {
             type: "object",
             description: "`title` or `summary` is required. A missing title is taken from the summary.",
+            anyOf: [
+              { required: ["title"], properties: { title: { type: "string", pattern: "\\S" } } },
+              { required: ["summary"], properties: { summary: { type: "string", pattern: "\\S" } } },
+            ],
             properties: {
               title: { type: "string", maxLength: LIMITS.max_title_length },
               summary: { type: "string", maxLength: LIMITS.max_summary_length },
@@ -685,7 +689,7 @@ export const OPENAPI = {
         required: ["category", "summary"],
         properties: {
           category: { type: "string", enum: [...CATEGORIES] },
-          summary: { type: "string", maxLength: LIMITS.max_summary_length },
+          summary: { type: "string", pattern: "\\S", maxLength: LIMITS.max_summary_length },
           severity: { type: "string", enum: [...SEVERITIES], default: "medium" },
           confidence: { type: "number", minimum: LIMITS.confidence_range.min, maximum: LIMITS.confidence_range.max },
           surface: { type: "string", maxLength: 256 },
@@ -941,7 +945,7 @@ in the official MCP registry.
 
 ## SDKs
 
-- Python: \`pip install classifier-dev\` — \`from classifier_dev import classify\` ([PyPI](https://pypi.org/project/classifier-dev/))
+- Python: \`pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"\` — \`from classifier_dev import classify\` ([tagged source](https://github.com/mrmps/classifier-dev/tree/python-v0.1.0/sdk/python); Git required to install)
 - Go: \`go get github.com/mrmps/classifier-dev/sdk/go\` ([pkg.go.dev](https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go))
 - JavaScript: no SDK needed. POST JSON to https://classifier.dev/v1/classify with fetch(); the npm package \`classifier-dev\` is the CLI.
 
