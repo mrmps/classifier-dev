@@ -662,6 +662,18 @@ export async function handleMcp(req: Request, server: McpServer): Promise<Respon
   }
   if (req.method !== "POST") return respond(rpcError(null, -32000, "Method Not Allowed"), 405, { allow: "POST, OPTIONS" });
 
+  // After initialize a client names the negotiated version on every request.
+  // The transport spec says an invalid or unsupported one is a 400, not a
+  // silently different protocol. No header at all is fine: the spec has the
+  // server assume 2025-03-26, which is in the list.
+  const asked = req.headers.get("mcp-protocol-version");
+  if (asked !== null && !(PROTOCOL_VERSIONS as readonly string[]).includes(asked.trim())) {
+    return respond(
+      rpcError(null, -32600, `Unsupported MCP-Protocol-Version "${asked}". This server speaks ${PROTOCOL_VERSIONS.join(", ")}.`),
+      400,
+    );
+  }
+
   let parsed: unknown;
   try {
     parsed = await req.json();

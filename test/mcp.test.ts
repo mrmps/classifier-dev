@@ -49,6 +49,20 @@ describe("mcp transport", () => {
     expect(j2.result.protocolVersion).toBe(PROTOCOL_VERSIONS[0]);
   });
 
+  it("MCP-Protocol-Version is honoured when it names a version we speak and a 400 when it does not", async () => {
+    for (const v of PROTOCOL_VERSIONS) {
+      expect((await post(rpc("ping"), { "mcp-protocol-version": v })).status).toBe(200);
+    }
+    // No header: the spec has the server assume 2025-03-26, which we speak.
+    expect((await post(rpc("ping"))).status).toBe(200);
+    const bad = await post(rpc("ping"), { "mcp-protocol-version": "1999-01-01" });
+    expect(bad.status).toBe(400);
+    const j = await bad.json();
+    expect(j.error.code).toBe(-32600);
+    expect(j.error.message).toContain("1999-01-01");
+    expect(j.error.message).toContain(PROTOCOL_VERSIONS[0]);
+  });
+
   it("notifications are accepted with 202 and no body", async () => {
     const res = await post({ jsonrpc: "2.0", method: "notifications/initialized" });
     expect(res.status).toBe(202);
