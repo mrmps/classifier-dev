@@ -119,4 +119,6 @@ creation all completed, and the existing active Pro subscription was retained.
 A live REST fast classification and a live REST smart classification both
 returned 200, with policies fast 30000/minute and 200000/day and smart
 2000/minute and 20000/day. A live MCP classification returned 200.
-Sign-out has not been verified yet; verify it before relying on it.
+The live Stripe portal showed the existing Pro subscription at $20/month.
+Sign-out returned the browser to the signed-out page; the WorkOS CLI then
+confirmed that the user had no active sessions.
