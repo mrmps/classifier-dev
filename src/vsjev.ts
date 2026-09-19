@@ -132,28 +132,49 @@ export function vsJevText(full: boolean): string {
   return [...intro, "", head1, head2, rule, ...lines, "", ...after].map((l) => (l ? `  ${l}` : l)).join("\n");
 }
 
-/** The same table as HTML, for the home page. Cells that beat Jev alone are marked. */
+/**
+ * The same table as HTML, for the home page. Each set's rule stops at its own
+ * edge, and a last row carries the smart tier's gain over Jev alone, coloured
+ * only where it clears the noise on that column's items.
+ */
 export function vsJevHtml(): string {
   const ss = sets();
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const th = (t: string, extra = "") => `<th${extra}>${esc(t)}</th>`;
-  const head1 = `<tr>${th("")}${ss.map((s) => th(s.name, ' colspan="2" class="set"')).join("")}</tr>`;
+  const head1 = `<tr>${th("")}${ss.map((s) => `<th colspan="2" class="set"><span>${esc(s.name)}</span></th>`).join("")}</tr>`;
   const head2 = `<tr>${th("")}${ss.map((s) => th("all", ' class="num gap"') + th(`unsure (${VS_JEV.summary[s.key].unsure})`, ' class="num"')).join("")}</tr>`;
-  const body = RUNS.filter((r) => ss.every((s) => row(s.key, r.key)))
+  const runs = RUNS.filter((r) => ss.every((s) => row(s.key, r.key)));
+  const body = runs
     .map((r) => {
       const cells = ss
         .map((s) => {
           const me = row(s.key, r.key)!;
-          const jev = row(s.key, "jev")!;
-          // Only the smart tier is a different answer; the fast row is the same model and its gaps are noise.
-          const cls = (a: number | null, b: number | null, extra: string) =>
-            ` class="num${extra}${r.key === "smart" && a != null && b != null && a > b ? " win" : ""}"`;
-          return `<td${cls(me.acc, jev.acc, " gap")}>${pct(me.acc)}</td><td${cls(me.acc_unsure, jev.acc_unsure, "")}>${pct(me.acc_unsure)}</td>`;
+          return `<td class="num gap">${pct(me.acc)}</td><td class="num">${pct(me.acc_unsure)}</td>`;
         })
         .join("");
-      return `<tr><th scope="row">${esc(r.name)}</th>${cells}</tr>`;
+      // "jev alone = classifier.dev fast": the baseline is what the eye should catch; the equivalence is a note.
+      const [name, alias] = r.name.split(" = ");
+      const label = alias ? `${esc(name)}<span class="eq"> = ${esc(alias)}</span>` : esc(r.name);
+      return `<tr${r.key === "smart" ? ' class="smart"' : ""}><th scope="row">${label}</th>${cells}</tr>`;
     })
     .join("");
+  // The gain in points, green only when it is more than about two standard errors on that column's items.
+  const gain = (a: number | null, b: number | null, n: number, extra: string) => {
+    if (a == null || b == null) return `<td class="num${extra}">-</td>`;
+    const d = (a - b) * 100;
+    const cls = Math.abs(d) <= noiseFloor(n, b) ? "" : d > 0 ? " win" : " loss";
+    return `<td class="num${extra}${cls}">${d >= 0 ? "+" : "\u2212"}${Math.abs(d).toFixed(1)}</td>`;
+  };
+  const gains = runs.some((r) => r.key === "smart")
+    ? `<tr class="gain"><th scope="row">smart over jev alone, points</th>${ss
+        .map((s) => {
+          const me = row(s.key, "smart")!;
+          const jev = row(s.key, "jev")!;
+          const set = VS_JEV.summary[s.key];
+          return gain(me.acc, jev.acc, set.n, " gap") + gain(me.acc_unsure, jev.acc_unsure, set.unsure, "");
+        })
+        .join("")}</tr>`
+    : "";
   // Six numeric columns do not fit a phone; the table scrolls inside the page, as the others do.
-  return `<div class="scroll"><table class="vs"><thead>${head1}${head2}</thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="scroll"><table class="vs"><thead>${head1}${head2}</thead><tbody>${body}${gains}</tbody></table></div>`;
 }

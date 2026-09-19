@@ -23,15 +23,22 @@ const HOME_CSS = `
 h2{scroll-margin-top:24px}
 .foot{color:var(--dim);border-top:1px solid var(--rule);padding-top:16px}
 .nb{white-space:nowrap}
-.vs{width:auto;margin-top:10px}
-.vs th,.vs td{padding:3px 0}
-.vs th.set{text-align:center;color:var(--fg);border-bottom:1px solid var(--rule);padding:0 8px 4px}
-.vs .num{text-align:right;min-width:5.5em;padding-left:14px}
+.vs{width:auto;margin-top:12px}
+.vs th,.vs td{padding:4px 0}
+/* Each set gets its own rule, stopping at its own edge; the gap column stays clear. */
+.vs th.set{padding:0 0 0 32px;color:var(--fg);font-weight:600;border-bottom:0}
+.vs th.set>span{display:block;text-align:center;padding-bottom:4px;border-bottom:1px solid var(--rule)}
+.vs .num{text-align:right;padding-left:14px}
 .vs .gap{padding-left:32px}
-.vs thead th:first-child{border-bottom:0}
-.vs thead tr:last-child th{border-bottom:0;padding-top:4px}
-.vs td.win{color:var(--green)}
+.vs thead tr:first-child th{border-bottom:0}
+.vs thead tr:last-child th{padding-top:4px;border-bottom:1px solid var(--rule)}
 .vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
+.vs tbody th .eq{color:var(--dim)}
+.vs tr.smart th{color:var(--bright)}
+/* The gain row: dim where the difference is inside the noise, coloured where it is not. */
+.vs tr.gain th,.vs tr.gain td{color:var(--dim);border-top:1px solid var(--rule)}
+.vs tr.gain td.win{color:var(--green)}
+.vs tr.gain td.loss{color:var(--red)}
 /* The agent prompt: the one thing a first-time visitor should not miss.
    Accents are Display P3 with sRGB fallbacks; the panel is a quiet surface with
    a hairline border, and the only saturated thing on the page is the button. */
