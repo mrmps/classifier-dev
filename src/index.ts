@@ -9,6 +9,7 @@ import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
 import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
+import { chatStream, parseMessages } from "./chat";
 import {
   AUTH_MD, AI_CATALOG_TYPE, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, SERVER_CARD_TYPE, agentCard, apiCatalog, ardCatalog, docsServerCard,
   oauthProtectedResource, securityTxt, robotsTxt, serverCard, sitemapXml,
@@ -28,6 +29,8 @@ export { RateLimiter } from "./limiter";
 export interface Env {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
+  /** context.dev, for the chat's web search and page reads only. Never served. */
+  CONTEXT_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;
   /** Dedicated operator credential for bulk agent work; independent of enterprise callers. */
   AGENT_API_KEY?: string;
@@ -347,6 +350,8 @@ const PRODUCT_MCP_STATIC = productServer(async () => ({ status: 503, body: { err
 
 /** The MCP endpoints, whose preflight is the transport's own and not the site's. */
 const MCP_PATHS = new Set(["mcp", ".well-known/mcp", "mcp/docs"]);
+/** One chat turn counts against the smart-tier window as this many classifications: about twenty turns a minute. */
+const CHAT_COST = 10;
 
 const CACHE_HOUR = { "cache-control": "public, max-age=3600" };
 
@@ -1092,20 +1097,45 @@ const worker = {
     // Tools call the API through the same front door as everyone else, so the
     // limits, the metering and the logging are identical; only the client
     // family differs.
-    if (MCP_PATHS.has(path)) {
-      const mcpClassify: ClassifyFn = async (body, original) => {
-        const headers: Record<string, string> = {
-          "content-type": "application/json",
-          "user-agent": `mcp/1.0 (${original.headers.get("user-agent") ?? "unknown client"})`,
-          "cf-connecting-ip": ip,
-        };
-        const auth = original.headers.get("authorization");
-        if (auth) headers.authorization = auth;
-        const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx);
-        const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
-        return { status: r.status, body: parsed };
+    const mcpClassify: ClassifyFn = async (body, original) => {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        "user-agent": `mcp/1.0 (${original.headers.get("user-agent") ?? "unknown client"})`,
+        "cf-connecting-ip": ip,
       };
+      const auth = original.headers.get("authorization");
+      if (auth) headers.authorization = auth;
+      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx);
+      const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
+      return { status: r.status, body: parsed };
+    };
+    if (MCP_PATHS.has(path)) {
       return handleMcp(req, path === "mcp/docs" ? DOCS_MCP : productServer(mcpClassify));
+    }
+
+    // ---- chat --------------------------------------------------------------
+    // The sidebar's assistant: a model holding the product MCP server as its
+    // tools. The conversation arrives whole and leaves as a stream; nothing in
+    // it is kept. Cheap to call and not free to serve, so it is limited per
+    // IP like a smart-tier classification is.
+    if (path === `${API_VERSION}/chat`) {
+      if (req.method !== "POST") return json({ error: "POST a JSON body with messages", code: "method_not_allowed" }, 405, { allow: "POST, OPTIONS" });
+      if (!env.OPENROUTER_API_KEY) return json({ error: "chat is not configured", code: "chat_unavailable" }, 503);
+      let messages;
+      try {
+        messages = parseMessages((await readJsonObject(req)).messages);
+      } catch (e) {
+        return json({ error: (e as Error).message, code: "invalid_request" }, 400);
+      }
+      const gate = await limited(env, "smart", ip, CHAT_COST);
+      if (gate.limited) {
+        return json({ error: `Chat limit reached; try again in ${gate.resetIn ?? 60}s`, code: "rate_limited" }, 429, {
+          "retry-after": String(gate.resetIn ?? 60),
+        });
+      }
+      return new Response(chatStream({ key: env.OPENROUTER_API_KEY, webKey: env.CONTEXT_API_KEY, server: productServer(mcpClassify), req, messages }), {
+        headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", ...CORS, ...SECURITY },
+      });
     }
 
     // ---- discovery documents -------------------------------------------------
@@ -1325,6 +1355,11 @@ const worker = {
       }
       if (wantsHtml) return html(homeHtml(), 200, link);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
+    }
+    // The front page with the sidebar already open. curl gets told where the chat is.
+    if (req.method === "GET" && path === "chat") {
+      if (wantsHtml) return html(homeHtml({ chat: true }), 200, { link: LINKS(origin) });
+      return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
     }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
       if (url.searchParams.get("format") === "json" || (/\bapplication\/json\b/.test(accept) && !wantsHtml)) {
