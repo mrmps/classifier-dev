@@ -1,3 +1,4 @@
+import { HL_ORIGIN } from "./ui";
 import { isUnintelligible, UNSCORED_REASON } from "./unintelligible";
 import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
@@ -198,7 +199,9 @@ async function pagePolicy(body: string): Promise<string> {
   );
   const policy = [
     "default-src 'none'",
-    `script-src ${hashes.join(" ") || "'none'"}`,
+    // Our own scripts by hash, and highlight.js by its one directory on cdnjs
+    // (the path, not the host, so nothing else hosted there is allowed in).
+    `script-src ${[...hashes, HL_ORIGIN].join(" ")}`,
     // Inline `style=` attributes are how the pages draw; none of them is
     // caller-controlled, and no page here loads a stylesheet from anywhere.
     "style-src 'unsafe-inline'",
