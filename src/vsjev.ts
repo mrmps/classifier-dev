@@ -100,8 +100,8 @@ export function vsJevText(full: boolean): string {
     ? wrap(
         "The fast tier is Jev, TypeSafe's decision model. The smart tier is Jev plus a " +
           "reasoning model re-asking only the answers Jev put under 0.7 confidence. So the " +
-          "question this service has to answer is not whether it is accurate but whether it " +
-          `beats calling Jev yourself. Two public test sets, ${n} items each, measured live ` +
+          "question this service has to answer is whether it beats calling Jev " +
+          `yourself. Two public test sets, ${n} items each, measured live ` +
           `over the public API with no key on ${VS_JEV.measured}. "unsure" is accuracy on just ` +
           "the items Jev was unsure about — the only ones the smart tier touches.",
       )
@@ -154,5 +154,6 @@ export function vsJevHtml(): string {
       return `<tr><th scope="row">${esc(r.name)}</th>${cells}</tr>`;
     })
     .join("");
-  return `<table class="vs"><thead>${head1}${head2}</thead><tbody>${body}</tbody></table>`;
+  // Six numeric columns do not fit a phone; the table scrolls inside the page, as the others do.
+  return `<div class="scroll"><table class="vs"><thead>${head1}${head2}</thead><tbody>${body}</tbody></table></div>`;
 }
