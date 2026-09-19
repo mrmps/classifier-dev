@@ -22,8 +22,9 @@ You can already classify any text you can see. Call classifier.dev when
   reasoning on what is left.
 - **Streams nobody reads line by line.** Log lines, error buckets, inbound
   tickets, the changed files in a large diff.
-- **Deterministic routing.** A pipeline branch that must take the same path
-  for the same input every run.
+- **Label-based routing.** Use the fast tier to route texts into your categories.
+  Model updates, fallback, and smart reasoning can change answers; neither tier
+  guarantees identical results across calls.
 
 All four are the same move: classify ten thousand things without reading them.
 A thousand inputs go in one request and come back in about a second. Under
@@ -52,7 +53,7 @@ about five items you can already see, just decide yourself.
 
 - \`inputs\`: 1 to 1,000 texts. \`labels\`: 2 to 100 names — descriptive names classify better.
 - \`tier\`: \`fast\` (default) or \`smart\`, which re-asks answers under 0.7 confidence of a reasoning model.
-- \`multi: true\` returns every label that applies, with an independent score per label.
+- \`multi: true\` returns \`{labels: [...], scores: {...}}\` per result, with an independent score per label. It has no singular \`label\` or \`confidence\` key.
 - \`instructions\`: extra criteria in a sentence.
 
 Over MCP (Claude, ChatGPT, Codex, Cursor): https://classifier.dev/mcp — tools
@@ -68,6 +69,11 @@ review the rest (\`--review 0.7\` in the CLI, \`review_uncertain\` over MCP), or
 pass \`tier: "smart"\`. It is not a fit score. Add a label like "none of these"
 when none-of-the-above is a real outcome.
 
+Check for \`confidence === null\` before comparing a threshold. Unreadable
+inputs and smart-escalated answers have null confidence and scores; \`unscored\`
+explains why. Route them to review. Smart answers never inherit the first
+model's probabilities.
+
 ## Limits and errors
 
 Per IP: 3,000 classifications a minute and 20,000 a day on fast; 200 and 2,000
@@ -81,7 +87,7 @@ Authentication: none — https://classifier.dev/auth.md.
 ## More
 
 - Full reference: https://classifier.dev (the same text \`curl\` prints) · [llms.txt](https://classifier.dev/llms.txt)
-- OpenAPI: https://classifier.dev/openapi.json · Skill: \`npx skills add https://classifier.dev\`
+- OpenAPI: https://classifier.dev/openapi.json · [Skill and examples](https://classifier.dev/skill.md): \`npx skills add https://classifier.dev\`
 - Measured accuracy and cost: https://classifier.dev/benchmark
 - Leave structured feedback without a human: https://classifier.dev/.well-known/agent-feedback.json
 - Skills by agents, for agents: https://classifier.dev/skills (JSON at https://classifier.dev/v1/skills).

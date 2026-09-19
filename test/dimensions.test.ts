@@ -180,3 +180,24 @@ describe("packing and recovery", () => {
     expect(r.body.results[0].dimensions.kind).toMatchObject({label:"bug",confidence:0.4}); expect(h.points[0].doubles[4]).toBe(1);
   });
 });
+
+describe("single-label smart confidence", () => {
+  for (const answer of ["A", "B"]) test(`escalation to ${answer} withholds the first model's probabilities`, async () => {
+    globalThis.fetch = (async (url) => String(url).includes("typesafe")
+      ? Response.json({ model: "jev-test", answers: { i0: { choice: "bug", confidence: 0.4, probabilities: { bug: 0.4, request: 0.6 } } } })
+      : Response.json({ choices: [{ message: { content: answer } }] })) as typeof fetch;
+    const { response, body } = await harness().post({ input: "please improve this", labels: ["bug", "request"], tier: "smart" });
+    expect(response.status).toBe(200);
+    expect(body.results[0]).toMatchObject({ label: answer === "A" ? "bug" : "request", escalated: true, confidence: null, scores: null, unscored: "reasoning model does not return comparable probabilities" });
+    expect(body.usage.escalated).toBe(1);
+  });
+  test("failed escalation keeps the original answer and probabilities", async () => {
+    globalThis.fetch = (async (url) => String(url).includes("typesafe")
+      ? Response.json({ model: "jev-test", answers: { i0: { choice: "bug", confidence: 0.4, probabilities: { bug: 0.4, request: 0.6 } } } })
+      : Response.json({ error: { code: "bad_key" } }, { status: 401 })) as typeof fetch;
+    const { body } = await harness().post({ input: "please improve this", labels: ["bug", "request"], tier: "smart" });
+    expect(body.results[0]).toMatchObject({ label: "bug", confidence: 0.4, scores: { bug: 0.4, request: 0.6 } });
+    expect(body.results[0].escalated).toBeUndefined();
+    expect(body.usage.escalation_failed).toBe(1);
+  });
+});

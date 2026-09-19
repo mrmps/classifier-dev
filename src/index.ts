@@ -867,7 +867,13 @@ async function escalate(env: Env, inputs: string[], labels: string[], instructio
             labels.length > MAX_LABELS_SINGLE
               ? await runChain(env, inputs[i], labels, "smart", instructions, { max: 1 }, meter)
               : await runChain(env, inputs[i], labels, "smart", instructions, undefined, meter);
-          if (r.label) results[i] = { ...results[i], label: r.label, model: r.model, escalated: true };
+          if (r.label) results[i] = {
+            ...results[i], label: r.label, model: r.model, escalated: true,
+            // The first model's probabilities do not describe this answer,
+            // even when the reasoning model happens to choose the same label.
+            confidence: null, scores: null,
+            unscored: "reasoning model does not return comparable probabilities",
+          };
         } catch (e) {
           // The fast answer stands; it was uncertain, not absent. Say so in
           // the logs, because a chain that fails every time looks identical
@@ -969,10 +975,7 @@ async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[
     })) : await llmClassifyMany(env, inputs, dimension.labels, tier, criteria, undefined, meter);
     if (!jev) fallbackDecisions += column.length;
     if (jev && tier === "smart") {
-      // If the reasoning model changes a field, its predecessor's probabilities
-      // no longer describe that answer. Expose no mismatched confidence/scores.
       escalationFailed += await escalate(env, inputs, dimension.labels, criteria, column, meter);
-      for (const r of column) if (r.escalated) { r.confidence = null; r.scores = null; r.unscored = "reasoning model does not return comparable probabilities"; }
     }
     column.forEach((r, i) => { results[i][d] = r; });
   }

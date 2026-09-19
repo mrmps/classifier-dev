@@ -204,8 +204,10 @@ PARAMETERS
   multi         Return every category that applies instead of just one.
   max_labels    Cap how many multi-label answers come back.
 
-  Results come back in input order. Each carries the label, a confidence from
-  0 to 1, a score for every label, and the model that answered.
+  Results come back in input order. Single-label results carry label,
+  confidence, scores and model. Confidence and scores can be null; check for
+  null before comparing thresholds. POST multi-label results instead carry
+  labels (an array), scores and model, with no singular label or confidence.
 
   Batch responses also carry modelsUsed. The top-level model is "mixed" when
   different results were answered by different models, such as a smart-tier
@@ -227,6 +229,12 @@ CONFIDENCE
 
   Use it. Act on high-confidence answers, and route the rest to a person, a
   reasoning model, or the smart tier, which does exactly that for you.
+
+  Route null confidence to review: unreadable inputs and smart-escalated
+  answers have null confidence and scores, with an unscored explanation.
+  The first model's probabilities never describe a reasoning model's answer.
+  Neither tier guarantees identical labels or scores across calls.
+
   Confidence and scores may be rounded to two decimals depending on which
   transport answered, so do not read meaning into the third digit.
 
@@ -278,8 +286,8 @@ TIERS
            is re-asked of a fast reasoning model and replaced. Measured:
            emotion 61.8% to 63.7%, news topics 87.5% to 90.0%, by re-asking
            30% and 12% of the items. Those results carry escalated: true and
-           the reasoning model's name; the confidence and scores shown are
-           still the decision model's, since they are why it was escalated.
+           the reasoning model's name. Confidence and scores are null, with
+           an unscored explanation: the new answer has no comparable probabilities.
            usage.escalated counts them. A few seconds per escalated item, so
            a batch on smart is slower in proportion to how uncertain it is.
            If the reasoning model cannot be reached, the fast answer stands

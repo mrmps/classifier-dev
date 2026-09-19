@@ -33,6 +33,11 @@ export function isUnintelligible(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return true;
 
+  // Whole hexadecimal identifiers are not prose, even if their letters happen
+  // to form pronounceable chunks. Keep short words and sentences containing
+  // a hash eligible for scoring.
+  if (/^(?:0x)?[0-9a-f]{16,}$/i.test(trimmed)) return true;
+
   const letters = trimmed.match(/\p{L}/gu) ?? [];
 
   // Punctuation or digits only — "....", "!!!", "42". Nothing to read.
