@@ -199,3 +199,126 @@ test("progress stays silent when disabled", () => {
   try { p.update(1, 2); p.clear(); } finally { process.stderr.write = real; }
   assert.deepEqual(writes, [], "nothing is written when stderr is not a terminal");
 });
+
+// ---------------------------------------------------------------- guards added after the first audit
+
+import { checkResults, confidenceOf, kept } from "../classify.js";
+
+/** A server that answers with whatever `reply(body)` returns, as JSON 200. */
+function replyWith(reply) {
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(reply(JSON.parse(raw))));
+    });
+  });
+  return new Promise((resolve) => server.listen(0, () => resolve({ server, url: `http://127.0.0.1:${server.address().port}` })));
+}
+
+test("checkResults rejects a short, missing, or mis-shaped answer", () => {
+  const o = { multi: false, smart: false };
+  const one = { label: "a", confidence: 0.9 };
+  assert.deepEqual(checkResults(o, { results: [one, one] }, 2), [one, one]);
+  assert.throws(() => checkResults(o, { ok: true }, 2), /returned no results/);
+  assert.throws(() => checkResults(o, { results: [one] }, 2), /1 results for 2 inputs/);
+  assert.throws(() => checkResults(o, { results: [{ labels: ["a"] }] }, 1), /multi-label shape/);
+  assert.throws(() => checkResults({ multi: true }, { results: [one] }, 1), /single-label shape/);
+});
+
+test("a short answer from the API is an error, not a shorter file", async () => {
+  const { server, url } = await replyWith((b) => ({ results: b.inputs.slice(1).map(() => ({ label: "a", confidence: 0.9 })) }));
+  try {
+    const r = await run(["a,b", "--endpoint", url], "one\ntwo\nthree\n");
+    assert.equal(r.code, 1);
+    assert.match(r.err, /2 results for 3 inputs/);
+    assert.equal(r.out, "");
+  } finally { server.close(); }
+});
+
+test("a missing confidence prints as -, and --review keeps it", () => {
+  const o = { multi: false, review: null, json: false, quiet: false };
+  assert.equal(formatRow(o, { text: "x" }, { label: "a" }, 0), "a\t-\tx");
+  assert.equal(confidenceOf(o, { label: "a" }), null);
+  assert.equal(kept({ ...o, review: 0.5 }, { label: "a" }), true);
+  assert.equal(kept({ ...o, review: 0.5 }, { label: "a", confidence: 0.9 }), false);
+});
+
+test("--max implies --multi, and rejects anything but a whole number", async () => {
+  const { server, requests, url } = await mockApi();
+  try {
+    const r = await run(["ml,db", "-k", "1", "--endpoint", url], "db tuning\n");
+    assert.equal(r.code, 0, r.err);
+    assert.equal(requests.at(-1).multi, true);
+    assert.equal(requests.at(-1).max_labels, 1);
+    assert.match(r.out, /^db\t0\.90\tdb tuning\n$/);
+    for (const bad of ["abc", "0", "1.5", "-2"]) {
+      const b = await run(["ml,db", "-k", bad, "--endpoint", url], "x\n");
+      assert.equal(b.code, 1, bad);
+      assert.match(b.err, /--max takes a whole number/);
+    }
+  } finally { server.close(); }
+});
+
+test("--review composes with --count and with a single text", async () => {
+  const { server, url } = await mockApi();
+  try {
+    // The mock gives 0.4 to anything with a "?" and 0.9 otherwise.
+    const c = await run(["a,b", "--count", "--review", "0.5", "--endpoint", url], "a sure\nb?\nb?\n");
+    assert.equal(c.out, "2\tb\n0\ta\n");
+    const sure = await run(["a,b", "--review", "0.5", "--endpoint", url, "a sure thing"]);
+    assert.equal(sure.out, "");
+    const unsure = await run(["a,b", "--review", "0.5", "--endpoint", url, "b?"]);
+    assert.equal(unsure.out, "b\t0.40\tb?\n");
+    const multi = await run(["a,b", "-m", "--endpoint", url, "a and b"]);
+    assert.equal(multi.out, "a\n", "one text with --multi is comma-joined like every other row");
+  } finally { server.close(); }
+});
+
+test("plain lines that open with a brace stay plain; broken NDJSON says which line", () => {
+  assert.deepEqual(parseInput("{not json}\n{also not}"), [{ text: "{not json}" }, { text: "{also not}" }]);
+  assert.throws(() => parseInput('{"text":"a"}\n{"text":'), /line 2 is not valid JSON/);
+});
+
+test("--smart reports answers the smart tier could not re-ask", async () => {
+  const { server, url } = await replyWith((b) => ({
+    results: b.inputs.map(() => ({ label: "a", confidence: 0.3 })),
+    usage: { classifications: b.inputs.length, escalated: 0, escalation_failed: b.inputs.length },
+  }));
+  try {
+    const r = await run(["a,b", "-s", "--endpoint", url], "one\ntwo\n");
+    assert.equal(r.code, 0);
+    assert.match(r.err, /could not re-ask 2 uncertain answers/);
+    const m = await run(["a,b", "-s", "-m", "--endpoint", url], "one\n");
+    assert.match(m.err, /--smart has no effect with --multi/);
+  } finally { server.close(); }
+});
+
+test("newer ignores prereleases and junk", () => {
+  assert.equal(newer("1.0.1-beta.1", "1.0.0"), false);
+  assert.equal(newer(undefined, "1.0.0"), false);
+  assert.equal(newer("2.0.0", "1.9.9"), true);
+});
+
+test("retries are announced on stderr, and a 5xx is retried", async () => {
+  let calls = 0;
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      calls++;
+      if (calls === 1) { res.writeHead(503, { "content-type": "application/json" }); return res.end('{"error":"upstream down"}'); }
+      const b = JSON.parse(raw);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ results: b.inputs.map(() => ({ label: "a", confidence: 0.9 })) }));
+    });
+  });
+  await new Promise((r) => server.listen(0, r));
+  try {
+    const r = await run(["a,b", "--endpoint", `http://127.0.0.1:${server.address().port}`], "x\n");
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.err, /upstream down, retrying in 0\.5s \(2\/5\)/);
+    assert.equal(calls, 2);
+  } finally { server.close(); }
+});
