@@ -474,7 +474,7 @@ const JSON_LD = () => {
       areaServed: "Worldwide",
       url: "https://classifier.dev/",
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD", url: "https://classifier.dev/pricing" },
-      termsOfService: "https://classifier.dev/privacy",
+      termsOfService: "https://classifier.dev/terms",
       availableChannel: [
         { "@type": "ServiceChannel", serviceUrl: "https://classifier.dev/v1/classify", name: "REST API" },
         { "@type": "ServiceChannel", serviceUrl: "https://classifier.dev/mcp", name: "MCP server" },
@@ -498,7 +498,7 @@ const JSON_LD = () => {
       documentation: "https://classifier.dev/openapi.json",
       description: "REST and MCP interfaces for zero-shot text classification. No authentication.",
       provider: { "@id": "https://classifier.dev/#org" },
-      termsOfService: "https://classifier.dev/privacy",
+      termsOfService: "https://classifier.dev/terms",
     },
     {
       "@type": "Organization",
@@ -737,7 +737,7 @@ export const NAV = (here: string) =>
     cls: "dim",
   })}</p></nav>`;
 
-export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
+export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/terms">terms</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
 
 export function homeHtml(o: { chat?: boolean } = {}): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";

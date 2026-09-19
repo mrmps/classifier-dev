@@ -51,6 +51,11 @@ CLAUDE CODE
 
     {"mcpServers": {"classifier": {"type": "http", "url": "https://classifier.dev/mcp"}}}
 
+  Or as a plugin, which adds both servers and the bulk-classify skill at once:
+
+    claude plugin marketplace add mrmps/classifier-dev
+    claude plugin install classifier@classifier-dev
+
 
 CHATGPT
 
@@ -68,6 +73,11 @@ CHATGPT
 CODEX
 
     codex mcp add classifier --url https://classifier.dev/mcp
+
+  Or as a plugin, with the skill included:
+
+    codex plugin marketplace add https://github.com/mrmps/classifier-dev
+    codex plugin add classifier
 
   Or in ~/.codex/config.toml:
 
@@ -422,6 +432,7 @@ CONTACT AND POLICIES
 
   https://classifier.dev/contact for how to reach a person,
   https://classifier.dev/privacy for what is and is not logged,
+  https://classifier.dev/terms for what you agree to by using it,
   https://classifier.dev/pricing for what it costs (nothing) and the limits.
 `;
 
@@ -531,6 +542,78 @@ PARTNER KEYS
 CHANGES AND CONTACT
 
   This page is updated when the practice changes, with the date below. Questions
+  to ${SITE.email}. Last updated ${SITE_UPDATED}.
+`;
+
+export const TERMS = `classifier.dev terms
+
+The short version: the service is free within the published limits, it is
+offered as it is, you are responsible for what you send and for what you do
+with the answers, and it can change or stop. There is no contract unless you
+hold a partner key with one.
+
+
+WHAT YOU GET
+
+  A zero-shot text classification API over HTTP, two MCP servers, a CLI, a
+  skill and a skills directory, all at https://classifier.dev, with no account
+  and no key, within the per-IP limits at https://classifier.dev/pricing. The
+  limits, the models and the endpoints can change; the API reference and the
+  changelog say when they do, and a versioned path stays as documented while
+  it is served.
+
+
+WHAT YOU AGREE TO
+
+  Use it for lawful purposes and within the limits. Do not try to get around
+  the per-IP limits, probe or disrupt the service, or send content you have no
+  right to send. Do not use it to classify people in ways the law forbids, to
+  make consequential decisions about a person with no human review, or to
+  build anything that harms someone. A response is a probability from a model,
+  not advice: check anything that matters.
+
+  You keep every right to the texts and labels you send. The service uses them
+  only to answer the request and, as https://classifier.dev/privacy explains,
+  forwards them to the model provider that answers and does not store them.
+  The answers are yours to keep and to use however you like.
+
+
+SKILLS YOU SUBMIT
+
+  A skill submitted to https://classifier.dev/skills is being published. By
+  submitting it you say it is yours to publish and grant everyone a licence to
+  read, copy and use it as a document; the directory lists it, unlisted skills
+  are not kept. A listed skill can be taken down on request to the address
+  below and by the service when it should not have been listed.
+
+
+NO WARRANTY, NO LIABILITY
+
+  The service is provided as is and as available, without warranty of any
+  kind. Accuracy is measured and published at https://classifier.dev/benchmark
+  and is not promised. To the extent the law allows, the service and the
+  person who runs it are not liable for any loss arising from its use or from
+  its unavailability; where liability cannot be excluded, it is limited to
+  what you paid for the service, which for the free tier is nothing.
+
+
+PARTNER KEYS
+
+  A partner key is issued under its own written terms, which take precedence
+  over this page for requests made with it. A key can be revoked for use that
+  breaks these terms.
+
+
+CHANGES, TERMINATION AND CONTACT
+
+  These terms can change; the date below moves when they do, and continued
+  use after a change is acceptance of it. Access can be limited or ended for
+  use that breaks these terms, and the service itself may be discontinued
+  with notice on https://classifier.dev. The code is open source under the
+  MIT licence at https://github.com/mrmps/classifier-dev, so the service
+  ending does not take the software with it.
+
+  These terms are governed by the law of California, United States. Questions
   to ${SITE.email}. Last updated ${SITE_UPDATED}.
 `;
 
