@@ -106,6 +106,40 @@ export const OPENAPI = {
   ],
   servers: [{ url: "https://classifier.dev" }],
   paths: {
+    "/subscribe": {
+      post: {
+        operationId: "subscribeToUpdates",
+        summary: "Subscribe a human or agent inbox to product updates",
+        description: "Use your own email address, or one whose owner explicitly requested updates. No API key, browser, or email confirmation is required. Addresses are trimmed and lowercased. Repeated submissions keep one subscriber and return the same response. One email when a roadmap item ships; reply to unsubscribe. Limited to 5 requests/minute and 50/day per IP.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: {
+            type: "object", required: ["email"],
+            properties: { email: { type: "string", maxLength: 254, description: "An email address for an inbox you control or have explicit permission to subscribe.", example: "agent@example.com" } },
+          } } },
+        },
+        responses: {
+          "202": {
+            description: "Address subscribed, including repeat submissions. No confirmation step.",
+            content: { "application/json": { schema: {
+              type: "object", required: ["ok", "subscribed"],
+              properties: { ok: { const: true }, subscribed: { type: "string", description: "The normalized email address." } },
+              example: { ok: true, subscribed: "agent@example.com" },
+            } } },
+          },
+          ...Object.fromEntries([
+            ["400", "Missing or invalid email address."],
+            ["429", "Too many signups; wait Retry-After seconds before retrying."],
+            ["503", "Subscription storage unavailable; retry shortly."],
+          ].map(([status, description]) => [status, {
+            description,
+            ...(status === "429" ? { headers: { "Retry-After": { schema: { type: "integer" } } } } : {}),
+            content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } },
+          }])),
+        },
+      },
+    },
     "/v1/health": {
       get: {
         operationId: "getHealth",

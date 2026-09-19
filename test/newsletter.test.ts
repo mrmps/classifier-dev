@@ -7,7 +7,8 @@
 // to matter, and the same hole is how a table gets read back out.
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { ROADMAP, normalise, roadmapDoc, subscribe, notify, Unavailable } from "../src/newsletter";
-import type { Env } from "../src/index";
+import worker, { type Env } from "../src/index";
+import { OPENAPI } from "../src/openapi";
 
 const CONN = "postgresql://writer:pw@ep-test.us-east-1.aws.neon.tech/neondb?sslmode=require";
 const env = { NEWSLETTER_DATABASE_URL: CONN } as never;
@@ -213,5 +214,64 @@ describe("notify", () => {
     expect((err as Error).message).toContain("401");
 
     globalThis.fetch = realFetch;
+  });
+});
+
+describe("agent subscription API", () => {
+  const pending: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException() {} } as unknown as ExecutionContext;
+  const request = (body: unknown, bindings: Env = env) => worker.fetch(new Request("https://classifier.dev/subscribe", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  }), bindings, ctx);
+
+  it("advertises an unauthenticated subscription in agent discovery and OpenAPI", async () => {
+    const res = await worker.fetch(new Request("https://classifier.dev/agent.json"), env, ctx);
+    const discovery = await res.json() as { api: { subscribe: { url: string; body: { email: string }; confirmation_required: boolean } } };
+    expect(discovery.api.subscribe.url).toBe("https://classifier.dev/subscribe");
+    expect(discovery.api.subscribe.body).toEqual({ email: "agent@example.com" });
+    expect(discovery.api.subscribe.confirmation_required).toBe(false);
+    expect(OPENAPI.paths["/subscribe"].post.security).toEqual([]);
+  });
+
+  it("accepts an agent inbox through JSON without credentials and permits retries", async () => {
+    const seen = capture();
+    for (let i = 0; i < 2; i++) {
+      const res = await request({ email: " Agent+updates@Example.com " });
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({ ok: true, subscribed: "agent+updates@example.com" });
+    }
+    expect(seen).toHaveLength(2);
+    for (const call of seen) {
+      expect(call.body.params).toEqual(["agent+updates@example.com", "api"]);
+      expect(call.body.query).toContain("on conflict (email) do nothing");
+    }
+    await Promise.all(pending.splice(0));
+  });
+
+  it("rejects invalid addresses before writing", async () => {
+    const seen = capture();
+    for (const email of [null, "not-an-email", ["agent@example.com"]]) {
+      expect((await request({ email })).status).toBe(400);
+    }
+    expect(seen).toHaveLength(0);
+  });
+
+  it("returns a retry delay when rate limited without writing", async () => {
+    const seen = capture();
+    const limited = { ...env, LIMITER: {
+      idFromName: () => "test",
+      get: () => ({ fetch: async () => Response.json({ limited: true }) }),
+    } } as unknown as Env;
+    const res = await request({ email: "agent@example.com" }, limited);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(seen).toHaveLength(0);
+  });
+
+  it("reports storage failure without claiming subscription succeeded", async () => {
+    capture(503);
+    const res = await request({ email: "agent@example.com" });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "could not record that address; try again shortly" });
   });
 });
