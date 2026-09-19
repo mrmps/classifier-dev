@@ -68,14 +68,15 @@ export const OPENAPI = {
   info: {
     title: "classifier.dev",
     version: "1.0.0",
-    summary: "Zero-shot text classification with calibrated confidence. No API key, no account.",
+    summary: "Zero-shot text classification with calibrated confidence. Free without a key; Pro for 10x limits.",
     description:
       "Send text and a list of labels, receive the label that fits, a calibrated confidence " +
       "and a score per label. Up to 1,000 texts per request, ~1s. Tiers: fast (default) and " +
       "smart, which re-asks answers below 0.7 confidence of a fast reasoning model. " +
-      "Limits are per IP and counted in classifications: 3,000/min and 20,000/day on fast, " +
+      "Free limits are per IP and counted in classifications: 3,000/min and 20,000/day on fast, " +
       "200/min and 2,000/day on smart. Benchmarks: https://classifier.dev/benchmark\n\n" +
-      "Authentication: none. Every endpoint is public; an optional bearer key lifts the per-IP limits for partners " +
+      "Authentication: optional for classification. Pro ($20/month) bearer keys provide fast 30,000/min and 200,000/day, " +
+      "smart 2,000/min and 20,000/day per billing account across IPs. Partner keys remain supported " +
       "(see https://classifier.dev/auth.md).\n\n" +
       "Versioning: the current major is v1, addressed as POST /v1/classify; POST / is an alias that tracks the current major. " +
       "Response shapes are additive within a major (fields are added, never renamed or removed). Every response carries an " +
@@ -103,7 +104,7 @@ export const OPENAPI = {
     "x-mcp": { url: "https://classifier.dev/mcp", docs: "https://classifier.dev/mcp/docs", card: "https://classifier.dev/.well-known/mcp/server-card.json" },
   },
   externalDocs: { description: "Developer guide", url: "https://classifier.dev/developers" },
-  // Anonymous, or a partner key: the empty object is what makes the key optional.
+  // Anonymous, or a Pro/partner key: the empty object is what makes the key optional.
   security: [{}, { partnerKey: [] }],
   tags: [
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
@@ -611,7 +612,7 @@ export const OPENAPI = {
                   },
                 },
                 batch: {
-                  summary: "Smart batch (up to 200 inputs without a partner key)",
+                  summary: "Smart batch (up to 200 inputs free; 1,000 with Pro or a partner key)",
                   value: {
                     inputs: ["refund never came", "love this app"],
                     labels: ["billing", "praise"],
@@ -1085,7 +1086,7 @@ export const OPENAPI = {
       partnerKey: {
         type: "http",
         scheme: "bearer",
-        description: "Optional. Lifts the per-IP limits for partners; issued by arrangement (https://classifier.dev/auth.md). Every operation works without it.",
+        description: "Optional for classification. Pro keys (classifier_pro_...) provide 10x limits per billing account; subscribe at https://classifier.dev/pro. Partner keys retain separately arranged access. See https://classifier.dev/auth.md.",
       },
     },
   },
@@ -1191,8 +1192,8 @@ with a score. Labels scoring >= 0.7 are returned, most likely first;
 - [Skill](https://classifier.dev/skill.md): when to reach for this, batching, confidence, pitfalls
 - [Developers](https://classifier.dev/developers): every surface, limits, errors, versioning
 - [MCP setup](https://classifier.dev/mcp-setup): Claude, ChatGPT, Codex, Cursor
-- [Pricing](https://classifier.dev/pricing): free; limits; partner keys
-- [Authentication](https://classifier.dev/auth.md): there is none
+- [Pricing](https://classifier.dev/pricing): Free and $20/month Pro; limits; partner keys
+- [Authentication](https://classifier.dev/auth.md): anonymous access, Pro and partner keys
 - [Privacy](https://classifier.dev/privacy), [About](https://classifier.dev/about), [Contact](https://classifier.dev/contact)
 - [Documentation](https://classifier.dev): full parameter list, tiers, limits
 - [OpenAPI specification](https://classifier.dev/openapi.json): machine-readable, OpenAPI 3.1
@@ -1208,9 +1209,13 @@ needed, and the receipt you get back can be polled at \`/api/v1/receipts/{id}\`.
 
 ## Limits
 
-Per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
+Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
-characters, 1,000 per request. Exceeding a limit returns 429 with Retry-After.
+characters; free requests accept 1,000 inputs on fast or 200 on smart.
+Pro ($20/month) gives 10x minute and daily limits per billing account, and up
+to 1,000 inputs on either tier. Subscribe at https://classifier.dev/pro and
+send Authorization: Bearer classifier_pro_... on REST or MCP requests.
+Exceeding a limit returns 429 with Retry-After.
 
 ## Contact
 

@@ -27,8 +27,11 @@ import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
 import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
+export { BillingAccount } from "./billing";
+import { authenticatePro, handleBilling, BillingError, type BillingEnv } from "./billing";
+import { proHtml } from "./proui";
 
-export interface Env {
+export interface Env extends BillingEnv {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
   /** context.dev, for the chat's web search and page reads only. Never served. */
@@ -253,7 +256,7 @@ const agentView = (origin: string) => ({
   name: "classifier.dev",
   description: "Zero-shot text classification over plain HTTP. No API key, no account.",
   version: API_VERSION,
-  authentication: { required: false, optional_bearer: "partner key lifts per-IP limits", docs: `${origin}/auth.md` },
+  authentication: { required: false, optional_bearer: "Pro key gives 10× limits; partner key lifts limits", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
@@ -316,7 +319,7 @@ function notFound(req: Request, origin: string) {
 const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = {
   developers: { doc: DEVELOPERS, title: "developers", desc: "Quickstart, every surface (REST, MCP, CLI, skill), limits, errors, versioning. No key needed." },
   "mcp-setup": { doc: MCP_SETUP, title: "MCP setup", desc: "Connect classifier.dev to Claude, ChatGPT, Codex, Cursor or any MCP client, step by step." },
-  pricing: { doc: PRICING, title: "pricing", desc: "Free within per-IP limits. Partner keys by arrangement." },
+  pricing: { doc: PRICING, title: "pricing", desc: "Free, or Pro for $20/month with 10× classification limits." },
   about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
   contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },
   privacy: { doc: PRIVACY, title: "privacy", desc: "Inputs are not stored. What is logged, and what is not collected." },
@@ -1076,13 +1079,13 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   );
 }
 
-/** Ask the per-IP Durable Object whether this request fits inside the window. */
-async function limited(env: Env, tier: Tier, ip: string, cost: number) {
-  const rpm = TIERS[tier].rpm;
+/** Ask the IP or Pro account Durable Object whether the batch fits. */
+async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1) {
+  const rpm = TIERS[tier].rpm * multiplier;
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
     const res = await env.LIMITER.get(id).fetch(
-      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily}&cost=${cost}`,
+      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}`,
     );
     return (await res.json()) as {
       limited: boolean;
@@ -1144,6 +1147,11 @@ const worker = {
     const wantsMarkdown =
       req.method === "GET" && (url.searchParams.get("format") === "markdown" || /\btext\/markdown\b/.test(accept));
     const origin = url.origin;
+    if (path === "pro" && req.method === "GET") {
+      return html(proHtml(), 200, { "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    }
+    const billing = await handleBilling(req, env);
+    if (billing) return billing;
     // The operator dashboard. Returns null for every other path.
     const admin = await adminResponse(req, env, path, ip);
     if (admin) return admin;
@@ -1630,6 +1638,21 @@ const worker = {
       return notFound(req, origin);
     }
 
+    // Paid credentials are resolved only on classification paths. The shared
+    // MCP handler forwards Authorization here too. Never put billing identity
+    // into classification analytics; only the quota bucket uses the account.
+    let pro: { customerId: string; active: boolean } | null = null;
+    if (!enterprise) {
+      try { pro = await authenticatePro(req, env); }
+      catch (error) {
+        if (error instanceof BillingError) return json({ error: error.message, code: error.code }, error.status, { "cache-control": "no-store" });
+        return json({ error: "Unable to verify Pro access. Try again shortly.", code: "billing_unavailable" }, 503, { "cache-control": "no-store" });
+      }
+    }
+    const multiplier = pro ? 10 : 1;
+    const quotaOwner = pro ? `pro:${pro.customerId}` : ip;
+    const quotaScope = pro ? "per Pro account" : "per IP";
+
     // ---- gather params from either shape -----------------------------------
     let inputs: string[] = [];
     let labels: string[] = [];
@@ -1649,11 +1672,11 @@ const worker = {
     // key if the caller sent one — classification has no side effects, so the
     // echo is all a retrying client needs.
     const apiHeaders = (remaining = -1): Record<string, string> => {
-      const limit = TIERS[tier].rpm;
+      const limit = TIERS[tier].rpm * multiplier;
       const h: Record<string, string> = {
         "x-api-version": API_VERSION,
         "ratelimit-limit": enterprise ? "unlimited" : String(limit),
-        "ratelimit-policy": enterprise ? "unlimited" : `${limit};w=60, ${TIERS[tier].daily};w=86400`,
+        "ratelimit-policy": enterprise ? "unlimited" : `${limit};w=60, ${TIERS[tier].daily * multiplier};w=86400`,
         "x-ratelimit-limit": enterprise ? "unlimited" : `${limit}/min`,
       };
       if (remaining >= 0) {
@@ -1770,23 +1793,23 @@ const worker = {
       catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
     } else mode = multi ? "multi" : "single";
     const decisions = inputs.length * (dimensions?.length ?? 1);
-    const rpm = TIERS[tier].rpm;
+    const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
-    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per public ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
+    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const gate = enterprise
       ? { limited: false, remaining: -1 }
-      : await limited(env, tier, ip, decisions);
+      : await limited(env, tier, quotaOwner, decisions, multiplier);
     if (gate.limited) {
       const perDay = gate.scope === "day";
       return fail(
         perDay
-          ? `Daily limit reached: ${TIERS[tier].daily} ${tier} classifications per IP per day. Need more? https://cal.com/michaelsf/coffee`
-          : `Rate limit: ${rpm} ${tier} classifications/minute per IP. Need more? https://cal.com/michaelsf/coffee`,
+          ? `Daily limit reached: ${TIERS[tier].daily * multiplier} ${tier} classifications ${quotaScope} per day. See https://classifier.dev/pricing`
+          : `Rate limit: ${rpm} ${tier} classifications/minute ${quotaScope}. See https://classifier.dev/pricing`,
         429,
         perDay ? "rate_limit_day" : "rate_limit_minute",
         {
           "retry-after": String(gate.resetIn ?? 60),
-          "x-ratelimit-limit": perDay ? `${TIERS[tier].daily}/day` : `${rpm}/min`,
+          "x-ratelimit-limit": perDay ? `${TIERS[tier].daily * multiplier}/day` : `${rpm}/min`,
         },
         0,
         0,
