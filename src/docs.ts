@@ -62,6 +62,23 @@ CLI
   https://github.com/mrmps/classifier-dev
 
 
+MCP
+
+  The same tools inside Claude, ChatGPT, Codex, Cursor or any MCP client, over
+  Streamable HTTP with no key:
+
+    https://classifier.dev/mcp          classify_texts, classify_multi_label, count_labels, review_uncertain
+    https://classifier.dev/mcp/docs     list_docs, read_doc, search_docs
+
+    claude mcp add --transport http classifier https://classifier.dev/mcp
+    codex mcp add classifier --url https://classifier.dev/mcp
+
+  Claude.ai: Customize > Connectors > Add custom connector > paste the URL.
+  ChatGPT: Settings > Security and login > Developer mode, then create an app
+  with the URL and "No Authentication". Step by step for every client, plus
+  what each tool does: https://classifier.dev/mcp-setup
+
+
 AGENT SKILL
 
   Install this as a skill and your agent will remember to reach for it:

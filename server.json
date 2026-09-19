@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "dev.classifier/classifier",
+  "title": "classifier.dev",
+  "description": "Sort up to 1,000 texts into your own labels with a calibrated confidence per answer. No API key.",
+  "version": "1.0.0",
+  "websiteUrl": "https://classifier.dev",
+  "repository": {
+    "url": "https://github.com/mrmps/classifier-dev",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://classifier.dev/mcp"
+    }
+  ]
+}
