@@ -26,9 +26,10 @@ const AE_ROWS = [
   { model: "google/gemini-3.8-flash", status: "200", reason: "", requests: 10, ms_sum: 1000, usd: 0, escfail: 0 },
 ];
 
-function env(kv: ReturnType<typeof fakeKv>) {
+function env(kv: ReturnType<typeof fakeKv>, typesafeKey?: string) {
   return {
     STATS: kv,
+    ...(typesafeKey ? { TYPESAFE_API_KEY: typesafeKey } : {}),
     CLOUDFLARE_ACCOUNT_ID: "acct",
     CF_ANALYTICS_TOKEN: "tok",
     RESEND_API_KEY: "key",
@@ -41,9 +42,10 @@ beforeEach(() => { realFetch = globalThis.fetch; });
 afterEach(() => { globalThis.fetch = realFetch; });
 
 /** @param mailOk whether Resend accepts the message */
-function mockFetch(mailOk: boolean, sent: string[]) {
+function mockFetch(mailOk: boolean, sent: string[], jevStatus = 200, jevBody = "{}") {
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(typeof url === "object" && "url" in url ? url.url : url);
+    if (u.includes("api.typesafe.ai")) return new Response(jevBody, { status: jevStatus });
     if (u.includes("analytics_engine/sql")) {
       const q = String(init?.body ?? "");
       // The baseline query has no GROUP BY; the window query does.
@@ -93,5 +95,53 @@ describe("alert state is only recorded once the email is actually away", () => {
     expect(out).toContain("preview only");
     expect(sent.length).toBe(0);
     expect([...kv.store.keys()]).toEqual([]);
+  });
+});
+
+
+describe("the Jev key probe", () => {
+  const REFUSED = JSON.stringify({
+    detail: { error_type: "authentication_error", message: "Cannot authenticate with the server." },
+  });
+
+  it("raises a critical alert when TypeSafe refuses the key", async () => {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    mockFetch(true, sent, 401, REFUSED);
+
+    await runAlerts(env(kv, "tskey"), { send: true });
+    // Several conditions can fire at once, so the subject collapses to a count;
+    // the body is where each one is named.
+    expect(sent[0]).toContain("refusing the key");
+    expect(sent[0]).toContain("CRITICAL");
+    // It forwards what TypeSafe actually said, rather than guessing.
+    expect(sent[0]).toContain("Cannot authenticate with the server.");
+    expect([...kv.store.keys()]).toContain("alert:jev_credentials");
+  });
+
+  it("says nothing while the key still works", async () => {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    mockFetch(true, sent, 200, JSON.stringify({ models: [] }));
+
+    await runAlerts(env(kv, "tskey"), { send: true });
+    expect([...kv.store.keys()]).not.toContain("alert:jev_credentials");
+  });
+
+  it("still probes when Analytics Engine is down", async () => {
+    const kv = fakeKv();
+    const sent: string[] = [];
+    // AE fails, the probe does not: an analytics outage must not hide a dead key.
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(typeof url === "object" && "url" in url ? url.url : url);
+      if (u.includes("api.typesafe.ai")) return new Response(REFUSED, { status: 402 });
+      if (u.includes("analytics_engine/sql")) return new Response("boom", { status: 500 });
+      if (u.includes("api.resend.com")) { sent.push(String(init?.body ?? "")); return new Response("{}", { status: 200 }); }
+      return new Response("{}", { status: 200 });
+    }) as typeof globalThis.fetch;
+
+    await runAlerts(env(kv, "tskey"), { send: true });
+    expect(sent[0]).toContain("refusing the key");
+    expect([...kv.store.keys()]).toContain("alert:jev_credentials");
   });
 });

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PKG = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
-const ENDPOINT = process.env.CLASSIFIER_ENDPOINT || "https://classifier.dev";
+const ENDPOINT = process.env.CLASSIFY_ENDPOINT || process.env.CLASSIFIER_ENDPOINT || "https://classifier.dev";
 const BATCH = Number(process.env.CLASSIFY_BATCH) || 1000; // the API's per-request ceiling
 const CONCURRENCY = 4;
 // A request that never answers should not hang the pipeline forever. Generous,
@@ -29,6 +29,7 @@ USAGE
 
 OUTPUT
   Default, one line per input:   label<TAB>confidence<TAB>text
+                                 (with --id:  label<TAB>confidence<TAB>id<TAB>text)
   --json                         NDJSON: {"i","text","label","confidence","scores",...}
   --quiet                        labels only, one per line
   --count                        how many inputs got each label
@@ -37,7 +38,7 @@ OUTPUT
 
 OPTIONS
   -m, --multi                every label that applies (comma-joined), plus a score per label
-  -k, --max <n>              with --multi, at most n labels
+  -k, --max <n>              at most n labels (implies --multi)
   -s, --smart                re-ask uncertain answers of a reasoning model (slower)
   -i, --instructions <text>  extra criteria: "judge only the service, ignore the food"
   -r, --review <t>           print only inputs with confidence below t
@@ -46,8 +47,8 @@ OPTIONS
   -q, --quiet                labels only
       --field <name>         for JSON / NDJSON input, the field holding the text (default: text)
       --id <name>            for JSON / NDJSON input, a field to carry through to the output
-      --endpoint <url>       API base, default https://classifier.dev  (env CLASSIFIER_ENDPOINT)
-      --api-key <key>        bearer token for higher limits           (env CLASSIFIER_API_KEY)
+      --endpoint <url>       API base, default https://classifier.dev  (env CLASSIFY_ENDPOINT)
+      --api-key <key>        bearer token for higher limits           (env CLASSIFY_API_KEY)
   -v, --version
   -h, --help
 
@@ -71,15 +72,16 @@ CONFIDENCE
   none-of-the-above is a real outcome.
 
 No API key or account. Limits per IP: 3,000 classifications/min on fast, 200 on smart.
+Env: CLASSIFY_TIMEOUT (seconds, default 180), CLASSIFY_NO_PROGRESS, CLASSIFY_NO_UPDATE_CHECK.
 Docs: https://classifier.dev   Agent skill: npx skills add https://classifier.dev
 `;
 
 // ---------------------------------------------------------------- args
 
 function parseArgs(argv) {
-  const o = { labels: null, text: null, multi: false, max: 0, smart: false, instructions: "",
+  const o = { labels: null, text: null, multi: false, max: null, smart: false, instructions: "",
     review: null, count: false, json: false, quiet: false, field: "text", id: null,
-    endpoint: ENDPOINT, apiKey: process.env.CLASSIFIER_API_KEY || "", help: false, version: false };
+    endpoint: ENDPOINT, apiKey: process.env.CLASSIFY_API_KEY || process.env.CLASSIFIER_API_KEY || "", help: false, version: false };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -109,7 +111,10 @@ function parseArgs(argv) {
   if (positional.length) o.labels = positional[0].split(",").map((l) => l.trim()).filter(Boolean);
   if (positional.length > 1) o.text = positional.slice(1).join(" ");
   if (o.review !== null && !(o.review > 0 && o.review <= 1)) fail("--review takes a threshold between 0 and 1, e.g. --review 0.7");
-  if (o.max && !(o.max > 0)) fail("--max takes a positive number");
+  if (o.max !== null) {
+    if (!(Number.isInteger(o.max) && o.max > 0)) fail("--max takes a whole number above 0, e.g. --max 3");
+    o.multi = true; // the API reads max_labels as multi-label; a single label cannot be capped
+  }
   return o;
 }
 
@@ -135,7 +140,19 @@ export function parseInput(raw, field = "text", idField = null) {
   };
   if (trimmed[0] === "[") return JSON.parse(trimmed).map(fromObj);
   const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.every((l) => l[0] === "{")) return lines.map((l) => fromObj(JSON.parse(l)));
+  if (lines.every((l) => l[0] === "{")) {
+    // NDJSON if the first line parses; then every later line has to. A file of
+    // plain sentences that happen to open with a brace is still plain text.
+    let first;
+    try { first = JSON.parse(lines[0]); } catch { return lines.map((text) => ({ text })); }
+    return lines.map((l, k) => {
+      let v = first;
+      if (k) {
+        try { v = JSON.parse(l); } catch { throw new Error(`line ${k + 1} is not valid JSON`); }
+      }
+      return fromObj(v);
+    });
+  }
   return lines.map((text) => ({ text }));
 }
 
@@ -158,7 +175,7 @@ async function post(o, inputs) {
   if (o.apiKey) headers.authorization = `Bearer ${o.apiKey}`;
 
   let last = "";
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     let res;
     try {
       res = await fetch(o.endpoint, {
@@ -168,25 +185,51 @@ async function post(o, inputs) {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (e) {
-      last = e.name === "TimeoutError" ? `no answer in ${TIMEOUT_MS / 1000}s` : `network error: ${e.message}`;
-      await sleep(500 * 2 ** attempt);
+      const timedOut = e.name === "TimeoutError";
+      last = timedOut ? `no answer in ${TIMEOUT_MS / 1000}s` : `network error: ${e.message}`;
+      // A timeout already cost minutes; one more try is fair, five is a hang.
+      if (timedOut && attempt >= 1) break;
+      await retry(last, 0.5 * 2 ** attempt, attempt);
       continue;
     }
     const payload = await res.json().catch(() => ({}));
-    if (res.ok) return payload.results;
+    if (res.ok) return checkResults(o, payload, inputs.length);
     last = payload.error || `HTTP ${res.status}`;
     if (res.status === 429) {
       // The API says exactly how long; a batch that trips the minute window
       // resumes on its own rather than dying at item 7,400.
-      const wait = Number(res.headers.get("retry-after")) || 5;
-      process.stderr.write(`classify: rate limited, retrying in ${wait}s\n`);
-      await sleep(wait * 1000);
+      await retry("rate limited", Number(res.headers.get("retry-after")) || 5, attempt);
       continue;
     }
-    if (res.status >= 500) { await sleep(500 * 2 ** attempt); continue; }
+    if (res.status >= 500) { await retry(last, 0.5 * 2 ** attempt, attempt); continue; }
     break; // 4xx: our fault, no point retrying
   }
   throw new Error(last);
+}
+
+const ATTEMPTS = 5;
+
+async function retry(why, seconds, attempt) {
+  if (attempt + 1 < ATTEMPTS) process.stderr.write(`classify: ${why}, retrying in ${seconds}s (${attempt + 2}/${ATTEMPTS})\n`);
+  await sleep(seconds * 1000);
+}
+
+/**
+ * The API is trusted to answer every input, in order, in the shape asked for.
+ * Anything else is an error, not a shorter file: a pipeline that drops rows
+ * silently is worse than one that stops.
+ */
+export function checkResults(o, payload, n) {
+  const results = payload?.results;
+  if (!Array.isArray(results)) throw new Error("the API returned no results");
+  if (results.length !== n) throw new Error(`the API returned ${results.length} results for ${n} inputs`);
+  const shaped = results.every((r) => r && (o.multi ? Array.isArray(r.labels) : typeof r.label === "string"));
+  if (!shaped) throw new Error(`the API answered in ${o.multi ? "single" : "multi"}-label shape`);
+  const failed = payload.usage?.escalation_failed;
+  if (o.smart && failed) {
+    process.stderr.write(`classify: the smart tier could not re-ask ${failed} uncertain ${failed === 1 ? "answer" : "answers"}; ${failed === 1 ? "it carries" : "they carry"} the fast answer\n`);
+  }
+  return results;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -252,17 +295,33 @@ export function makeProgress(enabled) {
 
 const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r?\n/g, "\\n");
 
+/**
+ * Multi-label answers have no single confidence; use the weakest kept label,
+ * so --review surfaces items whose last label was a stretch. Null when the API
+ * gave none.
+ */
+export function confidenceOf(o, r) {
+  if (!o.multi) return r.confidence ?? null;
+  const labels = r.labels || [];
+  return labels.length ? Math.min(...labels.map((l) => r.scores?.[l] ?? 0)) : 0;
+}
+
+/** --review keeps an item when the model was unsure, or said nothing about how sure it was. */
+export function kept(o, r) {
+  if (o.review === null) return true;
+  const c = confidenceOf(o, r);
+  return c === null || c < o.review;
+}
+
+export const labelOf = (o, r) => (o.multi ? (r.labels || []).join(",") : r.label);
+
 /** One output row, or null when --review filters it out. */
 export function formatRow(o, it, r, i) {
-  const label = o.multi ? (r.labels || []).join(",") : r.label;
-  // Multi-label answers have no single confidence; use the weakest kept label,
-  // so --review surfaces items whose last label was a stretch.
-  const confidence = o.multi
-    ? (r.labels || []).length ? Math.min(...r.labels.map((l) => r.scores?.[l] ?? 0)) : 0
-    : r.confidence;
-  if (o.review !== null && !(confidence === null || confidence < o.review)) return null;
+  if (!kept(o, r)) return null;
   if (o.json) return JSON.stringify({ i, ...(it.id !== undefined ? { id: it.id } : {}), text: it.text, ...r });
+  const label = labelOf(o, r);
   if (o.quiet) return label;
+  const confidence = confidenceOf(o, r);
   const c = confidence === null ? "-" : Number(confidence).toFixed(2);
   return `${label}\t${c}\t${(it.id !== undefined ? esc(it.id) + "\t" : "")}${esc(it.text)}`;
 }
@@ -276,9 +335,11 @@ export function formatRows(o, items, results) {
   return rows;
 }
 
+/** Histogram over the answers --review would keep, so the two flags compose. */
 export function formatCount(o, results) {
   const tally = new Map();
   for (const r of results) {
+    if (!kept(o, r)) continue;
     const labels = o.multi ? r.labels || [] : [r.label];
     for (const l of labels) tally.set(l, (tally.get(l) || 0) + 1);
   }
@@ -299,13 +360,18 @@ async function updateHint() {
       if (Date.now() - statSync(file).mtimeMs < 86_400_000) latest = JSON.parse(readFileSync(file, "utf8")).version;
     } catch { /* no cache */ }
     if (!latest) {
-      const res = await fetch(`https://registry.npmjs.org/${PKG.name}/latest`, { signal: AbortSignal.timeout(1500) });
-      if (!res.ok) return "";
-      latest = (await res.json()).version;
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(file, JSON.stringify({ version: latest }));
+      // A lookup that fails is remembered for the day too, so being offline or
+      // unpublished costs one attempt, not one per invocation.
+      const remember = (v) => { mkdirSync(dir, { recursive: true }); writeFileSync(file, JSON.stringify({ version: v })); };
+      try {
+        const res = await fetch(`https://registry.npmjs.org/${PKG.name}/latest`, { signal: AbortSignal.timeout(1500) });
+        latest = res.ok ? (await res.json()).version : PKG.version;
+      } catch {
+        latest = PKG.version;
+      }
+      remember(latest);
     }
-    return latest && newer(latest, PKG.version)
+    return newer(latest, PKG.version)
       ? `classify ${latest} is available (you have ${PKG.version}): npm i -g ${PKG.name}\n`
       : "";
   } catch {
@@ -313,9 +379,11 @@ async function updateHint() {
   }
 }
 
+/** Is release `a` newer than `b`? Prereleases are never suggested. */
 export function newer(a, b) {
-  const pa = a.split(/[.-]/).map(Number), pb = b.split(/[.-]/).map(Number);
-  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  if (typeof a !== "string" || !/^\d+\.\d+\.\d+$/.test(a)) return false;
+  const pa = a.split(".").map(Number), pb = String(b).split(/[.-]/).map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== (pb[i] || 0)) return pa[i] > (pb[i] || 0);
   return false;
 }
 
@@ -339,9 +407,14 @@ export async function main(argv) {
     if (!items.length) { process.stdout.write(HELP); return 2; }
   }
 
-  // --count needs every answer before it can tally; a single text is one row.
-  // Everything else streams, so `| head` on a large file returns immediately.
-  const single = o.text !== null && !o.json;
+  if (o.smart && o.multi) {
+    process.stderr.write("classify: --smart has no effect with --multi; every label is already scored by the fast model\n");
+  }
+
+  // --count needs every answer before it can tally. A single text prints just
+  // its label — unless --review or --json asked for the full row. Everything
+  // else streams, so `| head` on a large file returns immediately.
+  const single = o.text !== null && !o.json && o.review === null && !o.count;
   const streaming = !o.count && !single;
 
   // The counter would fight the rows for the same terminal, so it only appears
@@ -376,9 +449,7 @@ export async function main(argv) {
   progress.clear();
 
   if (!streaming) {
-    const lines = o.count
-      ? formatCount(o, results)
-      : o.multi ? [(results[0].labels || []).join("\n")] : [results[0].label];
+    const lines = o.count ? formatCount(o, results) : [labelOf(o, results[0])];
     if (lines.length) process.stdout.write(lines.join("\n") + "\n");
   }
 
