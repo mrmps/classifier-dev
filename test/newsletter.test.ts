@@ -6,7 +6,8 @@
 // parameter, never as text in a statement — an apostrophe in a name is enough
 // to matter, and the same hole is how a table gets read back out.
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { ROADMAP, normalise, roadmapDoc, subscribe, Unavailable } from "../src/newsletter";
+import { ROADMAP, normalise, roadmapDoc, subscribe, notify, Unavailable } from "../src/newsletter";
+import type { Env } from "../src/index";
 
 const CONN = "postgresql://writer:pw@ep-test.us-east-1.aws.neon.tech/neondb?sslmode=require";
 const env = { NEWSLETTER_DATABASE_URL: CONN } as never;
@@ -133,5 +134,84 @@ describe("subscribe", () => {
     capture();
     const err = await subscribe({} as never, "someone@example.com", "api").catch((e: Error) => e);
     expect(err).toBeInstanceOf(Unavailable);
+  });
+});
+
+describe("notify", () => {
+  it("sends a Resend email with subscriber address in subject and body", async () => {
+    const seen: { url: string; headers: Headers; body: Record<string, unknown> }[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({
+        url: String(url),
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body)),
+      });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof globalThis.fetch;
+
+    const env = {
+      RESEND_API_KEY: "re_test_key",
+      REPORT_TO: "owner@example.com",
+    } as Env;
+
+    await notify(env, "subscriber@example.com", "form");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe("https://api.resend.com/emails");
+    expect(seen[0].headers.get("authorization")).toBe("Bearer re_test_key");
+    expect(seen[0].body.to).toEqual(["owner@example.com"]);
+    expect(seen[0].body.subject).toContain("subscriber@example.com");
+    expect(String(seen[0].body.text)).toContain("subscriber@example.com");
+    expect(String(seen[0].body.text)).toContain("form");
+
+    globalThis.fetch = realFetch;
+  });
+
+  it("does not send email when RESEND_API_KEY is missing", async () => {
+    const seen: unknown[] = [];
+    globalThis.fetch = (async () => {
+      seen.push(true);
+      return new Response(JSON.stringify({ ok: true }));
+    }) as typeof globalThis.fetch;
+
+    const env = { RESEND_API_KEY: "", REPORT_TO: "owner@example.com" } as Env;
+    await notify(env, "subscriber@example.com", "api");
+
+    expect(seen).toHaveLength(0);
+
+    globalThis.fetch = realFetch;
+  });
+
+  it("does not send email when REPORT_TO is missing", async () => {
+    const seen: unknown[] = [];
+    globalThis.fetch = (async () => {
+      seen.push(true);
+      return new Response(JSON.stringify({ ok: true }));
+    }) as typeof globalThis.fetch;
+
+    const env = { RESEND_API_KEY: "re_test_key", REPORT_TO: "" } as Env;
+    await notify(env, "subscriber@example.com", "api");
+
+    expect(seen).toHaveLength(0);
+
+    globalThis.fetch = realFetch;
+  });
+
+  it("throws on non-ok Resend response", async () => {
+    globalThis.fetch = (async () => {
+      return new Response("error details", { status: 401 });
+    }) as typeof globalThis.fetch;
+
+    const env = {
+      RESEND_API_KEY: "re_invalid",
+      REPORT_TO: "owner@example.com",
+    } as Env;
+
+    const err = await notify(env, "subscriber@example.com", "api").catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain("resend");
+    expect((err as Error).message).toContain("401");
+
+    globalThis.fetch = realFetch;
   });
 });

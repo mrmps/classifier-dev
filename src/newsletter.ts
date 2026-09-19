@@ -100,6 +100,38 @@ export async function subscribe(env: Env, email: string, source: string): Promis
 export { Unavailable };
 
 /**
+ * Notify the owner of a new subscription via email.
+ *
+ * Fire-and-forget: the notification is sent via ctx.waitUntil, so a Resend
+ * outage never makes a signup fail. This means the response to the subscriber
+ * is sent even if the notification email never arrives.
+ */
+export async function notify(env: Env, email: string, source: string): Promise<void> {
+  if (!env.RESEND_API_KEY || !env.REPORT_TO) return;
+
+  const date = new Date().toISOString();
+  const body = [
+    `Subscriber: ${email}`,
+    `Source: ${source}`,
+    `Date: ${date}`,
+    "",
+    "The subscriber list is in the newsletter Neon project.",
+  ].join("\n");
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from: "classifier.dev <onboarding@resend.dev>",
+      to: [env.REPORT_TO],
+      subject: `new subscriber: ${email}`,
+      text: body,
+    }),
+  });
+  if (!res.ok) throw new Error(`resend ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
+/**
  * What a browser with JavaScript turned off gets back. The form posts normally
  * in that case, so the answer has to be a page rather than a JSON body.
  */
