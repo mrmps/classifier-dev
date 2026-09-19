@@ -377,3 +377,42 @@ classification path without replacing `ENTERPRISE_API_KEY`. The CLI accepts it
 through `CLASSIFY_API_KEY` or `CLASSIFIER_API_KEY`. It does not authorize private
 reports or admin access. Keep it in an ignored secret file; never give it to
 public clients. Anonymous quotas continue to apply to unauthenticated traffic.
+
+## Multiple dimensions
+
+`POST /v1/classify` also accepts `items` and `dimensions`:
+
+```json
+{
+  "items": ["Checkout charges me twice"],
+  "dimensions": {
+    "team": ["billing", "identity", "platform"],
+    "urgency": {
+      "labels": ["immediate", "normal", "low"],
+      "instructions": "Active financial harm is immediate."
+    },
+    "kind": ["bug", "request", "question"]
+  }
+}
+```
+
+Each `results[i].dimensions[name]` carries its own label, confidence, scores,
+model and latency. Jev shares state across item–dimension questions, packing
+both context limits. Smart escalation is per field and clears the original
+scores; unavailable Jev falls back only up to 20 decisions. The API accepts
+up to 20 dimensions and 1,000 decisions, with each decision charged to quota.
+The `classify_dimensions` MCP tool uses this same path.
+
+Analytics adds `blob9` (single/multi/dimensions), `double6` (successful input
+items), `double7` (dimension count), `double8` (uncertain or unscored fields),
+and `double9` (fields served by fallback). `double1` counts successful decisions.
+Dimension configurations are keyed fingerprints, never stored verbatim. The
+admin panel queries dimension traffic separately, including failures and
+caller-days. The existing alert cron flags three or more dimension 5xx in an
+hour above 10% of dimension requests, plus any dimension fallback usage.
+
+Run `node scripts/smoke-dimensions.mjs BASE_URL` against a staging Worker before
+merge. It exercises real inference, smart mode, a 300-decision ordered batch,
+validation, legacy classification, multi-label, MCP and OpenAPI. Deployment CI
+runs it again against production. Fault injection lives in
+`test/dimensions.test.ts` and `test/dimensions-observability.test.ts`.

@@ -1,3 +1,5 @@
+import { DIMENSIONS_SCHEMA } from "./dimensions";
+
 /**
  * The MCP server: classifier.dev as tools for Claude, ChatGPT, Codex, Cursor
  * and anything else that speaks the Model Context Protocol.
@@ -174,6 +176,21 @@ export function productServer(classify: ClassifyFn): McpServer {
         const rows = r.body.results as Row[];
         const lines = rows.map((x, i) => `${x.label}\t${x.confidence == null ? "-" : Number(x.confidence).toFixed(2)}\t${clip(body.inputs[i])}`);
         return { text: `label\tconfidence\ttext\n${lines.join("\n")}`, structured: r.body };
+      },
+    },
+    {
+      name: "classify_dimensions",
+      title: "Classify several dimensions per text",
+      description: "Classify each text by several named dimensions, such as team, urgency and kind, in one request. Returns a label, confidence, scores and model for each field. At most 1,000 item × dimension decisions; every field counts toward the quota. Use per-dimension instructions to define ambiguous categories.",
+      inputSchema: {
+        type: "object", required: ["items", "dimensions"], additionalProperties: false,
+        properties: { items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA },
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      async run(a, ctx) {
+        const r = await classify({ items: strings(a.items, "items", 1, 1000), dimensions: a.dimensions ?? null,
+          instructions: str(a.instructions, "instructions", { optional: true, max: 4000 }), tier: tier(a.tier) }, ctx.req);
+        return classifyOrError(r.status, r.body) ?? { text: JSON.stringify(r.body), structured: r.body };
       },
     },
     {

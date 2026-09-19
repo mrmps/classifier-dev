@@ -16,7 +16,7 @@ export const MCP_SETUP = `classifier.dev MCP
 Use classifier.dev as a tool inside Claude, ChatGPT, Codex, Cursor or any other
 MCP client. Two servers, both Streamable HTTP, both keyless and stateless:
 
-  https://classifier.dev/mcp         tools: classify_texts, classify_multi_label,
+  https://classifier.dev/mcp         tools: classify_texts, classify_dimensions, classify_multi_label,
                                      count_labels, review_uncertain
   https://classifier.dev/mcp/docs    tools: list_docs, read_doc, search_docs,
                                      get_examples
@@ -110,6 +110,7 @@ TRY IT BY HAND
 WHAT THE TOOLS DO
 
   classify_texts        one label per text, with a calibrated confidence; up to 1,000 texts
+  classify_dimensions   one decision per named dimension, with per-field confidence
   classify_multi_label  every label that applies per text, a score per label
   count_labels          just the histogram — how many texts landed on each label
   review_uncertain      only the texts the model was unsure about, with the runner-up label
