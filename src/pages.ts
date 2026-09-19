@@ -18,9 +18,12 @@ MCP client. Two servers, both Streamable HTTP, both keyless and stateless:
 
   https://classifier.dev/mcp         tools: classify_texts, classify_multi_label,
                                      count_labels, review_uncertain
-  https://classifier.dev/mcp/docs    tools: list_docs, read_doc, search_docs
+  https://classifier.dev/mcp/docs    tools: list_docs, read_doc, search_docs,
+                                     get_examples
 
 Server card: https://classifier.dev/.well-known/mcp/server-card.json
+  (also at https://classifier.dev/mcp/server-card; the docs server's at
+  https://classifier.dev/mcp/docs/server-card)
   Registry: listed in the official MCP registry as dev.classifier/classifier —
   https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier
 

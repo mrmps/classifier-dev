@@ -5,7 +5,7 @@
  * rest of the worker uses, so they cannot drift from what is actually served.
  */
 
-import { describeTool, type McpServer } from "./mcp";
+import { describeTool, PROTOCOL_VERSIONS, type McpServer } from "./mcp";
 import { SKILL_DESCRIPTION, SKILL_NAME } from "./skill";
 
 /**
@@ -103,24 +103,56 @@ export function securityTxt(origin: string, now = new Date()) {
 
 // ---------------------------------------------------------------- MCP server card
 
-/** /.well-known/mcp/server-card.json — what an agent can know before connecting. */
+/**
+ * The Server Card extension (SEP-2127, modelcontextprotocol/ext-server-card)
+ * requires exactly this `$schema` value: the schema is versioned by its `v1`
+ * segment and the pattern in the extension's own JSON Schema admits no other
+ * URL. It is not yet published at that address while the extension is in
+ * draft; the value is still the one a conforming card must carry.
+ */
+export const SERVER_CARD_SCHEMA = "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json";
+/** The media type the extension gives a card, and the one for the catalog that points at it. */
+export const SERVER_CARD_TYPE = "application/mcp-server-card+json";
+export const AI_CATALOG_TYPE = "application/ai-catalog+json";
+
+/**
+ * The extension's shape: identity (`name`, `version`, `description`, `title`,
+ * `icons`, `repository`, `websiteUrl`) and `remotes`, each naming its transport,
+ * URL and the protocol versions it speaks. Objects are open by design, so the
+ * fields agents already read here (`instructions`, `tools`, `authentication`,
+ * `documentation`) stay alongside. Served at `<streamable-http-url>/server-card`,
+ * the location the extension reserves, and at the .well-known path this site
+ * has always used.
+ */
+function cardCore(origin: string, endpoint: string, server: McpServer) {
+  return {
+    $schema: SERVER_CARD_SCHEMA,
+    name: server.name,
+    title: server.title,
+    version: server.version,
+    description: server.description,
+    websiteUrl: `${origin}/mcp-setup`,
+    repository: { url: SITE.repo, source: "github" },
+    icons: [{ src: `${origin}/favicon.svg`, mimeType: "image/svg+xml" }],
+    remotes: [{ type: "streamable-http", url: endpoint, supportedProtocolVersions: [...PROTOCOL_VERSIONS] }],
+    // Kept for readers of the earlier shape of this card.
+    icon: `${origin}/favicon.svg`,
+    url: endpoint,
+    serverUrl: endpoint,
+    transport: "streamable-http",
+    instructions: server.instructions,
+    capabilities: { tools: true, resources: false, prompts: false },
+    tools: server.tools.map(describeTool),
+    documentation: `${origin}/mcp-setup`,
+  };
+}
+
+/** /mcp/server-card and /.well-known/mcp/server-card.json — what an agent can know before connecting. */
 export function serverCard(origin: string, product: McpServer, docs: McpServer) {
   return {
-    $schema: "https://static.modelcontextprotocol.io/schemas/server-card/2025-11-25/schema.json",
-    name: product.name,
-    title: product.title,
-    version: product.version,
+    ...cardCore(origin, `${origin}/mcp`, product),
     kind: "product",
-    description: product.description,
-    icon: `${origin}/favicon.svg`,
-    url: `${origin}/mcp`,
-    serverUrl: `${origin}/mcp`,
-    transport: "streamable-http",
     authentication: { type: "none", description: "No key, no account. Limits are per IP and returned as RateLimit headers and 429s with Retry-After." },
-    instructions: product.instructions,
-    capabilities: { tools: true, resources: false, prompts: false },
-    tools: product.tools.map(describeTool),
-    documentation: `${origin}/mcp-setup`,
     openapi: `${origin}/openapi.json`,
     relatedServers: [
       {
@@ -129,6 +161,7 @@ export function serverCard(origin: string, product: McpServer, docs: McpServer) 
         description: docs.description,
         url: `${origin}/mcp/docs`,
         serverUrl: `${origin}/mcp/docs`,
+        card: `${origin}/mcp/docs/server-card`,
         transport: "streamable-http",
         authentication: { type: "none" },
         tools: docs.tools.map((t) => t.name),
@@ -139,21 +172,9 @@ export function serverCard(origin: string, product: McpServer, docs: McpServer) 
 
 export function docsServerCard(origin: string, docs: McpServer) {
   return {
-    $schema: "https://static.modelcontextprotocol.io/schemas/server-card/2025-11-25/schema.json",
-    name: docs.name,
-    title: docs.title,
-    version: docs.version,
+    ...cardCore(origin, `${origin}/mcp/docs`, docs),
     kind: "docs",
-    description: docs.description,
-    icon: `${origin}/favicon.svg`,
-    url: `${origin}/mcp/docs`,
-    serverUrl: `${origin}/mcp/docs`,
-    transport: "streamable-http",
     authentication: { type: "none" },
-    instructions: docs.instructions,
-    capabilities: { tools: true, resources: false, prompts: false },
-    tools: docs.tools.map(describeTool),
-    documentation: `${origin}/mcp-setup`,
   };
 }
 

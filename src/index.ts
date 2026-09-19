@@ -10,8 +10,8 @@ import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, toMarkdown } f
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
 import {
-  AUTH_MD, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, agentCard, apiCatalog, ardCatalog, docsServerCard, oauthProtectedResource, securityTxt,
-  robotsTxt, serverCard, sitemapXml,
+  AUTH_MD, AI_CATALOG_TYPE, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, SERVER_CARD_TYPE, agentCard, apiCatalog, ardCatalog, docsServerCard,
+  oauthProtectedResource, securityTxt, robotsTxt, serverCard, sitemapXml,
 } from "./wellknown";
 import { dailyReport } from "./report";
 import { runAlerts } from "./alerts";
@@ -157,7 +157,7 @@ export function primaryModels(): string[] {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "Content-Type, Authorization, Accept, Idempotency-Key, Mcp-Session-Id, MCP-Protocol-Version",
+  "access-control-allow-headers": "Content-Type, Authorization, Accept, Idempotency-Key, If-None-Match, Mcp-Session-Id, MCP-Protocol-Version",
   "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, x-api-version, Idempotency-Key",
 };
 
@@ -232,7 +232,9 @@ const LINKS = (origin: string) =>
     `<${origin}/index.md>; rel="alternate"; type="text/markdown"`,
     `<${origin}/openapi.json>; rel="service-desc"; type="application/openapi+json"`,
     `<${origin}/developers>; rel="service-doc"`,
-    `<${origin}/.well-known/api-catalog>; rel="api-catalog"; type="${API_CATALOG_TYPE.replace(/"/g, "")}"`,
+    // RFC 8288 quotes the whole type; the profile parameter's own quotes go
+    // in as quoted-pairs, so the value is still one well-formed media type.
+    `<${origin}/.well-known/api-catalog>; rel="api-catalog"; type="${API_CATALOG_TYPE.replace(/"/g, '\\"')}"`,
     `<${origin}/.well-known/mcp/server-card.json>; rel="describedby"; type="application/json"; title="MCP server card"`,
     `<${origin}/llms.txt>; rel="help"; type="text/plain"`,
     `<${origin}/agents.md>; rel="help"; type="text/markdown"; title="For agents"`,
@@ -334,7 +336,33 @@ function docSections() {
 /** For the cards and catalogs, which describe the tools without running them. */
 const PRODUCT_MCP_STATIC = productServer(async () => ({ status: 503, body: { error: "static description only" } }));
 
+/** The MCP endpoints, whose preflight is the transport's own and not the site's. */
+const MCP_PATHS = new Set(["mcp", ".well-known/mcp", "mcp/docs"]);
+
 const CACHE_HOUR = { "cache-control": "public, max-age=3600" };
+
+/** FNV-1a over the text: a cheap, stable validator for a document that is a pure function of the source. */
+function etagOf(text: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return `"${h.toString(16).padStart(8, "0")}-${text.length.toString(16)}"`;
+}
+
+/**
+ * A server card, the way the Server Card extension asks for one: its own
+ * media type when the client asks for it (plain JSON otherwise), an ETag,
+ * and 304 for a client that already holds this version.
+ */
+function serverCardResponse(req: Request, card: unknown) {
+  const text = JSON.stringify(card, null, 2);
+  const etag = etagOf(text);
+  const accept = req.headers.get("accept") ?? "";
+  const type = accept.includes(SERVER_CARD_TYPE) ? SERVER_CARD_TYPE : "application/json; charset=utf-8";
+  const headers = { "content-type": type, etag, vary: "accept", ...CORS, ...SECURITY, ...CACHE_HOUR };
+  const held = (req.headers.get("if-none-match") ?? "").split(",").map((s) => s.trim().replace(/^W\//, ""));
+  if (held.includes(etag) || held.includes("*")) return new Response(null, { status: 304, headers });
+  return new Response(text, { headers });
+}
 
 const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
   new Response(body, {
@@ -946,14 +974,18 @@ const worker = {
     // the isolate serves concurrent requests.
     const meter = newMeter();
 
-    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    if (req.method === "OPTIONS") {
+      // The MCP transport names its own headers and methods in its preflight.
+      if (MCP_PATHS.has(path)) return handleMcp(req, DOCS_MCP);
+      return new Response(null, { status: 204, headers: CORS });
+    }
     // HEAD is GET without the body; crawlers and link checkers lean on it.
     if (req.method === "HEAD") {
       const r = await worker.fetch(new Request(req.url, { method: "GET", headers: req.headers }), env, ctx);
       return new Response(null, { status: r.status, headers: r.headers });
     }
 
-    const path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
     // GET /?labels=a,b&text=... is a classification, not the front page. See query.ts.
     const classifyByQuery = req.method === "GET" && hasClassifyQuery(url);
     // Browsers announce text/html; curl sends */* and agents ask for text or
@@ -976,7 +1008,7 @@ const worker = {
     // Tools call the API through the same front door as everyone else, so the
     // limits, the metering and the logging are identical; only the client
     // family differs.
-    if (path === "mcp" || path === ".well-known/mcp" || path === "mcp/docs") {
+    if (MCP_PATHS.has(path)) {
       const mcpClassify: ClassifyFn = async (body, original) => {
         const headers: Record<string, string> = {
           "content-type": "application/json",
@@ -993,20 +1025,29 @@ const worker = {
     }
 
     // ---- discovery documents -------------------------------------------------
-    if (path === ".well-known/mcp/server-card.json") return json(serverCard(origin, PRODUCT_MCP_STATIC, DOCS_MCP), 200, CACHE_HOUR);
-    if (path === ".well-known/mcp/docs-server-card.json") return json(docsServerCard(origin, DOCS_MCP), 200, CACHE_HOUR);
+    // Each card lives where the Server Card extension reserves it, next to its
+    // endpoint, and at the .well-known path everything here has linked since.
+    if (path === "mcp/server-card" || path === ".well-known/mcp/server-card.json") {
+      return serverCardResponse(req, serverCard(origin, PRODUCT_MCP_STATIC, DOCS_MCP));
+    }
+    if (path === "mcp/docs/server-card" || path === ".well-known/mcp/docs-server-card.json") {
+      return serverCardResponse(req, docsServerCard(origin, DOCS_MCP));
+    }
     if (path === ".well-known/ard.json" || path === ".well-known/ai-catalog.json") {
-      return json(ardCatalog(origin, PRODUCT_MCP_STATIC, DOCS_MCP), 200, CACHE_HOUR);
+      // One catalog, two names: ARD's, and the AI Catalog media type the MCP
+      // discovery draft has clients ask for at ai-catalog.json.
+      const type = path.endsWith("ai-catalog.json") ? AI_CATALOG_TYPE : "application/json; charset=utf-8";
+      return json(ardCatalog(origin, PRODUCT_MCP_STATIC, DOCS_MCP), 200, { ...CACHE_HOUR, "content-type": type });
     }
     if (path === ".well-known/agent-card.json" || path === ".well-known/agent.json") return json(agentCard(origin, PRODUCT_MCP_STATIC), 200, CACHE_HOUR);
     if (path === ".well-known/api-catalog") {
       return new Response(JSON.stringify(apiCatalog(origin), null, 2), {
-        headers: { "content-type": API_CATALOG_TYPE, ...CORS, ...CACHE_HOUR },
+        headers: { "content-type": API_CATALOG_TYPE, ...CORS, ...SECURITY, ...CACHE_HOUR },
       });
     }
     if (path === ".well-known/oauth-protected-resource") return json(oauthProtectedResource(origin), 200, CACHE_HOUR);
     if (path === "sitemap.xml") {
-      return new Response(sitemapXml(origin), { headers: { "content-type": "application/xml; charset=utf-8", ...CORS, ...CACHE_HOUR } });
+      return new Response(sitemapXml(origin), { headers: { "content-type": "application/xml; charset=utf-8", ...CORS, ...SECURITY, ...CACHE_HOUR } });
     }
     if (path === ".well-known/mcp-registry-auth") return text(MCP_REGISTRY_AUTH + "\n", 200, CACHE_HOUR);
     if (path === ".well-known/security.txt" || path === "security.txt") {
@@ -1092,7 +1133,7 @@ const worker = {
     // ---- agent feedback, to the feedback.now protocol ----------------------
     // These sit above the classify fallback on purpose: GET /{labels}/{text}
     // would otherwise read /api/v1/policy as the label set "api".
-    if (path === ".well-known/agent-feedback.json") return json(feedback.discovery());
+    if (path === ".well-known/agent-feedback.json") return json(feedback.discovery(), 200, CACHE_HOUR);
     if (path === "api/v1/policy") return json(feedback.POLICY);
 
     if (path.startsWith("api/v1/")) {
@@ -1226,11 +1267,12 @@ const worker = {
       path === ".well-known/agent-skills/index.json" ||
       path === ".well-known/skills/index.json"
     ) {
-      return json(await skillIndex(new URL(req.url).origin));
+      // The index carries the digest of skill.md, so the two share one TTL.
+      return json(await skillIndex(new URL(req.url).origin), 200, CACHE_HOUR);
     }
     if (path === "skill.md" || path === "SKILL.md") {
       return new Response(SKILL_MD, {
-        headers: { "content-type": "text/markdown; charset=utf-8", ...CORS },
+        headers: { "content-type": "text/markdown; charset=utf-8", ...CORS, ...SECURITY, ...CACHE_HOUR },
       });
     }
     if (path === "openapi.json" || path === ".well-known/openapi.json") {

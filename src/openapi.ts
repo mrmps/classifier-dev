@@ -837,7 +837,7 @@ as "none of these" when none-of-the-above is a real outcome.
 
 Two Streamable HTTP servers, no auth: https://classifier.dev/mcp (tools:
 classify_texts, classify_multi_label, count_labels, review_uncertain) and
-https://classifier.dev/mcp/docs (list_docs, read_doc, search_docs). Setup for
+https://classifier.dev/mcp/docs (list_docs, read_doc, search_docs, get_examples). Setup for
 Claude, ChatGPT, Codex and Cursor: [mcp-setup](https://classifier.dev/mcp-setup).
 Server card: [server-card.json](https://classifier.dev/.well-known/mcp/server-card.json).
 Registry: [dev.classifier/classifier and dev.classifier/docs](https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier)
