@@ -8,10 +8,15 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
 ## Run and check
 
 - `npm test` — worker unit tests (bun). `cd cli && node --test` — CLI tests.
-- `npx tsc --noEmit` — typecheck. `npx wrangler deploy` — deploy (secrets live in Wrangler).
+- `npx tsc --noEmit` — typecheck. `npx wrangler deploy` — deploy by hand (secrets live in Wrangler).
+- Merging to `main` deploys: `.github/workflows/deploy.yml` runs those three
+  checks and then `wrangler deploy`. A hand deploy is for trying something
+  before it is merged.
 - `wrangler.toml` is gitignored: copy `wrangler.example.toml` once and fill in
-  your `account_id` and `STATS` KV id. Edit the example when the deployment
-  shape changes — crons, bindings, migrations — never put real ids in it.
+  your `account_id` and `STATS` KV id. The example is what CI renders into a
+  real `wrangler.toml`, so it is the deployed shape, not a copy of it — change
+  the example whenever crons, bindings, migrations or rules change, or CI will
+  deploy the old shape. Never put real ids in it.
 - `npm run vs-jev` — re-measure the service against Jev; writes `src/vs-jev.json`, which the site imports.
 
 ## Conventions
