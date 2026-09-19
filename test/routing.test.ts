@@ -117,3 +117,11 @@ describe("security.txt", () => {
     expect(at).toBeLessThan(Date.now() + 365 * 24 * 60 * 60 * 1000);
   });
 });
+
+test("inherited object properties are not documentation pages", async () => {
+  for (const name of ["constructor", "__proto__", "toString"]) {
+    for (const suffix of ["", ".md"]) {
+      expect((await fetchPath(`/${name}${suffix}`)).status).toBe(404);
+    }
+  }
+});

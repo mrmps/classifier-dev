@@ -1142,7 +1142,7 @@ const worker = {
     const uaLower = (req.headers.get("user-agent") ?? "").toLowerCase();
     const shellish = /curl|wget|httpie|python|node|undici|axios|go-http|java|okhttp|bun\/|deno|mcp\/|classify-cli/i.test(uaLower);
     const pageWantsHtml = wantsHtml || (req.method === "GET" && !wantsMarkdown && !shellish && url.searchParams.get("format") !== "text");
-    if (req.method === "GET" && PAGE_DOCS[pageKey]) {
+    if (req.method === "GET" && Object.hasOwn(PAGE_DOCS, pageKey)) {
       const pg = PAGE_DOCS[pageKey];
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
