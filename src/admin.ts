@@ -30,6 +30,18 @@ const DATASET = "classifier_events";
 // overwrite.
 const COOKIE = "__Secure-cd_admin";
 const SESSION_HOURS = 12;
+/**
+ * The login form's own token, and the reason it exists: `Origin` is the real
+ * CSRF check, but this page sends `Referrer-Policy: no-referrer`, so the Referer
+ * fallback below can never fire. A browser setting, an extension or a filtering
+ * proxy that drops `Origin` therefore locks the operator out of their own
+ * dashboard with nothing to fall back on. This is that fallback. The same random
+ * value goes into the form and into a SameSite=Strict cookie; a cross-site post
+ * carries neither, and Strict is what makes that true whatever the prefix. It
+ * takes the session cookie's prefix and path for the same reasons.
+ */
+const CSRF_COOKIE = "__Secure-cd_csrf";
+const CSRF_MINUTES = 30;
 /** Wrong passwords are cheap to try, so they go through the same limiter as the API. */
 const LOGIN_ATTEMPTS_PER_MIN = 10;
 /**
@@ -92,16 +104,27 @@ function readCookie(req: Request, name: string) {
 /**
  * A login POST has to come from this site's own form. Origin is sent on every
  * cross-site POST; Referer is the fallback for the few clients that strip it.
- * Neither header present means neither can be trusted to be same-origin.
+ * Neither header present is not a verdict — it is a question this cannot
+ * answer, and the form token answers it instead.
  */
-function sameOrigin(req: Request, url: URL) {
+function statedOrigin(req: Request, url: URL): "match" | "mismatch" | "absent" {
   const stated = req.headers.get("origin") ?? req.headers.get("referer");
-  if (!stated) return false;
+  if (!stated) return "absent";
   try {
-    return new URL(stated).origin === url.origin;
+    return new URL(stated).origin === url.origin ? "match" : "mismatch";
   } catch {
-    return false;
+    return "mismatch";
   }
+}
+
+const mintCsrf = () =>
+  [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** The token is compared against the cookie, so it is a secret like any other. */
+async function csrfOk(req: Request, given: string) {
+  const held = readCookie(req, CSRF_COOKIE);
+  if (!held || !given) return false;
+  return secretEquals(given, held);
 }
 
 async function limiterSays(env: Env, name: string, limit: number, daily: number) {
@@ -413,10 +436,11 @@ function shell(title: string, body: string, extra = "") {
 <body>${body}${extra}</body></html>`;
 }
 
-function loginPage(error?: string) {
+function loginPage(error: string | undefined, csrf: string) {
   return shell(
     "admin · classifier.dev",
     `<div class="login"><form class="loginbox" method="POST" action="/admin">
+      <input type="hidden" name="csrf" value="${esc(csrf)}">
       <h1><span class="syn"># </span>classifier.dev admin</h1>
       <p class="quote">operator dashboard, password required</p>
       <div>
@@ -801,15 +825,21 @@ function page(status: number, build: (nonce: string) => string) {
 }
 
 /** Everything before sign-in: no script, so no nonce, so `script-src 'none'`. */
-function locked(status: number, error?: string, extra: Record<string, string> = {}) {
-  return new Response(loginPage(error), {
-    status,
-    headers: { "content-type": "text/html; charset=utf-8", ...extra, ...securityHeaders() },
-  });
+function locked(status: number, error?: string, clearSession = false) {
+  const token = mintCsrf();
+  const headers = new Headers({ "content-type": "text/html; charset=utf-8", ...securityHeaders() });
+  // Two cookies on one response, so `append`: an object literal would let the
+  // session-clearing header replace the token the next attempt needs.
+  headers.append("set-cookie", csrfCookie(token));
+  if (clearSession) headers.append("set-cookie", cookie("", 0));
+  return new Response(loginPage(error, token), { status, headers });
 }
 
 const cookie = (value: string, maxAge: number) =>
   `${COOKIE}=${value}; Path=/admin; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Strict`;
+
+const csrfCookie = (value: string) =>
+  `${CSRF_COOKIE}=${value}; Path=/admin; Max-Age=${CSRF_MINUTES * 60}; HttpOnly; Secure; SameSite=Strict`;
 
 /** Returns null when the path is not /admin, so the caller can carry on routing. */
 export async function adminResponse(req: Request, env: Env, path: string, ip: string): Promise<Response | null> {
@@ -836,10 +866,18 @@ export async function adminResponse(req: Request, env: Env, path: string, ip: st
 
   if (req.method === "POST") {
     // A cross-site form can post here, and SameSite=Strict only protects the
-    // cookie it would set, not the guess it carries. Same origin or nothing.
-    if (!sameOrigin(req, url)) return locked(403, "Bad request origin.");
-    if (await loginLimited(env, ip)) return locked(429, "Too many attempts. Wait a minute and try again.");
+    // cookie it would set, not the guess it carries. `Origin` settles it when
+    // the browser sends one. When it does not, the form's token does: a
+    // cross-site post cannot read it and its Strict cookie does not travel.
+    const stated = statedOrigin(req, url);
+    if (stated === "mismatch") return locked(403, "Bad request origin.");
     const form = await req.formData().catch(() => null);
+    if (stated === "absent" && !(await csrfOk(req, String(form?.get("csrf") ?? "")))) {
+      // Said plainly, because the ordinary way to arrive here is a form left
+      // open past the token's half hour, and the page now carries a fresh one.
+      return locked(403, "Login form expired. Try again.");
+    }
+    if (await loginLimited(env, ip)) return locked(429, "Too many attempts. Wait a minute and try again.");
     const given = String(form?.get("password") ?? "");
     if (!(await secretEquals(given, secret))) return locked(401, "Wrong password.");
     return new Response(null, {
@@ -858,7 +896,7 @@ export async function adminResponse(req: Request, env: Env, path: string, ip: st
     // and forging is worth rate limiting for the same reason guessing is.
     if (token && (await loginLimited(env, ip))) return locked(429, "Too many attempts. Wait a minute and try again.");
     // A cookie that does not check out should not come back on the next request.
-    return locked(401, undefined, token ? { "set-cookie": cookie("", 0) } : {});
+    return locked(401, undefined, Boolean(token));
   }
 
   const asked = url.searchParams.get("range") ?? "24h";
