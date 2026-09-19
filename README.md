@@ -26,6 +26,7 @@ tags `cli-v<version>` and lets `.github/workflows/publish-cli.yml` publish
     src/limiter.ts  Durable Object: per-IP rate limiting
     src/report.ts   digest — Analytics Engine SQL -> Resend, flags model fallbacks
     src/alerts.ts   every 15 minutes; emails only when something is wrong
+    src/feedback.ts agent feedback, feedback.now protocol -> email
     src/admin.ts    /admin — the operator dashboard, same data as the digest
     src/cost.ts     per-request upstream spend, from the providers' own accounting
     src/docs.ts     the site (GET / and GET /benchmark), plain text
@@ -43,6 +44,29 @@ bracketed links, copy buttons — from `src/home.ts`. Nothing is duplicated: the
 page is generated from `DOCS` and `BENCHMARK` at request time, so the text
 stays canonical and the two cannot drift. `?format=text` opts out by hand, and
 both responses carry `Vary: accept`.
+
+## Agent feedback
+
+Implements the [feedback.now](https://feedback.now) protocol (schema 1.1), so
+any agent that speaks it can report a problem without being told how:
+
+    GET  /.well-known/agent-feedback.json   what this host accepts
+    GET  /api/v1/policy                     categories, severities, limits
+    POST /api/v1/feedback                   full structured report
+    POST /api/v1/observations               lighter signal
+    POST /api/v1/feedback/{id}/attachments  more evidence, later
+    GET  /api/v1/receipts/{id}              did it land, and was it any good
+
+Accepted submissions are emailed to `REPORT_TO`. Reports are kept in KV for 90
+days. A repeat of the same domain + surface + category + title is stored and
+acknowledged as a duplicate but not emailed again, so one looping agent cannot
+empty itself into the inbox; the hourly budget is 100 per IP and the remainder
+comes back on every receipt.
+
+`quality_score` is a deterministic function of how complete the report is — an
+agent can read the rule and write a better one next time. Nothing here calls
+the classifier or Analytics Engine: this is where reports arrive saying those
+are broken, so it must work when they do not.
 
 ## Deploy
 
