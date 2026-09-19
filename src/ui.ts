@@ -3,7 +3,7 @@
  *
  * The syntax stays visible and unselectable, controls are bracketed and fill
  * on hover, and nothing is a card. One accent, the lavender of the mark;
- * two greys for chrome, a rule and a line; square corners everywhere. Both
+ * two greys for chrome, a rule and a line; corners from the mark. Both
  * the public site and /admin are built from these tokens so the two cannot
  * drift apart.
  */
@@ -24,8 +24,11 @@ export const BASE_CSS = `
   --accent:#a98cff; --accent-hover:#b9a4ff; --ink:#190727;
   /* The one status colour the page can show: something went wrong. */
   --bad:#f87171;
-  /* Corners are square. The bracket is the site's idiom and it has none. */
-  --r:0;
+  /* Corners follow the mark, which is a rounded square holding pills: 8px on
+     a surface or a field, 4px on the fill a bare control gets under the
+     pointer. A surface nested in another keeps its curves parallel by taking
+     the inner radius plus the inset (the concentric rule). */
+  --r:8px; --r-s:4px;
   /* The documents wrap at 78 columns; the page holds them to the same measure. */
   --measure:80ch;
 }
@@ -65,7 +68,7 @@ p{margin:0;text-wrap:pretty}
 /* The bracketed control. Hover fills it, exactly like a selected line.
    min-height is the WCAG 2.5.8 target; the brackets alone are shorter than that. */
 .b{display:inline-flex;align-items:center;gap:6px;padding:0 6px;min-height:24px;color:var(--accent);
-  text-decoration:none;background:none;border:0;border-radius:var(--r);font:inherit;cursor:pointer;
+  text-decoration:none;background:none;border:0;border-radius:var(--r-s);font:inherit;cursor:pointer;
   -webkit-appearance:none;appearance:none;
   transition-property:background-color,color;transition-duration:.1s;white-space:nowrap}
 .b .br{user-select:none;color:var(--syntax);transition:color .1s}
@@ -76,7 +79,7 @@ p{margin:0;text-wrap:pretty}
 .b.on .br{color:var(--muted)}
 .b svg{width:15px;height:15px;flex:none}
 /* A bare URL is longer than a phone is wide; let it break rather than widen the page. */
-a.inline{color:var(--accent);text-decoration:none;padding:0 2px;
+a.inline{color:var(--accent);text-decoration:none;padding:0 2px;border-radius:var(--r-s);
   transition-property:background-color,color;transition-duration:.1s;overflow-wrap:anywhere}
 /* Hover only where a pointer can actually hover, so a tap does not stick. */
 @media (hover:hover){
