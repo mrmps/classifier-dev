@@ -30,6 +30,12 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   text, the signup form and the Markdown all render from it. Addresses go to a
   separate Neon project and the table stores nothing that could join them to API
   traffic — keep it that way.
+- The skills directory (`src/skills.ts`, cleaners in `src/skillscan.ts`) stores
+  accepted skills in the `STATS` KV under `skill:{slug}`, `skills:index` and
+  `skillhash:{sha}`; rejections store nothing. The three gates run in order
+  (cleaners, Jev, judge) and each is a floor on its own; change the prompt or
+  a threshold there, never on the page, which renders from the same constants.
+  `DELETE /v1/skills/{slug}` with the `REPORT_KEY` bearer is the takedown.
 - Nothing that identifies a caller is written down. An IP and a label set both
   go through `src/privacy.ts` first — a keyed hash, day-scoped for the caller —
   before they reach Analytics Engine, KV or an email. If you add a column,

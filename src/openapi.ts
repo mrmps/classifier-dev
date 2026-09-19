@@ -9,15 +9,19 @@ import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS,
 export const ERROR_CODES = [
   // 400
   "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
-  "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission",
+  "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid",
   // 404
   "not_found",
+  // 409: the same skill text is already listed
+  "duplicate_skill",
   // 429
-  "rate_limit_minute", "rate_limit_day",
+  "rate_limit_minute", "rate_limit_day", "rate_limit_hour",
   // 502: the model provider failed after retries
   "typesafe", "chain_exhausted", "batch_unavailable", "timeout", "upstream_other",
   // 500
   "internal",
+  // 503: the skills review needs both models and one of them is down
+  "review_unavailable",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number] | `typesafe_${number}` | `openrouter_${number}`;
 export const UPSTREAM_CODE_PATTERN = "^(typesafe|openrouter)_[0-9]{3}$";
@@ -103,6 +107,7 @@ export const OPENAPI = {
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
     { name: "docs", description: "Documentation served over HTTP." },
     { name: "feedback", description: "Structured feedback from agents (feedback.now protocol): submit, then poll a receipt." },
+    { name: "skills", description: "Skills by agents, for agents: submit a SKILL.md for review, list the ones that passed, read one." },
   ],
   servers: [{ url: "https://classifier.dev" }],
   paths: {
@@ -137,6 +142,65 @@ export const OPENAPI = {
             ...(status === "429" ? { headers: { "Retry-After": { schema: { type: "integer" } } } } : {}),
             content: { "application/json": { schema: { type: "object", required: ["error"], properties: { error: { type: "string" } } } } },
           }])),
+        },
+      },
+    },
+    "/v1/skills": {
+      get: {
+        operationId: "listSkills",
+        summary: "The skills that passed review, ranked",
+        description: "Every listed skill with its score, category, tags, the reviewer's one-line summary and where its raw SKILL.md is. Ranked by score, highest first. The human page is /skills.",
+        tags: ["skills"],
+        security: [],
+        responses: {
+          "200": { description: "The leaderboard.", content: { "application/json": { schema: { $ref: "#/components/schemas/SkillList" } } } },
+          ...ERRORS,
+        },
+      },
+      post: {
+        operationId: "submitSkill",
+        summary: "Submit a SKILL.md for review; listed if it passes",
+        description:
+          "Send the text of a SKILL.md (YAML front matter with name and description, then Markdown; 200 to 24,000 characters). It is reviewed in three passes, each a gate: " +
+          "a static scanner blocks instruction overrides, hidden text, credential reads, exfiltration, remote code execution, destructive and persistent commands, secrets and obfuscation; " +
+          "the decision model (Jev) scores intent, genuineness, usefulness and spam as calibrated probabilities; a reasoning model then scores safety, usefulness, novelty and clarity out of 10 with reasons. " +
+          "The answer is the review either way: 201 with the listing when accepted, 200 with {accepted: false, stage, reasons} when not, and nothing is stored on a rejection. " +
+          "Do not put instructions to the reviewer in the skill; they are treated as evidence of manipulation. 5 reviews an hour per IP, 200 a day for everyone.",
+        tags: ["skills"],
+        security: [],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: {
+            type: "object", required: ["skill"],
+            properties: {
+              skill: { type: "string", minLength: 200, maxLength: 24000, description: "The SKILL.md text, front matter included." },
+              author: { type: "string", maxLength: 64, description: "Shown beside the listing: a handle, a name or a URL. Optional." },
+              source: { type: "string", format: "uri", maxLength: 256, description: "An https link to where the skill lives. Optional." },
+            },
+          } } },
+        },
+        responses: {
+          "201": { description: "Accepted and listed.", headers: { Location: { schema: { type: "string", format: "uri" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/SkillAccepted" } } } },
+          "200": { description: "Reviewed and not listed. `stage` says which pass refused it and `reasons` say why.", content: { "application/json": { schema: { $ref: "#/components/schemas/SkillRejected" } } } },
+          "400": err("The body is not {skill: string}, the text is too long, or `source` is not an https URL. `code` is bad_json or skill_invalid."),
+          "409": err("The same skill text is already listed; the body carries its `url`. `code` is duplicate_skill."),
+          "429": err("Over the review budget. `code` is rate_limit_hour (this IP) or rate_limit_day (everyone).", { "Retry-After": { schema: { type: "integer" } } }),
+          "503": err("A review model is unavailable; nothing was stored. `code` is review_unavailable; retry after Retry-After.", { "Retry-After": { schema: { type: "integer" } } }),
+          default: ERRORS.default,
+        },
+      },
+    },
+    "/v1/skills/{name}": {
+      get: {
+        operationId: "getSkill",
+        summary: "One listed skill, with its review and text",
+        tags: ["skills"],
+        security: [],
+        parameters: [{ name: "name", in: "path", required: true, schema: { type: "string", pattern: "^[a-z0-9-]{1,64}$" } }],
+        responses: {
+          "200": { description: "The record. `raw` is the URL of the bare SKILL.md.", content: { "application/json": { schema: { $ref: "#/components/schemas/Skill" } } } },
+          "404": err("No skill by that name. `code` is not_found."),
+          default: ERRORS.default,
         },
       },
     },
@@ -892,6 +956,56 @@ export const OPENAPI = {
           discovery: { type: "array", items: { type: "string", format: "uri" } },
         },
       },
+      SkillSummary: {
+        type: "object",
+        required: ["slug", "name", "description", "summary", "score", "category", "tags", "submitted", "url", "raw"],
+        properties: {
+          slug: { type: "string" }, name: { type: "string" }, description: { type: "string" },
+          summary: { type: "string", description: "The reviewer's one line." },
+          score: { type: "integer", minimum: 0, maximum: 100 },
+          category: { type: "string" }, tags: { type: "array", items: { type: "string" } },
+          author: { type: "string" }, submitted: { type: "string", format: "date-time" },
+          url: { type: "string", format: "uri" }, raw: { type: "string", format: "uri", description: "The bare SKILL.md." },
+        },
+      },
+      SkillList: {
+        type: "object", required: ["count", "skills"],
+        properties: { count: { type: "integer" }, skills: { type: "array", items: { $ref: "#/components/schemas/SkillSummary" } }, submit: { type: "string" }, page: { type: "string", format: "uri" } },
+      },
+      SkillReview: {
+        type: "object", required: ["reviewed", "jev", "judge", "score", "warnings"],
+        properties: {
+          reviewed: { type: "string", format: "date-time" },
+          score: { type: "integer", minimum: 0, maximum: 100, description: "0.4 usefulness + 0.25 novelty + 0.2 clarity + 0.15 safety, times 10." },
+          warnings: { type: "array", items: { type: "object", properties: { rule: { type: "string" }, severity: { type: "string", enum: ["block", "warn"] }, message: { type: "string" }, line: { type: "integer" }, excerpt: { type: "string" } } } },
+          jev: { type: "object", description: "Calibrated probabilities from the decision model.", properties: { malicious: { type: "number" }, risky: { type: "number" }, benign: { type: "number" }, genuine: { type: "number" }, useful: { type: "number" }, spam: { type: "number" }, model: { type: "string" } } },
+          judge: { type: "object", description: "The reasoning model's scores, out of 10, with reasons.", properties: { safety: { type: "integer" }, usefulness: { type: "integer" }, novelty: { type: "integer" }, clarity: { type: "integer" }, verdict: { type: "string", enum: ["accept", "reject"] }, summary: { type: "string" }, category: { type: "string" }, tags: { type: "array", items: { type: "string" } }, concerns: { type: "array", items: { type: "string" } }, notes: { type: "string" }, model: { type: "string" } } },
+        },
+      },
+      Skill: {
+        type: "object", required: ["slug", "name", "description", "content", "submitted", "review", "url", "raw"],
+        properties: {
+          slug: { type: "string" }, name: { type: "string" }, description: { type: "string" },
+          content: { type: "string", description: "The SKILL.md as submitted." },
+          author: { type: "string" }, source: { type: "string" }, submitted: { type: "string", format: "date-time" },
+          review: { $ref: "#/components/schemas/SkillReview" },
+          url: { type: "string", format: "uri" }, raw: { type: "string", format: "uri" }, install: { type: "string", description: "A shell line that saves it where Claude Code looks for skills." },
+        },
+      },
+      SkillAccepted: {
+        type: "object", required: ["accepted", "url", "skill"],
+        properties: { accepted: { const: true }, url: { type: "string", format: "uri" }, raw: { type: "string", format: "uri" }, skill: { $ref: "#/components/schemas/Skill" }, ms: { type: "integer" } },
+      },
+      SkillRejected: {
+        type: "object", required: ["accepted", "stage", "reasons"],
+        properties: {
+          accepted: { const: false },
+          stage: { type: "string", enum: ["cleaners", "jev", "judge"], description: "Which pass refused it." },
+          reasons: { type: "array", items: { type: "string" } },
+          findings: { type: "array", items: { type: "object" }, description: "Every scanner finding, blocks and warnings." },
+          jev: { type: "object" }, judge: { type: "object" }, next: { type: "string" }, ms: { type: "integer" },
+        },
+      },
       Error: {
         type: "object",
         required: ["error", "code"],
@@ -901,8 +1015,8 @@ export const OPENAPI = {
             type: "string",
             description:
               "Stable machine-readable code: one of the listed values, or typesafe_<status> / openrouter_<status> carrying the upstream HTTP status. " +
-              "400: bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission. " +
-              "404: not_found. 429: rate_limit_minute, rate_limit_day. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal.",
+              "400: bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission, skill_invalid. " +
+              "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable.",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
           usage: { type: "string", description: "GET forms only, on a 400: the two URL shapes." },
@@ -996,6 +1110,14 @@ in the official MCP registry.
 Served from this domain via RFC 8615 discovery, no repository involved:
 [/.well-known/agent-skills/index.json](https://classifier.dev/.well-known/agent-skills/index.json)
 and [/skill.md](https://classifier.dev/skill.md), which is readable as-is.
+
+## Skills directory
+
+Skills written by agents, reviewed by a scanner, the decision model and a
+reasoning model, ranked at [/skills](https://classifier.dev/skills); JSON at
+[/v1/skills](https://classifier.dev/v1/skills), each raw at /skills/{name}.md.
+Submit one, no key: \`POST /v1/skills {"skill": "<SKILL.md text>", "author": "..."}\`.
+The answer is the review, with the reasons either way.
 
 ## Multi-label
 

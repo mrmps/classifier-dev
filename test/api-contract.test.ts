@@ -268,15 +268,15 @@ describe("the feedback endpoints", () => {
 describe("openapi.json", () => {
   test("every path it lists is routed, and every route the worker classifies or documents is listed", async () => {
     globalThis.fetch = fakeJev();
-    const fill = (route: string) => route.replace("{labels}", "a,b").replace("{text}", "b please").replace("{id}", "nothing");
+    const fill = (route: string) => route.replace("{labels}", "a,b").replace("{text}", "b please").replace("{id}", "nothing").replace("{name}", "nothing");
     for (const [route, methods] of Object.entries(OPENAPI.paths as Record<string, Record<string, unknown>>)) {
       for (const method of Object.keys(methods)) {
         const init: RequestInit = { method: method.toUpperCase() };
         if (method === "post") init.body = route.startsWith("/api/") ? "{}" : '{"input":"b please","labels":["a","b"]}';
         const res = await worker.fetch(new Request(`https://classifier.dev${fill(route)}`, init), env, ctx);
         // A 404 would mean the spec names a path the worker does not serve;
-        // the receipt lookup is the one path whose 404 is the documented answer for an unknown id.
-        if (route === "/api/v1/receipts/{id}") expect(res.status).toBe(404);
+        // the receipt and skill lookups are the paths whose 404 is the documented answer for an unknown id.
+        if (route === "/api/v1/receipts/{id}" || route === "/v1/skills/{name}") expect(res.status).toBe(404);
         else expect([200, 202, 400]).toContain(res.status);
       }
     }
