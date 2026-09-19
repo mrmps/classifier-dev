@@ -10,11 +10,26 @@ const IP = "203.0.113.47";
 const get = (url = "https://classifier.dev/admin", headers: Record<string, string> = {}) =>
   new Request(url, { headers });
 
-const post = (password: string, headers: Record<string, string> = { origin: "https://classifier.dev" }) => {
+const post = (
+  password: string,
+  headers: Record<string, string> = { origin: "https://classifier.dev" },
+  csrf?: string,
+) => {
   const body = new FormData();
   body.set("password", password);
+  if (csrf !== undefined) body.set("csrf", csrf);
   return new Request("https://classifier.dev/admin", { method: "POST", body, headers });
 };
+
+/** The token the login page just handed out, and the cookie that must come back with it. */
+async function formToken(res: Response) {
+  const setCookie = res.headers.getSetCookie().find((c) => c.startsWith("__Secure-cd_csrf="))!;
+  const value = setCookie.slice(setCookie.indexOf("=") + 1, setCookie.indexOf(";"));
+  const inField = (await res.text()).match(/name="csrf" value="([0-9a-f]+)"/)![1];
+  return { value, inField, cookie: `__Secure-cd_csrf=${value}` };
+}
+
+const session = (res: Response) => res.headers.getSetCookie().find((c) => c.startsWith("__Secure-cd_admin="));
 
 /** The dashboard queries Analytics Engine; here it never answers, and every panel is empty. */
 const realFetch = globalThis.fetch;
@@ -26,8 +41,8 @@ afterAll(() => {
 });
 
 async function signIn() {
-  const res = await adminResponse(post(PASSWORD), env, "admin", IP);
-  const cookie = res!.headers.get("set-cookie")!;
+  const res = (await adminResponse(post(PASSWORD), env, "admin", IP))!;
+  const cookie = session(res)!;
   return cookie.slice(0, cookie.indexOf(";"));
 }
 
@@ -54,24 +69,84 @@ describe("the door", () => {
   test("a wrong password is a wrong password", async () => {
     const res = (await adminResponse(post("hunter2"), env, "admin", IP))!;
     expect(res.status).toBe(401);
-    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(session(res)).toBeUndefined();
   });
 
   test("a cross-site form post is refused before the password is read", async () => {
     const res = (await adminResponse(post(PASSWORD, { origin: "https://evil.example" }), env, "admin", IP))!;
     expect(res.status).toBe(403);
-    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(session(res)).toBeUndefined();
   });
 
-  test("a post with no origin at all is refused too", async () => {
+  test("a stated origin that does not match is refused even holding a good token", async () => {
+    const page = (await adminResponse(get(), env, "admin", IP))!;
+    const { inField, cookie } = await formToken(page);
+    const res = (await adminResponse(
+      post(PASSWORD, { origin: "https://evil.example", cookie }, inField),
+      env,
+      "admin",
+      IP,
+    ))!;
+    expect(res.status).toBe(403);
+    expect(session(res)).toBeUndefined();
+  });
+
+  test("a post with no origin and no token is refused too", async () => {
     const res = (await adminResponse(post(PASSWORD, {}), env, "admin", IP))!;
     expect(res.status).toBe(403);
+    expect(session(res)).toBeUndefined();
+  });
+
+  test("a browser that strips Origin still gets in with the form's token", async () => {
+    const page = (await adminResponse(get(), env, "admin", IP))!;
+    const { value, inField, cookie } = await formToken(page);
+    expect(inField).toBe(value);
+    const res = (await adminResponse(post(PASSWORD, { cookie }, inField), env, "admin", IP))!;
+    expect(res.status).toBe(302);
+    expect(session(res)).toContain("__Secure-cd_admin=");
+  });
+
+  test("the token is worthless without the cookie it was paired with", async () => {
+    const page = (await adminResponse(get(), env, "admin", IP))!;
+    const { inField } = await formToken(page);
+    const res = (await adminResponse(post(PASSWORD, {}, inField), env, "admin", IP))!;
+    expect(res.status).toBe(403);
+    expect(session(res)).toBeUndefined();
+  });
+
+  test("one visitor's token does not open another's cookie", async () => {
+    const mine = await formToken((await adminResponse(get(), env, "admin", IP))!);
+    const theirs = await formToken((await adminResponse(get(), env, "admin", IP))!);
+    expect(mine.value).not.toBe(theirs.value);
+    const res = (await adminResponse(post(PASSWORD, { cookie: mine.cookie }, theirs.inField), env, "admin", IP))!;
+    expect(res.status).toBe(403);
+  });
+
+  test("every login page hands out a token cookie a cross-site post cannot carry", async () => {
+    const res = (await adminResponse(get(), env, "admin", IP))!;
+    const c = res.headers.getSetCookie().find((x) => x.startsWith("__Secure-cd_csrf="))!;
+    expect(c).toContain("HttpOnly");
+    expect(c).toContain("Secure");
+    expect(c).toContain("SameSite=Strict");
+    expect(c).toContain("Path=/admin");
+  });
+
+  test("a stale session is cleared without taking the next attempt's token with it", async () => {
+    const res = (await adminResponse(get("https://classifier.dev/admin", {
+      cookie: `__Secure-cd_admin=${Date.now() + 60_000}.deadbeef`,
+    }), env, "admin", IP))!;
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.find((c) => c.startsWith("__Secure-cd_admin="))).toContain("Max-Age=0");
+    expect(cookies.find((c) => c.startsWith("__Secure-cd_csrf="))).toBeDefined();
+    const { inField, cookie } = await formToken(res);
+    const next = (await adminResponse(post(PASSWORD, { cookie }, inField), env, "admin", IP))!;
+    expect(next.status).toBe(302);
   });
 
   test("the right password mints a cookie a browser will keep to itself", async () => {
     const res = (await adminResponse(post(PASSWORD), env, "admin", IP))!;
     expect(res.status).toBe(302);
-    const cookie = res.headers.get("set-cookie")!;
+    const cookie = session(res)!;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("Secure");
     expect(cookie).toContain("SameSite=Strict");
@@ -85,7 +160,7 @@ describe("the door", () => {
       cookie: `__Secure-cd_admin=${Date.now() + 60_000}.deadbeef`,
     }), env, "admin", IP))!;
     expect(res.status).toBe(401);
-    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(session(res)).toContain("Max-Age=0");
   });
 
   test("an expired cookie does not open it", async () => {
