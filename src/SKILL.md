@@ -30,7 +30,7 @@ Reach for this when reading the input is the expensive part:
 
 **Do not bother when** you have a handful of items already in context, or the
 judgement needs reasoning about things the text does not state. Under about five
-items you have already paid the context cost — just decide yourself.
+items you have already paid the context cost, so just decide yourself.
 
 ## Quickstart
 
@@ -53,7 +53,7 @@ Many texts in one call. This is the path that matters:
 
 Returns `results` in input order, each `{label, confidence, scores}`. Up to
 1,000 texts per call; 400 news headlines measured at 650ms end to end. For
-more, fan out calls in parallel — the limit is 3,000 classifications a minute.
+more, fan out calls in parallel; the limit is 3,000 classifications a minute.
 Each result also names the model that answered it. At the batch level,
 `modelsUsed` lists every serving model and `model` is `mixed` when more than one
 model answered the batch.
@@ -146,7 +146,7 @@ tier makes no difference here, so leave it on `fast`.
 
 **1. Every call returns one of your labels, always.** There is no "none of the
 above" unless you supply one. Text that fits nothing still gets confidently
-sorted into your best-matching category — "the weather is nice today" against
+sorted into your best-matching category: "the weather is nice today" against
 `bug / feature / praise` is `praise` at 0.97. If "none of these" is a real
 outcome, **add it as a label**: the same text against those three plus
 `none of these` picks `none of these` at 0.78. That works; hoping for a low
