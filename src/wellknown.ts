@@ -326,7 +326,8 @@ Canonical: https://classifier.dev/auth.md · Last updated ${SITE_UPDATED}
 
 Classification and documentation work without a key. Pro is $20/month for
 10x classification rate limits. Send a Pro API key as a bearer credential on
-REST or MCP requests. Billing uses a separate browser sign-in session.
+REST or MCP requests. Billing uses a separate browser sign-in session, hosted
+by WorkOS AuthKit.
 This file follows the discovery path from https://github.com/workos/auth.md;
 classifier.dev does not implement that spec's agent registration or token exchange.
 
@@ -350,7 +351,7 @@ classifier.dev does not implement that spec's agent registration or token exchan
 
 ## Register and claim
 
-For Pro, open https://classifier.dev/pro, sign in using a one-time email link,
+For Pro, open https://classifier.dev/pro, sign in through hosted WorkOS AuthKit,
 and subscribe through Stripe checkout managed by Autumn. Create an API key
 and save it when shown; it is shown only once. There is no agent registration
 or claim endpoint. Free classification requires no registration.

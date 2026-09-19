@@ -360,9 +360,9 @@ PRO
   Allowance                per billing account, shared across keys and IPs
   Sign-up and billing      https://classifier.dev/pro
 
-  Sign in with a one-time email link, then subscribe through Stripe checkout,
-  managed by Autumn. Create an API key after subscribing and save it when
-  shown; it is shown only once. You can rotate it from your account.
+  Sign in, then subscribe through Stripe checkout. Create an API key after
+  subscribing and save it when shown; it is shown only once. You can rotate
+  it from your account.
   Send Authorization: Bearer classifier_pro_... on REST or MCP requests.
   With the CLI, use --api-key or CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works).
   Manage payment details and cancellation from your account.
@@ -571,7 +571,7 @@ WHAT IS NOT COLLECTED
   syntax highlighter from cdnjs.cloudflare.com; Content-Security-Policy
   restricts other sources. Anonymous use keeps only the flag above.
   Pro sign-in also sets an HttpOnly session cookie for billing endpoints only,
-  which expires after 30 days or when you sign out.
+  which is cleared when you sign out.
 
 
 AGENTS AND THE MCP SERVERS
@@ -582,11 +582,13 @@ AGENTS AND THE MCP SERVERS
 
 PRO BILLING
 
-  Your billing email and account are held in separate Cloudflare Durable
-  Object storage and with Autumn and Stripe for subscriptions and payments.
-  They are separate from the newsletter database. Billing identity is never
-  included in classification analytics; the daily caller fingerprints above
-  continue to apply. Payment details are entered in Stripe checkout.
+  Sign-in is handled by WorkOS, our authentication provider; it sees the
+  email address you sign in with and nothing you classify. Your billing email
+  and account are held in separate Cloudflare Durable Object storage and with
+  Autumn and Stripe for subscriptions and payments. They are separate from the
+  newsletter database. Billing identity is never included in classification
+  analytics; the daily caller fingerprints above continue to apply. Payment
+  details are entered in Stripe checkout.
   Only hashes of API keys are stored on our server. A key is shown once when
   created; rotating it replaces the old credential.
   Subscription access is checked with a cache of at most 60 seconds.
