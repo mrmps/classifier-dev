@@ -183,3 +183,9 @@ returned 200, with policies fast 30000/minute and 200000/day and smart
 The live Stripe portal showed the existing Pro subscription at $20/month.
 Sign-out returned the browser to the signed-out page; the WorkOS CLI then
 confirmed that the user had no active sessions.
+
+The notification follow-up also confirmed that account refreshes send no extra
+login email. Its saved local API credential returned 401 on a fresh API check;
+the current account still showed Pro active, and key replacement was cancelled
+to preserve the existing credential. A current valid key is needed to repeat
+the Pro API check described above.
