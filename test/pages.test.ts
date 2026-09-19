@@ -73,7 +73,7 @@ describe("links in a rendered document", () => {
   test("still escape the text around them", async () => {
     const page = await html("/mcp-setup");
     expect(page).toContain("-H &#39;content-type: application/json&#39;");
-    expect(page).toContain("&quot;jsonrpc&quot;:&quot;2.0&quot;");
+    expect(page).toContain("&quot;jsonrpc&quot;: &quot;2.0&quot;");
     expect(await html("/developers")).toContain("Authorization: Bearer &lt;key&gt;");
   });
 });

@@ -89,12 +89,20 @@ TRY IT BY HAND
 
     curl https://classifier.dev/mcp -H 'content-type: application/json' \\
       -H 'accept: application/json, text/event-stream' \\
-      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+      -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'
 
     curl https://classifier.dev/mcp -H 'content-type: application/json' \\
       -H 'accept: application/json, text/event-stream' \\
-      -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"classify_texts",
-           "arguments":{"inputs":["Win a free iPhone","Lunch at 1?"],"labels":["spam","not spam"]}}}'
+      -d '{
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {
+          "name": "classify_texts",
+          "arguments": {
+            "inputs": ["Win a free iPhone", "Lunch at 1?"],
+            "labels": ["spam", "not spam"]
+          }
+        }
+      }'
 
   Or with the official inspector: npx @modelcontextprotocol/inspector --cli https://classifier.dev/mcp --method tools/list
 
@@ -133,8 +141,10 @@ QUICKSTART
     curl https://classifier.dev/spam,not+spam/Win+a+free+iPhone
     spam
 
-    curl https://classifier.dev -d '{"inputs":["the checkout button does nothing","love the dark mode"],
-                                     "labels":["bug","praise","feature"]}'
+    curl https://classifier.dev -d '{
+      "inputs": ["the checkout button does nothing", "love the dark mode"],
+      "labels": ["bug", "praise", "feature"]
+    }'
 
   One request, up to 1,000 texts, back in about a second, each with a label,
   a calibrated confidence and a score per label. Full reference: https://classifier.dev
@@ -210,8 +220,10 @@ EXAMPLES
   curl:
 
     curl https://classifier.dev/v1/classify -H 'content-type: application/json' \\
-      -d '{"inputs":["the checkout button does nothing","love the dark mode"],
-           "labels":["bug","praise","feature"]}'
+      -d '{
+        "inputs": ["the checkout button does nothing", "love the dark mode"],
+        "labels": ["bug", "praise", "feature"]
+      }'
 
   JavaScript (Node 18+, Bun, browsers — CORS is open):
 
@@ -239,9 +251,11 @@ EXAMPLES
 
   Multi-label, capped at two tags per text:
 
-    curl https://classifier.dev/v1/classify -d '{"inputs":["postgres index tuning for ML"],
-                                                 "labels":["databases","ml","frontend"],
-                                                 "multi":true,"max_labels":2}'
+    curl https://classifier.dev/v1/classify -d '{
+      "inputs": ["postgres index tuning for ML"],
+      "labels": ["databases", "ml", "frontend"],
+      "multi": true, "max_labels": 2
+    }'
 
 
 KEYS AND LIMITS
@@ -491,9 +505,10 @@ WHAT IS LOGGED
 
 IF YOU ASK FOR UPDATES
 
-  The form at the foot of the home page keeps two things: the address you
-  typed and the date it arrived. They live in a separate database with no
-  other table in it, and the row holds no IP, no user agent and no request id.
+  The form at the foot of the home page keeps three things: the address you
+  typed, the date it arrived and which of the listed items you ticked. They
+  live in a separate database with no other table in it, and the row holds
+  no IP, no user agent and no request id.
   There is nothing an address could be joined on, here or later. Your IP gates
   that form the way it gates the API, and is not stored beside the address.
 
