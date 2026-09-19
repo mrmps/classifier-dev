@@ -148,8 +148,8 @@ PARAMETERS
 
 CONFIDENCE
 
-  The model behind this is a decision model, not a language model prompted to
-  classify. It returns a calibrated probability for every label, so the
+  The model behind this is a decision model, not a language model prompted
+  to classify. It returns a calibrated probability for every label, so the
   confidence is a real forecast of whether the label is right. Measured:
 
     six-way emotion, 400 items      confidence >= 0.9   right 82% of the time
@@ -165,7 +165,7 @@ CONFIDENCE
   It is not out-of-distribution detection. It says which of your labels fits
   best, not whether any of them fit. "The weather is nice today" against
   bug / feature / praise is "praise" at 0.97. If none-of-the-above is a real
-  outcome, add it as a label — the same text against those three plus
+  outcome, add it as a label: the same text against those three plus
   "none of these" picks "none of these" at 0.78. That works; hoping for a low
   score does not.
 

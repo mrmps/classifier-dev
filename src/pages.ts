@@ -265,11 +265,11 @@ ERRORS
 VERSIONING
 
   The response shape is stable and additive: fields are added, never renamed
-  or removed, within a major version. The current major is v1, addressed as
-  POST /v1/classify; the bare POST / is an alias that always tracks the current
-  major. Every response carries an x-api-version header. A breaking change
-  would ship as /v2 alongside /v1, and /v1 would then carry Deprecation and
-  Sunset headers for at least six months before removal. Classification is
+  or removed, within a major version. The current major is v1, addressed
+  as POST /v1/classify; the bare POST / is an alias that always tracks the
+  current major. Every response carries an x-api-version header. A breaking
+  change would ship as /v2 alongside /v1, and /v1 would then carry Deprecation
+  and Sunset headers for at least six months before removal. Classification is
   idempotent by nature; an Idempotency-Key header is accepted and echoed so
   retry logic that expects one keeps working.
 
@@ -334,9 +334,9 @@ WHAT COUNTS
 COMPARED WITH DOING IT YOURSELF
 
   Calling the underlying model directly costs about $0.005 per thousand
-  classifications and needs a TypeSafe key; a general LLM prompted to
-  classify costs $0.002 to $0.04 per thousand and 0.7 to 3.4 seconds per
-  item, with no calibrated confidence. Numbers and method on
+  classifications and needs a TypeSafe key. A general LLM prompted to classify
+  costs $0.002 to $0.04 per thousand and 0.7 to 3.4 seconds per item, with no
+  calibrated confidence. Numbers and method on
   https://classifier.dev/benchmark.
 
 

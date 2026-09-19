@@ -706,9 +706,9 @@ JSON, many at once:
 You can already classify text you can see. Call this when reading the input is
 the expensive part: filtering search results before opening them, pre-filtering
 before expensive reasoning, bucketing logs or tickets nobody reads line by line,
-or routing a pipeline branch deterministically. The thread joining those is
-classifying many things without pulling them into context. Under about five
-items, just decide yourself.
+or routing a pipeline branch deterministically. Each of those classifies many
+things without pulling them into context. Under about five items, just decide
+yourself.
 
 ## Confidence
 
@@ -732,7 +732,7 @@ in the official MCP registry.
 
 - Python: \`pip install classifier-dev\` — \`from classifier_dev import classify\` ([PyPI](https://pypi.org/project/classifier-dev/))
 - Go: \`go get github.com/mrmps/classifier-dev/sdk/go\` ([pkg.go.dev](https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go))
-- JavaScript: no SDK needed — POST JSON to https://classifier.dev/v1/classify with fetch(); the npm package \`classifier-dev\` is the CLI.
+- JavaScript: no SDK needed. POST JSON to https://classifier.dev/v1/classify with fetch(); the npm package \`classifier-dev\` is the CLI.
 
 ## CLI
 
