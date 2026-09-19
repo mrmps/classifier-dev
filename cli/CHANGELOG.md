@@ -3,6 +3,14 @@
 All notable changes to the `classify` CLI. Semver; the API it talks to is
 versioned separately at https://classifier.dev.
 
+## Unreleased
+
+- An empty pipe on stdin prints nothing and exits 0, instead of the help text
+  on stdout with exit 2: `grep ... | classify a,b | sort` stays empty when the
+  grep matched nothing. The help still appears when stdin is a terminal.
+- stdout is left to drain before the process ends, so `| head -c` and CI
+  runners with small pipes see the whole output rather than a truncated one.
+
 ## 0.1.1 — 2026-09-19
 
 - `--max` without `--multi` printed `undefined` and `NaN`: the API reads

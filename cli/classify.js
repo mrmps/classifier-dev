@@ -402,9 +402,13 @@ export async function main(argv) {
   let items;
   if (o.text !== null) items = [{ text: o.text }];
   else {
+    // Labels, no text, and a terminal on stdin: a person who wants the help.
+    if (process.stdin.isTTY) { process.stdout.write(HELP); return 2; }
     try { items = parseInput(await readStdin(), o.field, o.id); }
     catch (e) { fail(`could not read input: ${e.message}`); }
-    if (!items.length) { process.stdout.write(HELP); return 2; }
+    // An empty pipe is an empty answer, not a page of help in the middle of a
+    // pipeline: `grep ... | classify a,b | sort` has to stay empty.
+    if (!items.length) return 0;
   }
 
   if (o.smart && o.multi) {
