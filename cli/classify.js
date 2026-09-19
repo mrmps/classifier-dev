@@ -140,7 +140,7 @@ export function parseInput(raw, field = "text", idField = null) {
   };
   if (trimmed[0] === "[") return JSON.parse(trimmed).map(fromObj);
   const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.every((l) => l[0] === "{")) {
+  if (lines[0][0] === "{") {
     // NDJSON if the first line parses; then every later line has to. A file of
     // plain sentences that happen to open with a brace is still plain text.
     let first;
@@ -195,6 +195,9 @@ async function post(o, inputs) {
     const payload = await res.json().catch(() => ({}));
     if (res.ok) return checkResults(o, payload, inputs.length);
     last = payload.error || `HTTP ${res.status}`;
+    // A daily quota cannot recover during a normal CLI run. Keep the API's
+    // explanation instead of parking the user's pipeline for 24 hours.
+    if (payload.code === "rate_limit_day") break;
     if (res.status === 429) {
       // The API says exactly how long; a batch that trips the minute window
       // resumes on its own rather than dying at item 7,400.
@@ -210,7 +213,8 @@ async function post(o, inputs) {
 const ATTEMPTS = 5;
 
 async function retry(why, seconds, attempt) {
-  if (attempt + 1 < ATTEMPTS) process.stderr.write(`classify: ${why}, retrying in ${seconds}s (${attempt + 2}/${ATTEMPTS})\n`);
+  if (attempt + 1 >= ATTEMPTS) return;
+  process.stderr.write(`classify: ${why}, retrying in ${seconds}s (${attempt + 2}/${ATTEMPTS})\n`);
   await sleep(seconds * 1000);
 }
 

@@ -38,8 +38,9 @@ field and `--id` carries an id through:
 
     cat issues.jsonl | classify bug,question,feature --field title --id number --json
 
-10,000 lines are batched 1,000 per request, four at a time, and a rate limit
-pauses and resumes rather than failing. Errors go to stderr with exit code 1.
+10,000 lines are batched 1,000 per request, four at a time. Minute rate limits
+pause and resume; daily quota errors exit immediately instead of waiting until
+tomorrow. Errors go to stderr with exit code 1.
 
 ## Options
 
