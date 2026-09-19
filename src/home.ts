@@ -10,6 +10,7 @@
 import { esc, btn, page, COPY_ICON } from "./ui";
 import { DOCS, BENCHMARK } from "./docs";
 import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor } from "./vsjev";
+import { SITE, SITE_UPDATED } from "./wellknown";
 
 const HOME_CSS = `
 .prose section>*+*{margin-top:14px}
@@ -141,13 +142,18 @@ const AGENT_PROMPT =
   "Set up the classifier.dev skill: run `npx skills add https://classifier.dev`, " +
   "then read https://classifier.dev/skill.md and follow it all the way through.";
 
-const META = (title: string, desc: string) => `<meta name="description" content="${esc(desc)}">
+const META = (title: string, desc: string, path = "/") => `<meta name="description" content="${esc(desc)}">
 <meta name="robots" content="index,follow">
+<link rel="canonical" href="https://classifier.dev${path === "/" ? "/" : path}">
+<link rel="alternate" type="text/markdown" href="https://classifier.dev${path === "/" ? "/index.md" : `${path}.md`}" title="Markdown">
+<link rel="alternate" type="application/openapi+json" href="https://classifier.dev/openapi.json" title="OpenAPI">
+<link rel="alternate" type="application/json" href="https://classifier.dev/.well-known/mcp/server-card.json" title="MCP server card">
+<link rel="sitemap" type="application/xml" href="https://classifier.dev/sitemap.xml">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="classifier.dev">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}">
-<meta property="og:url" content="https://classifier.dev">
+<meta property="og:url" content="https://classifier.dev${path === "/" ? "" : path}">
 <meta property="og:image" content="https://classifier.dev/og-v3.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
@@ -159,6 +165,164 @@ const META = (title: string, desc: string) => `<meta name="description" content=
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="alternate" type="text/markdown" href="/skill.md">`;
+
+/**
+ * Structured data for the home page: what this is, that it is free, who runs
+ * it, and the three questions agents ask first. JSON-LD is how crawlers and
+ * answer engines read identity without parsing prose.
+ */
+const JSON_LD = () => {
+  const graph = [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://classifier.dev/#app",
+      name: SITE.name,
+      alternateName: "classifier.dev API",
+      url: "https://classifier.dev/",
+      description: SITE.tagline + " Send text and a list of labels, get back the label that fits and a calibrated confidence. Up to 1,000 texts per request.",
+      applicationCategory: "DeveloperApplication",
+      applicationSubCategory: "Text classification API",
+      operatingSystem: "Any",
+      softwareVersion: "1.0.0",
+      dateModified: SITE_UPDATED,
+      isAccessibleForFree: true,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD", availability: "https://schema.org/InStock", url: "https://classifier.dev/pricing", description: "Free within per-IP limits: 3,000 classifications a minute on the fast tier." },
+      featureList: ["Zero-shot classification into your own labels", "Calibrated confidence per answer", "1,000 texts per request", "Multi-label mode", "MCP server", "CLI", "No API key"],
+      author: { "@id": "https://classifier.dev/#author" },
+      publisher: { "@id": "https://classifier.dev/#org" },
+      sameAs: [SITE.repo, SITE.author.x, "https://www.npmjs.com/package/classifier-dev"],
+      softwareHelp: { "@type": "CreativeWork", url: "https://classifier.dev/developers" },
+      installUrl: "https://classifier.dev/mcp-setup",
+      license: "https://github.com/mrmps/classifier-dev/blob/main/LICENSE",
+    },
+    {
+      "@type": "Service",
+      "@id": "https://classifier.dev/#service",
+      name: "Text classification as a service",
+      serviceType: "Zero-shot text classification API",
+      provider: { "@id": "https://classifier.dev/#org" },
+      areaServed: "Worldwide",
+      url: "https://classifier.dev/",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD", url: "https://classifier.dev/pricing" },
+      termsOfService: "https://classifier.dev/privacy",
+      availableChannel: [
+        { "@type": "ServiceChannel", serviceUrl: "https://classifier.dev/v1/classify", name: "REST API" },
+        { "@type": "ServiceChannel", serviceUrl: "https://classifier.dev/mcp", name: "MCP server" },
+      ],
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://classifier.dev/#breadcrumbs",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "classifier.dev", item: "https://classifier.dev/" },
+        { "@type": "ListItem", position: 2, name: "Developers", item: "https://classifier.dev/developers" },
+        { "@type": "ListItem", position: 3, name: "Benchmark", item: "https://classifier.dev/benchmark" },
+        { "@type": "ListItem", position: 4, name: "MCP setup", item: "https://classifier.dev/mcp-setup" },
+      ],
+    },
+    {
+      "@type": "WebAPI",
+      "@id": "https://classifier.dev/#api",
+      name: "classifier.dev API",
+      url: "https://classifier.dev/",
+      documentation: "https://classifier.dev/openapi.json",
+      description: "REST and MCP interfaces for zero-shot text classification. No authentication.",
+      provider: { "@id": "https://classifier.dev/#org" },
+      termsOfService: "https://classifier.dev/privacy",
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://classifier.dev/#org",
+      name: SITE.name,
+      url: "https://classifier.dev/",
+      logo: "https://classifier.dev/favicon.svg",
+      founder: { "@id": "https://classifier.dev/#author" },
+      sameAs: [SITE.repo, SITE.author.x, "https://github.com/mrmps", "https://www.npmjs.com/package/classifier-dev"],
+      contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: SITE.email, url: "https://classifier.dev/contact", availableLanguage: "English" },
+      address: { "@type": "PostalAddress", addressLocality: "San Francisco", addressRegion: "CA", addressCountry: "US" },
+    },
+    {
+      "@type": "Person",
+      "@id": "https://classifier.dev/#author",
+      name: SITE.author.name,
+      url: SITE.author.x,
+      sameAs: [SITE.author.x, "https://github.com/mrmps"],
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://classifier.dev/#site",
+      url: "https://classifier.dev/",
+      name: SITE.name,
+      publisher: { "@id": "https://classifier.dev/#org" },
+      inLanguage: "en",
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://classifier.dev/#faq",
+      mainEntity: [
+        {
+          "@type": "Question",
+          name: "Do I need an API key to use classifier.dev?",
+          acceptedAnswer: { "@type": "Answer", text: "No. Every endpoint is public and keyless. Limits are per IP: 3,000 classifications a minute on the fast tier and 200 on smart. A partner key lifts them." },
+        },
+        {
+          "@type": "Question",
+          name: "When should an agent call classifier.dev instead of classifying text itself?",
+          acceptedAnswer: { "@type": "Answer", text: "When reading the input is the expensive part: filtering search results before opening them, bucketing logs or tickets, routing a pipeline branch deterministically. One request classifies up to 1,000 texts in about a second. Under about five items you can already see, just decide yourself." },
+        },
+        {
+          "@type": "Question",
+          name: "How accurate is it, and what does the confidence mean?",
+          acceptedAnswer: { "@type": "Answer", text: "On public test sets the fast tier scores 87.5% on four-way AG News and 61.8% on six-way emotion; the smart tier 90.0% and 62.7%. The confidence is calibrated: answers at or above 0.9 were right 82-92% of the time, answers under 0.5 about 30-60%. Details at classifier.dev/benchmark." },
+        },
+        {
+          "@type": "Question",
+          name: "Can I use it from Claude or ChatGPT?",
+          acceptedAnswer: { "@type": "Answer", text: "Yes. It is an MCP server at https://classifier.dev/mcp (Streamable HTTP, no auth). Add it as a custom connector in Claude, as a developer-mode app in ChatGPT, or with `claude mcp add --transport http classifier https://classifier.dev/mcp`. Steps at classifier.dev/mcp-setup." },
+        },
+      ],
+    },
+  ];
+  return `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c")}</script>`;
+};
+
+/**
+ * WebMCP: the same classify tool, registered on the page for browser agents
+ * (Chrome's origin trial, the ChatGPT desktop browser). Feature-detected, so
+ * a browser without document.modelContext runs none of it.
+ */
+const WEBMCP_SCRIPT = `<script>
+(() => {
+  const mc = document.modelContext || navigator.modelContext;
+  if (!mc || typeof mc.registerTool !== "function") return;
+  const classify = async (body) => {
+    const r = await fetch("https://classifier.dev/v1/classify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    return j;
+  };
+  mc.registerTool({
+    name: "classify_texts",
+    description: "Sort up to 1,000 texts into exactly one of your own labels each, with a calibrated 0-1 confidence per answer. Use for triage, routing, filtering and bucketing many items without reading them all. No API key.",
+    inputSchema: { type: "object", properties: {
+      inputs: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 1000, description: "Texts to classify, results come back in order." },
+      labels: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 100, description: "Category names, 2 to 100." },
+      instructions: { type: "string", description: "Optional extra criteria." } }, required: ["inputs", "labels"] },
+    annotations: { readOnlyHint: true, idempotentHint: true },
+    async execute({ inputs, labels, instructions }) { return classify({ inputs, labels, instructions }); }
+  });
+  mc.registerTool({
+    name: "classify_multi_label",
+    description: "Tag each text with every label that applies (possibly none), with an independent 0-1 score per label. Up to 1,000 texts.",
+    inputSchema: { type: "object", properties: {
+      inputs: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 1000 },
+      labels: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 100 },
+      max_labels: { type: "integer", minimum: 1, description: "Cap per text." } }, required: ["inputs", "labels"] },
+    annotations: { readOnlyHint: true, idempotentHint: true },
+    async execute({ inputs, labels, max_labels }) { return classify({ inputs, labels, multi: true, max_labels }); }
+  });
+})();
+</script>`;
 
 const COPY_SCRIPT = `<script>
 // Every [ copy ] control copies the block it belongs to; the prompt button
@@ -175,26 +339,31 @@ for (const b of document.querySelectorAll("[data-copy]")) {
 }
 </script>`;
 
-const NAV = (here: "home" | "benchmark") =>
-  `<p class="row">${btn("home", { href: "/", cls: here === "home" ? "on" : "" })}${btn("benchmark", {
+const NAV = (here: string) =>
+  `<nav><p class="row">${btn("home", { href: "/", cls: here === "home" ? "on" : "" })}${btn("benchmark", {
     href: "/benchmark",
     cls: here === "benchmark" ? "on" : "",
+  })}${btn("developers", { href: "/developers", cls: here === "developers" ? "on" : "" })}${btn("mcp", {
+    href: "/mcp-setup",
+    cls: here === "mcp-setup" ? "on" : "",
   })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
     href: "/skill.md",
     cls: "dim",
   })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
     href: "https://github.com/mrmps/classifier-dev",
     cls: "dim",
-  })}</p>`;
+  })}</p></nav>`;
+
+const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
 
 export function homeHtml(): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";
   return page({
     title: "classifier.dev",
-    head: META("classifier.dev", desc),
+    head: META("classifier.dev", desc) + JSON_LD(),
     css: HOME_CSS,
-    body: `<div class="page"><article class="doc prose">
-  <h1><span class="syn"># </span>classifier.dev</h1>
+    body: `<div class="page"><main><article class="doc prose">
+  <header><h1><span class="syn"># </span>classifier.dev</h1></header>
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
   ${NAV("home")}
 
@@ -249,8 +418,25 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt   <span class="o
 
   ${renderDoc(DOCS, true)}
 
-  <p class="foot">built by <a class="inline" href="https://x.com/michael_chomsky">@michael_chomsky</a> · <a class="inline" href="https://cal.com/michaelsf/coffee">book a call</a></p>
-</article></div>`,
+  ${FOOT}
+</article></main></div>`,
+    script: COPY_SCRIPT + WEBMCP_SCRIPT,
+  });
+}
+
+/** Any other plain-text document, rendered the same way the home page is. */
+export function docHtml(o: { title: string; desc: string; doc: string; path: string; here: string }): string {
+  return page({
+    title: `${o.title} · classifier.dev`,
+    head: META(o.title, o.desc, o.path),
+    css: HOME_CSS,
+    body: `<div class="page"><main><article class="doc prose">
+  <header><h1><span class="syn"># </span>${esc(o.doc.split("\n")[0].trim())}</h1></header>
+  <p class="quote">${esc(o.desc)}</p>
+  ${NAV(o.here)}
+  ${renderDoc(o.doc, true)}
+  ${FOOT}
+</article></main></div>`,
     script: COPY_SCRIPT,
   });
 }
@@ -259,14 +445,15 @@ export function benchmarkHtml(): string {
   const desc = "Measured accuracy, calibration, cost and latency for every model considered.";
   return page({
     title: "benchmark · classifier.dev",
-    head: META("classifier.dev benchmark", desc),
+    head: META("classifier.dev benchmark", desc, "/benchmark"),
     css: HOME_CSS,
-    body: `<div class="page"><article class="doc prose">
-  <h1><span class="syn"># </span>classifier.dev benchmark</h1>
+    body: `<div class="page"><main><article class="doc prose">
+  <header><h1><span class="syn"># </span>classifier.dev benchmark</h1></header>
   <p class="quote">${esc(desc)}</p>
   ${NAV("benchmark")}
   ${renderDoc(BENCHMARK, true)}
-</article></div>`,
+  ${FOOT}
+</article></main></div>`,
     script: COPY_SCRIPT,
   });
 }

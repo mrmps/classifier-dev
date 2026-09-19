@@ -3,7 +3,7 @@
 All notable changes to the `classify` CLI. Semver; the API it talks to is
 versioned separately at https://classifier.dev.
 
-## Unreleased
+## 0.1.1 — 2026-09-19
 
 - `--max` without `--multi` printed `undefined` and `NaN`: the API reads
   `max_labels` as multi-label, so `--max` now implies `--multi`. `--max` also
