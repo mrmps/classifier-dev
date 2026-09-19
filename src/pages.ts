@@ -583,8 +583,9 @@ export const TERMS = `classifier.dev terms
 
 The short version: the service is free within the published limits, it is
 offered as it is, you are responsible for what you send and for what you do
-with the answers, and it can change or stop. There is no contract unless you
-hold a partner key with one.
+with the answers, and it can change or stop. Pro is a monthly subscription
+you can cancel at any time; there is no other contract unless you hold a
+partner key with one.
 
 
 WHAT YOU GET
@@ -629,6 +630,18 @@ NO WARRANTY, NO LIABILITY
   person who runs it are not liable for any loss arising from its use or from
   its unavailability; where liability cannot be excluded, it is limited to
   what you paid for the service, which for the free tier is nothing.
+
+
+PRO
+
+  Pro is $20 a month, billed by Stripe through Autumn against the card you
+  give at checkout, and renews monthly until you cancel from your account at
+  https://classifier.dev/pro. Cancelling stops the next charge; the
+  allowance stays until the paid month ends. The price and the Pro limits at
+  https://classifier.dev/pricing can change with notice on that page before
+  a renewal. Your API key is yours to keep secret; requests made with it
+  count against your allowance whoever sends them, and you can rotate it
+  from your account at any time.
 
 
 PARTNER KEYS
