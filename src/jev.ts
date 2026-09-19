@@ -70,7 +70,7 @@ export type JevResult = {
   model: string;
 };
 
-type Question =
+export type Question =
   | { type: "choice"; instructions: string; criteria: Record<string, null> }
   | { type: "noul"; instructions: string };
 
@@ -216,6 +216,16 @@ function halve(b: Packed): [Packed, Packed] {
     return { start, items, questions };
   };
   return [part(b.items.slice(0, mid), b.start), part(b.items.slice(mid), b.start + mid)];
+}
+
+/**
+ * One request, questions written by the caller. The skills review asks Jev
+ * about intent and quality in its own words rather than as a label set, and
+ * gets the same validated, calibrated answers back.
+ */
+export async function jevAsk(key: string, state: { id: string; text: string }[], questions: Record<string, Question>, meter?: Meter) {
+  const res = await post(key, { state, model: MODEL, questions }, meter);
+  return { model: res.model, answers: res.answers };
 }
 
 export async function jevClassify(

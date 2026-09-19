@@ -138,8 +138,9 @@ export function vsJevText(full: boolean): string {
 
 /**
  * The same table as HTML, for the home page. Each set's rule stops at its own
- * edge, and a last row carries the smart tier's gain over Jev alone, coloured
- * only where it clears the noise on that column's items.
+ * edge, the better number in each column is marked, and a last row carries the
+ * smart tier's gain over Jev alone, signed and coloured, bold only where it
+ * clears the noise on that column's items.
  */
 export function vsJevHtml(): string {
   const ss = sets();
@@ -148,12 +149,17 @@ export function vsJevHtml(): string {
   const head1 = `<tr>${th("")}${ss.map((s) => `<th colspan="2" class="set"><span>${esc(s.name)}</span></th>`).join("")}</tr>`;
   const head2 = `<tr>${th("")}${ss.map((s) => th("all", ' class="num gap"') + th(`unsure (${VS_JEV.summary[s.key].unsure})`, ' class="num"')).join("")}</tr>`;
   const runs = RUNS.filter((r) => ss.every((s) => row(s.key, r.key)));
+  // The best number in a column is green; a tie marks every holder.
+  const best = (set: string, field: "acc" | "acc_unsure") =>
+    Math.max(...runs.map((r) => row(set, r.key)![field] ?? -1));
+  const cell = (v: number | null, set: string, field: "acc" | "acc_unsure", extra: string) =>
+    `<td class="num${extra}${v != null && v === best(set, field) ? " best" : ""}">${pct(v)}</td>`;
   const body = runs
     .map((r) => {
       const cells = ss
         .map((s) => {
           const me = row(s.key, r.key)!;
-          return `<td class="num gap">${pct(me.acc)}</td><td class="num">${pct(me.acc_unsure)}</td>`;
+          return cell(me.acc, s.key, "acc", " gap") + cell(me.acc_unsure, s.key, "acc_unsure", "");
         })
         .join("");
       // "jev alone = classifier.dev fast": the baseline is what the eye should catch; the equivalence is a note.
@@ -162,12 +168,13 @@ export function vsJevHtml(): string {
       return `<tr${r.key === "smart" ? ' class="smart"' : ""}><th scope="row">${label}</th>${cells}</tr>`;
     })
     .join("");
-  // The gain in points, green only when it is more than about two standard errors on that column's items.
+  // The gain in points: green or red by sign, bold when it is more than about two standard errors on that column's items.
   const gain = (a: number | null, b: number | null, n: number, extra: string) => {
     if (a == null || b == null) return `<td class="num${extra}">-</td>`;
     const d = (a - b) * 100;
-    const cls = Math.abs(d) <= noiseFloor(n, b) ? "" : d > 0 ? " win" : " loss";
-    return `<td class="num${extra}${cls}">${d >= 0 ? "+" : "\u2212"}${Math.abs(d).toFixed(1)}</td>`;
+    const sign = d === 0 ? "" : d > 0 ? " win" : " loss";
+    const clear = Math.abs(d) <= noiseFloor(n, b) ? "" : " clear";
+    return `<td class="num${extra}${sign}${clear}">${d >= 0 ? "+" : "\u2212"}${Math.abs(d).toFixed(1)}</td>`;
   };
   const gains = runs.some((r) => r.key === "smart")
     ? `<tr class="gain"><th scope="row">smart over jev alone, points</th>${ss

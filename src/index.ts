@@ -9,6 +9,7 @@ import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
 import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
+import { chatStream, parseMessages } from "./chat";
 import {
   AUTH_MD, AI_CATALOG_TYPE, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, SERVER_CARD_TYPE, agentCard, apiCatalog, ardCatalog, docsServerCard,
   oauthProtectedResource, securityTxt, robotsTxt, serverCard, sitemapXml,
@@ -17,6 +18,7 @@ import { dailyReport } from "./report";
 import { runAlerts } from "./alerts";
 import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
+import * as skills from "./skills";
 import { jevClassify, MULTI_THRESHOLD } from "./jev";
 import { newMeter, addUsd, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -28,6 +30,8 @@ export { RateLimiter } from "./limiter";
 export interface Env {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
+  /** context.dev, for the chat's web search and page reads only. Never served. */
+  CONTEXT_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;
   /** Dedicated operator credential for bulk agent work; independent of enterprise callers. */
   AGENT_API_KEY?: string;
@@ -262,6 +266,16 @@ const agentView = (origin: string) => ({
       limits: "5 signups/min, 50/day per IP; retry a 429 after Retry-After seconds",
       unsubscribe: "Reply to an update to unsubscribe.",
     },
+    skills: {
+      list: { method: "GET", url: `${origin}/${skills.API_PATH}`, description: "Skills by agents, reviewed and ranked. Each is raw Markdown at /skills/{name}.md." },
+      submit: {
+        method: "POST", url: `${origin}/${skills.API_PATH}`, content_type: "application/json",
+        body: { skill: "<the SKILL.md text>", author: "optional handle or URL", source: "optional https URL" },
+        description: "Submit a SKILL.md for review by a scanner, the decision model and a reasoning model. The answer is the review either way; 201 when listed.",
+        limits: `${skills.PER_IP_PER_HOUR} reviews/hour per IP, ${skills.GLOBAL_PER_DAY}/day for everyone`,
+      },
+      page: `${origin}/${skills.SKILLS_PATH}`,
+    },
     openapi: `${origin}/openapi.json`,
   },
   mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
@@ -351,6 +365,8 @@ const PRODUCT_MCP_STATIC = productServer(async () => ({ status: 503, body: { err
 
 /** The MCP endpoints, whose preflight is the transport's own and not the site's. */
 const MCP_PATHS = new Set(["mcp", ".well-known/mcp", "mcp/docs"]);
+/** One chat turn counts against the smart-tier window as this many classifications: ten turns a minute, a hundred a day. */
+const CHAT_COST = 20;
 
 const CACHE_HOUR = { "cache-control": "public, max-age=3600" };
 
@@ -1096,20 +1112,53 @@ const worker = {
     // Tools call the API through the same front door as everyone else, so the
     // limits, the metering and the logging are identical; only the client
     // family differs.
-    if (MCP_PATHS.has(path)) {
-      const mcpClassify: ClassifyFn = async (body, original) => {
-        const headers: Record<string, string> = {
-          "content-type": "application/json",
-          "user-agent": `mcp/1.0 (${original.headers.get("user-agent") ?? "unknown client"})`,
-          "cf-connecting-ip": ip,
-        };
-        const auth = original.headers.get("authorization");
-        if (auth) headers.authorization = auth;
-        const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx);
-        const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
-        return { status: r.status, body: parsed };
+    const mcpClassify: ClassifyFn = async (body, original) => {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        "user-agent": `mcp/1.0 (${original.headers.get("user-agent") ?? "unknown client"})`,
+        "cf-connecting-ip": ip,
       };
+      const auth = original.headers.get("authorization");
+      if (auth) headers.authorization = auth;
+      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx);
+      const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
+      return { status: r.status, body: parsed };
+    };
+    if (MCP_PATHS.has(path)) {
       return handleMcp(req, path === "mcp/docs" ? DOCS_MCP : productServer(mcpClassify));
+    }
+
+    // ---- chat --------------------------------------------------------------
+    // The sidebar's assistant: a model holding the product MCP server as its
+    // tools. The conversation arrives whole and leaves as a stream; nothing in
+    // it is kept. Cheap to call and not free to serve, so it is limited per
+    // IP like a smart-tier classification is.
+    if (path === `${API_VERSION}/chat`) {
+      if (req.method !== "POST") return json({ error: "POST a JSON body with messages", code: "method_not_allowed" }, 405, { allow: "POST, OPTIONS" });
+      if (!env.OPENROUTER_API_KEY) return json({ error: "chat is not configured", code: "chat_unavailable" }, 503);
+      let messages;
+      try {
+        messages = parseMessages((await readJsonObject(req)).messages);
+      } catch (e) {
+        return json({ error: (e as Error).message, code: "invalid_request" }, 400);
+      }
+      const gate = await limited(env, "smart", ip, CHAT_COST);
+      if (gate.limited) {
+        return json({ error: `Chat limit reached; try again in ${gate.resetIn ?? 60}s`, code: "rate_limited" }, 429, {
+          "retry-after": String(gate.resetIn ?? 60),
+        });
+      }
+      // The assistant classifies on the service's own key, so a visitor who
+      // has spent their public quota can still watch it work; the per-turn
+      // gate above and the per-call cap in chat.ts bound what a turn can cost.
+      const asService = new Request(req.url, {
+        headers: env.ENTERPRISE_API_KEY
+          ? { "user-agent": req.headers.get("user-agent") ?? "", authorization: `Bearer ${env.ENTERPRISE_API_KEY}` }
+          : req.headers,
+      });
+      return new Response(chatStream({ key: env.OPENROUTER_API_KEY, webKey: env.CONTEXT_API_KEY, server: productServer(mcpClassify), req: asService, messages }), {
+        headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", ...CORS, ...SECURITY },
+      });
     }
 
     // ---- discovery documents -------------------------------------------------
@@ -1212,6 +1261,75 @@ const worker = {
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
       if (pageWantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey }));
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
+    }
+
+    // ---- the skills directory ---------------------------------------------
+    // /skills is the page, /skills/{name} one skill and /skills/{name}.md its
+    // raw text; /v1/skills is the JSON, and where a skill is submitted.
+    if (path === skills.SKILLS_PATH || path === `${skills.SKILLS_PATH}.md`) {
+      if (req.method !== "GET") return json({ error: `submit at POST /${skills.API_PATH}`, code: "not_found" }, 405, { allow: "GET" });
+      const items = await skills.list(env);
+      const dynamic = { "cache-control": "public, max-age=60", vary: "accept, user-agent" };
+      if (path.endsWith(".md") || wantsMarkdown) return markdown(skills.skillsMarkdown(items, origin), 200, dynamic);
+      if (pageWantsHtml) return html(skills.skillsHtml(items), 200, dynamic);
+      return text(skills.skillsDoc(items), 200, dynamic);
+    }
+    const skillPage = req.method === "GET" && path.match(/^skills\/([a-z0-9-]{1,64})(\.md)?$/);
+    if (skillPage) {
+      const r = await skills.get(env, skillPage[1]);
+      if (!r) return notFound(req, origin);
+      const dynamic = { "cache-control": "public, max-age=300", vary: "accept, user-agent" };
+      if (skillPage[2] || wantsMarkdown) {
+        return new Response(r.content, { headers: { "content-type": "text/markdown; charset=utf-8", "content-disposition": 'inline; filename="SKILL.md"', ...dynamic, ...CORS, ...SECURITY } });
+      }
+      if (pageWantsHtml) return html(skills.skillHtml(r), 200, dynamic);
+      return text(skills.skillDoc(r), 200, dynamic);
+    }
+    if (path === skills.API_PATH || path.startsWith(`${skills.API_PATH}/`)) {
+      const slug = path.slice(skills.API_PATH.length + 1);
+      if (req.method === "GET" && !slug) {
+        const items = await skills.list(env);
+        return json({ count: items.length, skills: items.map((s) => ({ ...s, url: `${origin}/${skills.SKILLS_PATH}/${s.slug}`, raw: `${origin}/${skills.SKILLS_PATH}/${s.slug}.md` })), submit: `POST ${origin}/${skills.API_PATH}`, page: `${origin}/${skills.SKILLS_PATH}` }, 200, { "cache-control": "public, max-age=60" });
+      }
+      if (req.method === "GET") {
+        const r = await skills.get(env, slug);
+        return r ? json(skills.skillJson(r, origin), 200, { "cache-control": "public, max-age=300" }) : json({ error: "no such skill", code: "not_found", list: `${origin}/${skills.API_PATH}` }, 404);
+      }
+      if (req.method === "DELETE" && slug) {
+        // The operator's takedown, on the same key as the report preview. 404
+        // without it, so the endpoint says nothing about itself.
+        const given = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
+        if (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY))) return text("not found\n", 404);
+        return (await skills.remove(env, slug)) ? json({ ok: true, removed: slug }) : json({ error: "no such skill", code: "not_found" }, 404);
+      }
+      if (req.method === "POST" && !slug) {
+        let body: Record<string, unknown>;
+        try {
+          body = await readJsonObject(req);
+        } catch {
+          return json({ error: 'Body must be a JSON object such as {"skill": "<SKILL.md text>"}', code: "bad_json" }, 400);
+        }
+        const started = Date.now();
+        try {
+          const outcome = await skills.submit(env, ctx, body, ip, origin, meter, enterprise);
+          const ms = Date.now() - started;
+          if (outcome.accepted) {
+            return json({ accepted: true, url: outcome.url, raw: `${outcome.url}.md`, skill: skills.skillJson(outcome.skill, origin), ms }, 201, { location: outcome.url, "cache-control": "no-store" });
+          }
+          return json({ ...outcome, ms, next: "Fix what the reasons name and submit again; nothing was stored." }, 200, { "cache-control": "no-store" });
+        } catch (e) {
+          if (e instanceof skills.Invalid) return json({ error: e.message, code: "skill_invalid" }, 400);
+          if (e instanceof skills.Duplicate) return json({ error: e.message, code: "duplicate_skill", url: `${origin}/${skills.SKILLS_PATH}/${e.slug}` }, 409);
+          if (e instanceof skills.OverBudget) return json({ error: e.message, code: e.scope === "hour" ? "rate_limit_hour" : "rate_limit_day" }, 429, { "retry-after": String(e.resetIn) });
+          if (e instanceof skills.Unavailable) {
+            console.warn(`skill review unavailable: ${e.message}`);
+            return json({ error: "the review models are unavailable; nothing was stored, retry in a few minutes", code: "review_unavailable" }, 503, { "retry-after": "300" });
+          }
+          console.error(`skill review failed: ${(e as Error).message}`);
+          return json({ error: "the review failed; nothing was stored", code: "internal" }, 500);
+        }
+      }
+      return json({ error: "GET /v1/skills lists, POST /v1/skills submits, GET /v1/skills/{name} reads one", code: "not_found" }, slug && req.method === "POST" ? 404 : 405, { allow: "GET, POST" });
     }
 
     // ---- agent feedback, to the feedback.now protocol ----------------------
@@ -1350,6 +1468,11 @@ const worker = {
       if (wantsHtml) return html(homeHtml(), 200, link);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
+    // The front page with the sidebar already open. curl gets told where the chat is.
+    if (req.method === "GET" && path === "chat") {
+      if (wantsHtml) return html(homeHtml({ chat: true }), 200, { link: LINKS(origin) });
+      return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
+    }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
       if (url.searchParams.get("format") === "json" || (/\bapplication\/json\b/.test(accept) && !wantsHtml)) {
         return json(VS_JEV, 200, { vary: "accept", ...CACHE_HOUR });
@@ -1458,7 +1581,7 @@ const worker = {
     // it (the MCP tools, the sandbox alias).
     const CLASSIFY_ALIASES = new Set(["v1/classify", "v1/classify/batch"]);
     const classifyPath = CLASSIFY_ALIASES.has(path) ? "" : path;
-    const RESERVED = new Set(["v1", "api", "mcp", "admin", ".well-known"]);
+    const RESERVED = new Set(["v1", "api", "mcp", "admin", ".well-known", skills.SKILLS_PATH]);
     if (classifyPath.includes("/") && RESERVED.has(classifyPath.slice(0, classifyPath.indexOf("/")))) {
       return notFound(req, origin);
     }

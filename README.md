@@ -108,6 +108,7 @@ Secrets set with `wrangler secret put` live on the Worker, not in the script
 bundle, so a deploy leaves them alone and CI never needs to know them.
 
 Secrets the Worker reads: `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`,
+`CONTEXT_API_KEY` (context.dev, the chat's web search and page reads),
 `RESEND_API_KEY`, `CF_ANALYTICS_TOKEN`, `REPORT_KEY`, `PRIVACY_SALT`. Add one
 with `npx wrangler secret put NAME`; none of them are ever read from the
 repository. `src/index.ts` lists the rest in the `Env` interface.

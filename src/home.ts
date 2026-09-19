@@ -13,8 +13,9 @@ import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor, pct, accuracy } fr
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
 import { headingTitle, isCommandBlock, isHeading, isPreBlock } from "./pages";
+import { chatPanel, CHAT_CSS, CHAT_SCRIPT } from "./chatui";
 
-const HOME_CSS = `${HL_CSS}
+export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
@@ -40,12 +41,14 @@ h2{scroll-margin-top:24px}
 .vs tbody th{font-weight:400;color:var(--fg);border-bottom:0;padding-right:8px}
 .vs tbody th .eq{color:var(--dim)}
 .vs tr.smart th{color:var(--bright)}
-/* The gain row: dim where the difference is inside the noise. A clear gain is
-   bright and bold, a clear loss is the one status colour; the sign carries
-   the meaning for a reader who sees neither. */
+/* In each column the better accuracy is green. The gain row is green or red
+   by its sign, and bold only where the gap clears the noise on that column's
+   items; the sign carries the meaning for a reader who sees neither. */
+.vs td.best{color:var(--good)}
 .vs tr.gain th,.vs tr.gain td{color:var(--dim);border-top:1px solid var(--line);padding-top:8px}
-.vs tr.gain td.win{color:var(--bright);font-weight:600}
+.vs tr.gain td.win{color:var(--good)}
 .vs tr.gain td.loss{color:var(--bad)}
+.vs tr.gain td.clear{font-weight:600}
 /* The agent prompt: the one thing a first-time visitor should not miss, so it
    is the one surface on the page drawn with depth. No border: a hairline ring
    and a lift, a faint wash of the accent from the top corner (at full P3
@@ -238,7 +241,7 @@ function linkify(text: string) {
  * stays outside the link, and a template such as /{labels}/{text} is text.
  */
 
-function renderBlocks(body: string[]): string {
+export function renderBlocks(body: string[]): string {
   const out: string[] = [];
   let buf: string[] = [];
   const flush = () => {
@@ -273,7 +276,7 @@ function renderBlocks(body: string[]): string {
  * richer HTML form than their plain text — the section keeps its place in the
  * document, so the order a reader sees matches `curl classifier.dev`.
  */
-function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string> = {}) {
+export function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string | ((body: string[]) => string)> = {}) {
   const lines = doc.split("\n");
   const out: string[] = [];
   let i = 0;
@@ -299,7 +302,8 @@ function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, string>
     const body: string[] = [];
     while (i < lines.length && !isHeading(lines[i])) body.push(lines[i++]);
     if (title in swap) {
-      out.push(swap[title]);
+      const alt = swap[title];
+      out.push(typeof alt === "function" ? alt(body) : alt);
       continue;
     }
     out.push(
@@ -313,7 +317,7 @@ const AGENT_PROMPT =
   "Set up the classifier.dev skill: run `npx skills add https://classifier.dev`, " +
   "then read https://classifier.dev/skill.md and follow it all the way through.";
 
-const META = (title: string, desc: string, path = "/") => `<meta name="description" content="${esc(desc)}">
+export const META = (title: string, desc: string, path = "/") => `<meta name="description" content="${esc(desc)}">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://classifier.dev${path === "/" ? "/" : path}">
 <link rel="alternate" type="text/markdown" href="https://classifier.dev${path === "/" ? "/index.md" : `${path}.md`}" title="Markdown">
@@ -497,7 +501,7 @@ const WEBMCP_SCRIPT = `<script>
 })();
 </script>`;
 
-const COPY_SCRIPT = `<script>
+export const COPY_SCRIPT = `<script>
 // Every [ copy ] control copies the block it belongs to; the prompt button
 // carries its own text.
 for (const b of document.querySelectorAll("[data-copy]")) {
@@ -614,8 +618,8 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
 const navLink = (label: string, href: string, here: string, key: string) =>
   btn(label, { href, cls: here === key ? "on" : "", attrs: here === key ? ' aria-current="page"' : "" });
 
-const NAV = (here: string) =>
-  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
+export const NAV = (here: string) =>
+  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${navLink("skills", "/skills", here, "skills")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
     href: "/skill.md",
     cls: "dim",
   })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
@@ -623,9 +627,9 @@ const NAV = (here: string) =>
     cls: "dim",
   })}</p></nav>`;
 
-const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
+export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
 
-export function homeHtml(): string {
+export function homeHtml(o: { chat?: boolean } = {}): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";
   return page({
     title: "classifier.dev",
@@ -634,7 +638,7 @@ export function homeHtml(): string {
     body: `<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev</h1></header>
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
-  ${NAV("home")}
+  ${NAV(o.chat ? "chat" : "home")}
 
   <section class="agent" id="agent">
     <h2><span class="syn">## </span>Give your agent this prompt</h2>
@@ -696,8 +700,9 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt</code>   <span c
 
   ${FOOT}
 </article></main></div>
-${subscribeDock()}`,
-    script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT + HL_SCRIPT,
+${subscribeDock()}
+${chatPanel(!!o.chat)}`,
+    script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
 
@@ -713,8 +718,9 @@ export function docHtml(o: { title: string; desc: string; doc: string; path: str
   ${NAV(o.here)}
   ${renderDoc(o.doc, true)}
   ${FOOT}
-</article></main></div>`,
-    script: COPY_SCRIPT + HL_SCRIPT,
+</article></main></div>
+${chatPanel()}`,
+    script: COPY_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
 
@@ -730,7 +736,8 @@ export function benchmarkHtml(): string {
   ${NAV("benchmark")}
   ${renderDoc(BENCHMARK, true)}
   ${FOOT}
-</article></main></div>`,
-    script: COPY_SCRIPT + HL_SCRIPT,
+</article></main></div>
+${chatPanel()}`,
+    script: COPY_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
