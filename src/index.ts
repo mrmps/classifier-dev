@@ -7,6 +7,7 @@ import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
 import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
+import { VS_JEV } from "./vsjev";
 import {
   AUTH_MD, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, agentCard, apiCatalog, ardCatalog, docsServerCard, oauthProtectedResource,
   robotsTxt, serverCard, sitemapXml,
@@ -912,12 +913,17 @@ const worker = {
     if (req.method === "GET" && (path === "api" || path === "api/" || path === "agent.json")) return json(agentView(origin), 200, CACHE_HOUR);
 
     // ---- the pages: text for curl, HTML for browsers, Markdown when asked ----
-    const pageKey = path.replace(/\.md$/, "");
+    const pageKey = (path === "docs" ? "developers" : path).replace(/\.md$/, "");
+    // A page is a page: anything that is not a shell tool, an HTTP library or an
+    // agent gets the HTML even with Accept: */*. curl and friends keep the text.
+    const uaLower = (req.headers.get("user-agent") ?? "").toLowerCase();
+    const shellish = !uaLower || /curl|wget|httpie|python|node|undici|axios|go-http|java|okhttp|bun\/|deno|mcp\/|classify-cli/i.test(uaLower);
+    const pageWantsHtml = wantsHtml || (req.method === "GET" && !wantsMarkdown && !shellish && url.searchParams.get("format") !== "text");
     if (req.method === "GET" && PAGE_DOCS[pageKey]) {
       const pg = PAGE_DOCS[pageKey];
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
-      if (wantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey }));
+      if (pageWantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey }));
       return text(pg.doc, 200, { vary: "accept", ...CACHE_HOUR });
     }
 
@@ -938,10 +944,14 @@ const worker = {
       };
       try {
         if (path === "api/v1/feedback" && req.method === "POST") {
-          return json(await feedback.submitFeedback(env, ctx, await readBody(), ip, bearer), 202);
+          const accepted = await feedback.submitFeedback(env, ctx, await readBody(), ip, bearer);
+          const rid = (accepted as { receipt?: { id?: string } }).receipt?.id;
+          return json(accepted, 202, rid ? { location: `${origin}/api/v1/receipts/${rid}` } : {});
         }
         if (path === "api/v1/observations" && req.method === "POST") {
-          return json(await feedback.submitObservation(env, ctx, await readBody(), ip), 202);
+          const accepted = await feedback.submitObservation(env, ctx, await readBody(), ip);
+          const rid = (accepted as { receipt?: { id?: string } }).receipt?.id;
+          return json(accepted, 202, rid ? { location: `${origin}/api/v1/receipts/${rid}` } : {});
         }
         const attach = path.match(/^api\/v1\/feedback\/([A-Za-z0-9_]+)\/attachments$/);
         if (attach && req.method === "POST") {
@@ -961,7 +971,8 @@ const worker = {
     }
     if (req.method === "GET" && (path === "" || path === "index.html" || path === "index.md")) {
       const link = { link: LINKS(origin) };
-      if (url.searchParams.get("mode") === "agent") return json(agentView(origin), 200, link);
+      const wantsJson = /\bapplication\/json\b/.test(accept) && !wantsHtml;
+      if (url.searchParams.get("mode") === "agent" || url.searchParams.get("format") === "json" || wantsJson) return json(agentView(origin), 200, link);
       // Crawlers that exist to read get the Markdown even when they say text/html.
       const ua = req.headers.get("user-agent") ?? "";
       const readerBot = /GPTBot|ChatGPT-User|OAI-SearchBot|ClaudeBot|Claude-User|Claude-SearchBot|anthropic-ai|PerplexityBot|Perplexity-User|Google-Extended|Applebot-Extended|DeepSeekBot|meta-externalagent/i.test(ua);
@@ -977,6 +988,9 @@ const worker = {
       return text(DOCS, 200, { vary: "accept", ...link });
     }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
+      if (url.searchParams.get("format") === "json" || (/\bapplication\/json\b/.test(accept) && !wantsHtml)) {
+        return json(VS_JEV, 200, { vary: "accept", ...CACHE_HOUR });
+      }
       if (path === "benchmark.md" || wantsMarkdown) {
         return markdown(toMarkdown(BENCHMARK, { title: "classifier.dev benchmark", canonical: `${origin}/benchmark`, description: "Measured accuracy, calibration, cost and latency." }));
       }

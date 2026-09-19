@@ -205,7 +205,7 @@ const JSON_LD = () => {
       featureList: ["Zero-shot classification into your own labels", "Calibrated confidence per answer", "1,000 texts per request", "Multi-label mode", "MCP server", "CLI", "No API key"],
       author: { "@id": "https://classifier.dev/#author" },
       publisher: { "@id": "https://classifier.dev/#org" },
-      sameAs: [SITE.repo, SITE.author.x, "https://www.npmjs.com/package/classifier-dev"],
+      sameAs: [SITE.repo, SITE.author.x, "https://www.npmjs.com/package/classifier-dev", "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier"],
       softwareHelp: { "@type": "CreativeWork", url: "https://classifier.dev/developers" },
       installUrl: "https://classifier.dev/mcp-setup",
       license: "https://github.com/mrmps/classifier-dev/blob/main/LICENSE",
@@ -261,7 +261,7 @@ const JSON_LD = () => {
       "@id": "https://classifier.dev/#author",
       name: SITE.author.name,
       url: SITE.author.x,
-      sameAs: [SITE.author.x, "https://github.com/mrmps"],
+      sameAs: [SITE.author.x, "https://twitter.com/michael_chomsky", "https://github.com/mrmps", "https://www.npmjs.com/~mrmps"],
     },
     {
       "@type": "WebSite",
