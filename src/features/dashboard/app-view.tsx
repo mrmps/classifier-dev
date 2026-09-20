@@ -208,7 +208,6 @@ function Settings({
   const identity = snapshot.organizations?.identity || snapshot.account;
   const [name, setName] = useState(identity.name);
   const [saved, setSaved] = useState(false);
-  const [signOutError, setSignOutError] = useState("");
   const [busy, setBusy] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   return (
@@ -270,34 +269,18 @@ function Settings({
             title="Sign out"
             description="Your API keys and usage will remain saved."
           >
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={signingOut}
-              onClick={async () => {
-                setSigningOut(true);
-                setSignOutError("");
-                try {
-                  const response = await fetch("/auth/sign-out", {
-                    method: "POST",
-                  });
-                  if (!response.ok) throw new Error("Could not sign out.");
-                  window.location.href = "/login";
-                } catch {
-                  setSignOutError("Could not sign out. Please try again.");
-                  setSigningOut(false);
-                }
-              }}
-            >
-              {signingOut ? "Signing out…" : "Sign out"}
-            </Button>
+            <form action="/auth/sign-out" method="post" onSubmit={() => setSigningOut(true)}>
+              <Button
+                type="submit"
+                variant="outline"
+                size="sm"
+                disabled={signingOut}
+              >
+                {signingOut ? "Signing out…" : "Sign out"}
+              </Button>
+            </form>
           </SettingRow>
         </NativeSettingsSection>
-        {signOutError && (
-          <p role="alert" className="error-message">
-            {signOutError}
-          </p>
-        )}
         <NativeSettingsSection
           title="Appearance"
           description="Saved to this browser."

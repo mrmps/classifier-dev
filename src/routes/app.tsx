@@ -11,7 +11,7 @@ import {
 } from "../features/dashboard/dashboard.functions";
 
 export const Route = createFileRoute("/app")({
-  loader: () => getDashboard(),
+  loader: ({ location }) => getDashboard({ data: { returnTo: location.href } }),
   component: AccountApp,
   errorComponent: ({ error }) => (
     <main className="login-page">

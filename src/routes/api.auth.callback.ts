@@ -13,7 +13,6 @@ export const Route = createFileRoute("/api/auth/callback")({
             status: 503,
           });
         const response = await handleCallbackRoute({
-          returnPathname: "/app",
           errorRedirectUrl: "/login?error=auth_failed",
         })(context);
         return clearWorkspaceSelection(response, context.request);

@@ -2,9 +2,16 @@ import { redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import type { AppAction } from "../../server/contracts";
 import { appEnvironment } from "../../server/environment";
+import { authReturnPath } from "../../lib/auth-return-path";
 
-export const getDashboard = createServerFn({ method: "GET" }).handler(
-  async () => {
+async function viewerImageUrl() {
+  const { getAuth } = await import("@workos/authkit-tanstack-react-start");
+  return (await getAuth()).user?.profilePictureUrl ?? null;
+}
+
+export const getDashboard = createServerFn({ method: "GET" })
+  .validator((data: { returnTo?: string } | undefined) => authReturnPath(data?.returnTo))
+  .handler(async ({ data }) => {
     const { env } = await import("cloudflare:workers");
     const { getRequest, setResponseHeader } =
       await import("@tanstack/react-start/server");
@@ -26,11 +33,12 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       return {
         ...(await getSnapshot(organizations.active.id, bindings)),
         organizations,
+        viewerImageUrl: await viewerImageUrl(),
       };
     } catch (error) {
       const { AppError } = await import("../../server/db");
       if (error instanceof AppError && error.status === 401)
-        throw redirect({ to: "/login" });
+        throw redirect({ to: "/login", search: { returnTo: data, error: undefined } });
       throw error;
     }
   },
@@ -51,10 +59,14 @@ export const dashboardAction = createServerFn({ method: "POST" })
     setResponseHeader("Cache-Control", "no-store");
     const bindings = appEnvironment(env);
     const { selectedWorkspace } = await import("../../server/organizations");
-    return performWorkspaceAction(
+    const result = await performWorkspaceAction(
       await requireAccount(request, bindings),
       selectedWorkspace(request),
       data,
       bindings,
     );
+    return {
+      ...result,
+      snapshot: { ...result.snapshot, viewerImageUrl: await viewerImageUrl() },
+    };
   });
