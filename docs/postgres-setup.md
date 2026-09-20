@@ -73,7 +73,11 @@ the public privacy page describes this shared storage explicitly.
 The consolidation script `scripts/consolidate-newsletter.ts` takes a consistent
 source snapshot, preserves every column (including identity values, microsecond
 timestamps, preferences and unsubscribe state), rejects conflicting destination
-rows, and verifies exact equality before committing. Before production cutover,
+rows (including destination-only rows), and verifies exact equality before
+committing. Copying requires the source freeze trigger. Its transaction also
+records `data:newsletter-consolidation-v1` and the source checksum in
+`app_schema_migrations`; deployment refuses to switch without that marker.
+Before production cutover,
 create and verify a source backup branch. Freeze source subscriber writes with
 `scripts/newsletter-freeze.sql`, run the copy, deploy, and verify source rows
 against the destination again. During the brief freeze, confirmation requests

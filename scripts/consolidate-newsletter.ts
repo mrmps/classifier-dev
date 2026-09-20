@@ -3,6 +3,8 @@ import { drizzle } from "drizzle-orm/neon-serverless";
 import { sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
+export const NEWSLETTER_CUTOVER = "data:newsletter-consolidation-v1";
+
 /** Copy exact PostgreSQL values; never round IDs or timestamps through JS. */
 export async function consolidateNewsletter(
   sourceUrl: string,
@@ -16,6 +18,14 @@ export async function consolidateNewsletter(
     const destination = drizzle(destinationPool);
     const payload = await source.transaction(async (tx) => {
       if (options.sourceSchema) await tx.execute(sql`SET LOCAL search_path TO ${sql.identifier(options.sourceSchema)}`);
+      if (!options.verifyOnly) {
+        const frozen = await tx.execute<{ frozen: boolean }>(sql`
+          SELECT EXISTS(SELECT 1 FROM pg_trigger
+            WHERE tgrelid='subscriber'::regclass AND tgname='subscriber_moved'
+              AND tgenabled IN ('O','A')) AS frozen
+        `);
+        if (!frozen.rows[0].frozen) throw new Error("Freeze source subscriber writes before copying.");
+      }
       const result = await tx.execute<{ payload: string }>(sql`
         SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY id), '[]'::jsonb)::text AS payload
         FROM subscriber s
@@ -39,7 +49,7 @@ export async function consolidateNewsletter(
       const difference = await tx.execute<{ mismatches: number }>(sql`
         SELECT count(*)::integer AS mismatches
         FROM jsonb_populate_recordset(NULL::subscriber, ${payload}::jsonb) s
-        LEFT JOIN subscriber d ON d.id=s.id
+        FULL OUTER JOIN subscriber d ON d.id=s.id
         WHERE to_jsonb(s) IS DISTINCT FROM to_jsonb(d)
       `);
       if (difference.rows[0].mismatches) {
@@ -53,6 +63,13 @@ export async function consolidateNewsletter(
             (SELECT last_value FROM pg_sequences
               WHERE schemaname=current_schema() AND sequencename='subscriber_id_seq')
           ), true)
+        `);
+        // Written in the same transaction as the verified copy. Deployment
+        // requires this marker, so an empty/new destination cannot go live.
+        await tx.execute(sql`
+          INSERT INTO app_schema_migrations(name,sha256)
+          VALUES (${NEWSLETTER_CUTOVER}, ${createHash("sha256").update(payload).digest("hex")})
+          ON CONFLICT (name) DO NOTHING
         `);
       }
       const result = await tx.execute<{ copied: number; destination: number }>(sql`
