@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import { migratePostgres } from "../scripts/migrate-postgres";
 import { consolidateNewsletter } from "../scripts/consolidate-newsletter";
 import { app_usage } from "../drizzle/schema";
+import { neonDatabase } from "../src/server/db";
 
 const url = process.env.NEON_MIGRATION_TEST_URL;
 describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
@@ -54,6 +55,9 @@ describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
     rmSync(join(files, "0001_accounts.sql"));
   });
   test("typed Drizzle bigint reads preserve values above Number.MAX_SAFE_INTEGER", async () => {
+    const accountDb = neonDatabase(url!);
+    expect(await accountDb.prepare("SELECT 42::bigint AS value").first()).toEqual({ value: 42 });
+    await expect(accountDb.prepare("SELECT 9007199254740993::bigint AS value").first()).rejects.toThrow("safe range");
     const value = 9007199254740993n;
     const result = await db.select({ value: sql`9007199254740993::bigint`.mapWith(app_usage.actual_nano) }).from(sql`(SELECT 1) AS proof`);
     expect(result[0].value).toBe(value);

@@ -10,7 +10,9 @@ export async function migratePostgres(
   schema?: string,
 ) {
   // Fail before connecting, without letting driver errors repeat credentials.
-  const connection = new URL(url);
+  let connection: URL;
+  try { connection = new URL(url); }
+  catch { throw new Error("DATABASE_URL must be a valid PostgreSQL connection URL."); }
   if (!["postgres:", "postgresql:"].includes(connection.protocol)) {
     throw new Error("DATABASE_URL must be a PostgreSQL connection URL.");
   }

@@ -9,8 +9,6 @@ export function parseCreditInteger(value: string): number {
     throw new Error("Database integer exceeds the safe range.");
   return number;
 }
-types.setTypeParser(20, parseCreditInteger);
-types.setTypeParser(1700, parseCreditInteger);
 
 export interface QueryResult<T = Record<string, unknown>> {
   results: T[];
@@ -101,7 +99,17 @@ export function postgresDatabase(execute: PostgresExecutor): AppDatabase {
 }
 
 export function neonDatabase(databaseUrl: string): AppDatabase {
-  const sql = neon(databaseUrl, { fullResults: true });
+  const sql = neon(databaseUrl, {
+    fullResults: true,
+    // This adapter exposes safe JS integers. Do not alter Drizzle or other
+    // clients, which need the driver's exact string representation of int8.
+    types: {
+      getTypeParser: (id, format) =>
+        (id === 20 || id === 1700) && format !== "binary"
+          ? parseCreditInteger
+          : types.getTypeParser(id, format),
+    },
+  });
   return postgresDatabase(async (queries, transaction) => {
     const pending = queries.map((query) => sql.query(query.sql, query.params));
     const results = transaction

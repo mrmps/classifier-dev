@@ -71,7 +71,13 @@ if (import.meta.main) {
   const source = process.env.SOURCE_DATABASE_URL;
   const destination = process.env.DATABASE_URL;
   if (!source || !destination) throw new Error("Set SOURCE_DATABASE_URL and DATABASE_URL.");
-  console.log(await consolidateNewsletter(source, destination, {
-    verifyOnly: process.argv.includes("--verify-only"),
-  }));
+  try {
+    console.log(await consolidateNewsletter(source, destination, {
+      verifyOnly: process.argv.includes("--verify-only"),
+    }));
+  } catch {
+    // Driver errors can include SQL parameters containing every email address.
+    console.error("Subscriber transfer or verification failed. Source data is intact; verify the destination before retrying.");
+    process.exitCode = 1;
+  }
 }
