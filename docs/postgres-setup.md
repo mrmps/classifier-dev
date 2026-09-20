@@ -65,7 +65,7 @@ The production account database contains the following application tables:
 `app_autumn_grants`, and `app_autumn_sync_budget`. `app_schema_migrations`
 records the immutable migration name and checksum.
 
-Newsletter addresses are in `subscriber` in the same `classify` project and
+Newsletter addresses are in `subscriber` in the active account project's
 `neondb` database, using `DATABASE_URL`. Subscriber consent has no account or
 workspace foreign key. Administrative credentials can access both kinds of data;
 the public privacy page describes this shared storage explicitly.
