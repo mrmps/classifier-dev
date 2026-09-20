@@ -43,8 +43,8 @@ binding = "ACCOUNT_AE"
 dataset = "classifier_account_events"
 
 [vars]
-# Deploy transfer-aware legacy objects before enabling combined admission.
-QUOTA_COORDINATOR_ENABLED = "false"
+# Transfer-aware legacy objects were deployed before enabling admission here.
+QUOTA_COORDINATOR_ENABLED = "true"
 LAYA_ENABLED = "true"
 LAYA_FAST_URL = "https://miryaboy--classifier-laya-router-trial-fast.us-east.modal.direct"
 LAYA_BULK_URL = "https://miryaboy--classifier-laya-router-trial-bulk.us-east.modal.direct"

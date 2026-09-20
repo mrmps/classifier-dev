@@ -2019,7 +2019,9 @@ const worker = {
       // this handler, excluding outer dispatch and final response serialization.
       const durations: Record<string, number | undefined> = {
         worker_total: performance.now() - workerStarted,
-        quota_regular: regularQuotaMs, quota_laya: layaQuotaMs,
+        quota_regular: combinedQuota ? undefined : regularQuotaMs,
+        quota_laya: combinedQuota ? undefined : layaQuotaMs,
+        quota_combined: combinedQuota ? regularQuotaMs : undefined,
         regular_handler: regularQuotaTiming.handler, regular_read: regularQuotaTiming.read, regular_write: regularQuotaTiming.write,
         lane_handler: laneQuotaTiming.handler, lane_read: laneQuotaTiming.read, lane_write: laneQuotaTiming.write,
         laya_run: layaTiming.runMs, modal_fetch: layaTiming.fetchMs,
