@@ -16,16 +16,15 @@ const background = { waitUntil(promise: Promise<unknown>) { void promise.catch((
 export async function accountClassification(request: Request, env: AppEnv & Partial<Env>, source: "API" | "MCP" = "API",
   ctx: ExecutionContext = background): Promise<Response | null> {
   if (!/^Bearer\s+classifier_agent_/i.test(request.headers.get("authorization") || "")) return null;
-  if (request.method !== "POST" || !["/", "/v1/classify", "/v1/classify/batch"].includes(new URL(request.url).pathname))
-    throw new AppError(400, "Account classification supports POST /v1/classify.");
+  if (request.method !== "POST" || !["/", "/v1/classify", "/v1/classify/batch", "/sandbox/classify", "/v1/sandbox/classify"].includes(new URL(request.url).pathname)) return null;
   const accountId = await requireApiAccount(request, env);
-  if (!env.TYPESAFE_API_KEY) throw new AppError(503, "Account inference is not configured.");
   if (Number(request.headers.get("content-length") || 0) > 1_000_000) throw new AppError(413, "Request is too large.");
   const text = await request.text();
   if (new TextEncoder().encode(text).length > 1_000_000) throw new AppError(413, "Request is too large.");
   let body: Record<string, unknown>;
   try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
+  if (body.model !== "laya" && !env.TYPESAFE_API_KEY) throw new AppError(503, "Account inference is not configured.");
   const rawInputs = body.inputs ?? body.items ?? body.input;
   const inputs = typeof rawInputs === "string" ? [rawInputs] : rawInputs;
   if (!Array.isArray(inputs) || !inputs.length || inputs.length > 10_000 || inputs.some((input) => typeof input !== "string"))

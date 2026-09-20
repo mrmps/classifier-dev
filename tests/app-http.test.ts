@@ -5,6 +5,8 @@ import { performAction } from "../src/server/agents";
 import { getSnapshot } from "../src/server/accounts";
 import { accountClassification } from "../src/http/classification";
 import { accountMcp } from "../src/http/mcp";
+import { accountApi } from "../src/http/account-api";
+import legacy from "../src/index";
 import { isAppRequest } from "../src/http/dispatch";
 import type { AppEnv } from "../src/server/db";
 import type { Env } from "../src/index";
@@ -138,6 +140,71 @@ test.each(["input", "inputs"])("account billing accepts the public API's scalar 
       "SELECT items,input_tokens FROM app_usage WHERE account_id='local-demo' LIMIT 1",
     ).first(),
   ).toEqual({ items: 1, input_tokens: 41 });
+});
+
+test.each(["/sandbox/classify", "/v1/sandbox/classify"])("account sandbox alias %s uses the same billing boundary", async path => {
+  globalThis.fetch = (async (_url, init) => jevResponse(init, 41)) as typeof fetch;
+  const response = await accountClassification(new Request(`http://localhost${path}`, request({ input: "Invoice", labels: ["billing", "sales"] })), env);
+  expect(response?.status).toBe(200);
+  expect(response?.headers.get("x-billing-status")).toBe("settled");
+  expect(response?.headers.get("x-sandbox")).toBeTruthy();
+  expect(await env.APP_DB.prepare("SELECT items,input_tokens,status FROM app_usage").first()).toEqual({ items: 1, input_tokens: 41, status: "completed" });
+  await performAction("local-demo", { type: "revoke", agentId }, env);
+  await expect(accountClassification(new Request(`http://localhost${path}`, request({ input: "Invoice", labels: ["billing", "sales"] })), env)).rejects.toThrow("revoked");
+});
+
+test("account authorization headers do not capture public documents or MCP discovery", async () => {
+  for (const path of ["/", "/developers", "/openapi.json", "/mcp/docs", "/v1/health"]) {
+    expect(await accountClassification(new Request(`http://localhost${path}`, { headers: { authorization: `Bearer ${token}` } }), env)).toBeNull();
+  }
+});
+
+const context = { waitUntil(promise: Promise<unknown>) { void promise.catch(() => {}); } } as ExecutionContext;
+const dispatch = async (req: Request) => await accountApi(req, env as AppEnv & Env, context) ?? legacy.fetch(req, env as Env, context);
+
+test("browser account clients can preflight and read balances, errors, and billing headers", async () => {
+  for (const path of ["/v1/account/balance", "/v1/account/usage/summary", "/v1/classify", "/mcp"]) {
+    const response = await dispatch(new Request(`http://localhost${path}`, {
+      method: "OPTIONS", headers: { origin: "https://client.example", "access-control-request-headers": "authorization,content-type" },
+    }));
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("authorization");
+  }
+  const balance = await dispatch(new Request("http://localhost/v1/account/balance", { headers: { authorization: `Bearer ${token}` } }));
+  expect(balance.status).toBe(200);
+  expect(balance.headers.get("access-control-allow-origin")).toBe("*");
+  for (const path of ["/v1/account/balance", "/mcp"]) {
+    const error = await dispatch(new Request(`http://localhost${path}`, { headers: { authorization: "Bearer classifier_agent_invalid" } }));
+    expect(error.status).toBe(401);
+    expect(error.headers.get("access-control-allow-origin")).toBe("*");
+  }
+  globalThis.fetch = (async (_url, init) => jevResponse(init, 41)) as typeof fetch;
+  const response = await dispatch(request({ input: "Invoice", labels: ["billing", "sales"] }));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("access-control-expose-headers")).toContain("x-request-id");
+  expect(response.headers.get("access-control-expose-headers")).toContain("x-billing-status");
+  const error = await dispatch(request({}));
+  expect(error.status).toBe(400);
+  expect(error.headers.get("access-control-allow-origin")).toBe("*");
+});
+
+test("public routes accept account headers but alternate inference URLs cannot bypass accounting", async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; throw new Error("Must not infer"); }) as typeof fetch;
+  for (const path of ["/", "/developers", "/openapi.json", "/v1/health"]) {
+    expect((await dispatch(new Request(`http://localhost${path}`, { headers: { authorization: `Bearer ${token}` } }))).status).toBe(200);
+  }
+  await performAction("local-demo", { type: "revoke", agentId }, env);
+  for (const path of ["/?labels=yes,no&text=hello", "/yes,no/hello", "/v1/classify?labels=yes,no&text=hello"]) {
+    const response = await dispatch(new Request(`http://localhost${path}`, { headers: { authorization: `Bearer ${token}` } }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "account_route_required" });
+  }
+  for (const path of ["/%76%31/classify", "/arbitrary"]) {
+    expect((await dispatch(new Request(`http://localhost${path}`, request({ input: "hello", labels: ["yes", "no"] })))).status).toBe(400);
+  }
+  expect(calls).toBe(0);
 });
 
 test("settlement failure returns the held request ID for reconciliation", async () => {
@@ -282,6 +349,7 @@ test("Smart bills actual Jev and Gemini cached/input/output tokens and emits one
 });
 
 test.each(["fast", "bulk"])("account Laya %s settles explicitly free tokens without consuming balance", async processing => {
+  delete env.TYPESAFE_API_KEY;
   Object.assign(env, { LAYA_ENABLED: "true", LAYA_FAST_URL: "https://fast.example", LAYA_BULK_URL: "https://bulk.example",
     LAYA_MODAL_KEY: "fixture", LAYA_MODAL_SECRET: "fixture", LIMITER: {
       idFromName: (name: string) => name,
