@@ -14,12 +14,34 @@ import { codeLang } from "./ui";
 export const MCP_SETUP = `classifier.dev MCP
 
 Use classifier.dev as a tool inside Claude, ChatGPT, Codex, Cursor or any other
-MCP client. Two servers, both Streamable HTTP, both keyless and stateless:
+MCP client. Two stateless Streamable HTTP servers are available for public,
+keyless use:
 
   https://classifier.dev/mcp         tools: classify_texts, classify_dimensions, classify_multi_label,
                                      count_labels, review_uncertain
   https://classifier.dev/mcp/docs    tools: list_docs, read_doc, search_docs,
                                      get_examples
+
+  To attribute classification requests to your workspace, use a workspace API
+  key in the Authorization: Bearer header on /mcp. The Default key and named
+  keys work with both the API and MCP. Manage them at /app/keys; client-specific
+  setup is at /app/agents. The keyless examples below use public limits and do
+  not appear in your workspace's activity or usage.
+
+  For workspace setup in Claude Code:
+
+    claude mcp add --transport http classifier https://classifier.dev/mcp --header "Authorization: Bearer YOUR_API_KEY"
+
+  For Codex, set CLASSIFIER_API_KEY securely in the environment, then run:
+
+    codex mcp add classifier --url https://classifier.dev/mcp --bearer-token-env-var CLASSIFIER_API_KEY
+
+  For Cursor, set CLASSIFIER_API_KEY in the environment inherited by Cursor:
+
+    {"mcpServers": {"classifier": {"url": "https://classifier.dev/mcp", "headers": {"Authorization": "Bearer \${env:CLASSIFIER_API_KEY}"}}}}
+
+  Hosted OAuth connections to your workspace are not available yet. The
+  ChatGPT and Claude app instructions below connect to the public service.
 
 Server card: https://classifier.dev/.well-known/mcp/server-card.json
   (also at https://classifier.dev/mcp/server-card; the docs server's at
@@ -523,20 +545,23 @@ SECURITY
 
 export const PRIVACY = `classifier.dev privacy
 
-The short version: the texts you classify are not stored, and there are no
-accounts to attach anything to.
+The short version: public, keyless classification does not store your texts.
+Signed-in workspaces store account details, API keys and usage records so you
+can manage access and billing. Optional workspace request-content logging is
+described below and is disabled by default.
 
 
 WHAT IS SENT WHERE
 
   The texts and labels you send are forwarded to the model provider that
-  answers the request — TypeSafe for the decision model, and for the smart
-  tier's re-asked items, the reasoning model's provider via OpenRouter. This
-  service does not write them to disk. The response says which provider
-  answered (model, modelsUsed).
+  answers the request — TypeSafe for the decision model, directly or through
+  Vercel AI Gateway, and for the smart tier's re-asked items, the reasoning
+  model's provider via OpenRouter. Public requests are not stored with their
+  content. Workspace content logging, when enabled, is described below. The
+  response identifies the model used (model, modelsUsed).
 
 
-WHAT IS LOGGED
+PUBLIC SERVICE LOGS
 
   Per request, for rate limiting and operations: which tier ran, which model
   answered, the latency, the response status, a coarse request-country and a
@@ -548,6 +573,38 @@ WHAT IS LOGGED
   the per-IP limits while the request is in flight and is not written down.
   These records feed the usage counts and the alerting, and are kept for 90
   days in Cloudflare Analytics Engine.
+
+
+WORKSPACES, API KEYS AND ACTIVITY
+
+  WorkOS handles hosted sign-in. Our workspace database, hosted by Neon,
+  stores your account ID, email, display name, memberships, invitations,
+  workspace settings, key names, usage and billing records. Workspace members
+  can see the workspace's keys and activity according to their permissions.
+  Account and newsletter data use separate databases.
+
+  Workspace API keys are stored as a hash for authentication and as an
+  encrypted secret so owners and admins can reveal or copy them later.
+  Rotating a key invalidates its previous secret. Revoking a key blocks new
+  requests, while retaining its name and usage history. Older Pro credentials
+  stored only as hashes cannot be recovered and must be rotated if lost.
+
+  Requests authenticated with workspace keys are associated with that
+  workspace and key. Usage records include request IDs, timestamps, API or MCP
+  source, item and token counts when available, model, status, latency and
+  cost. The billing ledger is stored in Neon. Workspace analytics are stored
+  separately in Cloudflare Analytics Engine for 90 days; they are not the
+  anonymous, daily-fingerprinted records described above.
+
+  Optional workspace request-content logging can additionally retain inputs,
+  labels, classification instructions and results in the workspace analytics
+  dataset. It is disabled by default and requires deployment configuration
+  to enable. When enabled, workspace members with activity access can view
+  the stored content. Recognized credential fields and token patterns are
+  redacted, and content is size-limited; redaction cannot detect every kind
+  of sensitive text. Public, keyless requests are not included in this dataset.
+
+  Ask ${SITE.email} about access to or deletion of your account data.
 
 
 IF YOU ASK FOR UPDATES
@@ -566,32 +623,34 @@ IF YOU ASK FOR UPDATES
   ${SITE.email} and the row is deleted, not flagged.
 
 
-WHAT IS NOT COLLECTED
+COOKIES AND BROWSER STORAGE
 
-  Free classification needs no account. There are no analytics or tracking
-  scripts, and no advertising. The pages load one file from elsewhere, the
-  syntax highlighter from cdnjs.cloudflare.com; Content-Security-Policy
-  restricts other sources. Anonymous use keeps only the flag above.
-  Pro sign-in also sets an HttpOnly session cookie for billing endpoints only,
-  which expires after 30 days or when you sign out.
+  Public classification needs no account. There are no advertising trackers.
+  The public pages load a syntax highlighter from
+  cdnjs.cloudflare.com; Content-Security-Policy restricts other sources.
+  Signed-in dashboard access uses an HttpOnly session cookie managed by
+  WorkOS AuthKit and a cookie for your selected workspace. Signing out clears
+  dashboard session access and the selected workspace. The older Pro billing
+  flow has its own HttpOnly session cookie, expiring after 30 days or sign-out.
+  Theme and sidebar preferences are saved in your browser's local storage.
 
 
 AGENTS AND THE MCP SERVERS
 
-  The MCP servers are stateless: nothing about a session is remembered between
-  calls. Tool inputs are handled exactly like API inputs above.
+  The MCP transport is stateless. Authenticated MCP calls use the same
+  workspace credentials, usage records and optional content logging as API
+  calls. Keyless MCP calls use the public service described above.
 
 
 PRO BILLING
 
-  Your billing email and account are held in separate Cloudflare Durable
-  Object storage and with Autumn and Stripe for subscriptions and payments.
-  They are separate from the newsletter database. Billing identity is never
-  included in classification analytics; the daily caller fingerprints above
-  continue to apply. Payment details are entered in Stripe checkout.
-  Only hashes of API keys are stored on our server. A key is shown once when
-  created; rotating it replaces the old credential.
-  Subscription access is checked with a cache of at most 60 seconds.
+  Autumn and Stripe handle subscriptions and payments. Workspace billing
+  state and credit adjustments are stored in Neon; the older Pro billing
+  flow uses separate Cloudflare Durable Object storage. These systems are
+  separate from the newsletter database. Payment details are entered in
+  Stripe checkout. Billing identity is not added to the anonymous public
+  service logs; authenticated workspace usage is linked to the workspace
+  for billing and reporting as described above.
 
 
 PARTNER KEYS

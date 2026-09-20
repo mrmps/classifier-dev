@@ -1,0 +1,69 @@
+/* Focused onboarding: readable labels, native choice semantics, one main action. */
+.client-picker,
+.goal-section {
+  border: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+.client-picker > legend,
+.goal-section > legend {
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.client-picker .client-option {
+  min-height: 52px;
+  padding: 16px 34px 16px 16px;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.client-picker .client-option input {
+  position: absolute;
+  opacity: 0;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: 0;
+}
+.client-picker .client-option:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.client-picker .radio-dot {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.onboarding .step-progress {
+  font-size: 12px;
+}
+.onboarding .step-heading p {
+  font-size: 14px;
+  line-height: 1.65;
+}
+.onboarding .free-note {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.onboarding .onboarding-footnote {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.onboarding h1:focus {
+  outline: none;
+}
+.goal-section > legend .muted {
+  margin-left: 6px;
+  font-weight: 400;
+}
+@media (max-width: 480px) {
+  .onboarding .step-progress {
+    gap: 12px;
+    font-size: 11px;
+  }
+  .client-picker .client-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

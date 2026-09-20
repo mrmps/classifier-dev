@@ -1,0 +1,175 @@
+/* SMRY-derived neutral themes, with black canvas and outlined dashboard cards. */
+:root {
+  --app-content-width: 1096px;
+  --radius: 0.625rem;
+  --font-sans: Inter, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  --brand: var(--primary);
+  --brand-ink: var(--foreground);
+  --brand-soft: var(--secondary);
+  --danger: var(--destructive);
+}
+:root,
+.pure-light,
+[data-theme="light"] {
+  /* Base — pristine white, neutral (hue 0, chroma 0) */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.22 0 0);
+
+  --foreground-muted: oklch(0.52 0 0);
+  --foreground-faint: oklch(0.68 0 0);
+
+  --surface-1: oklch(0.985 0 0);
+  --surface-2: oklch(0.965 0 0);
+  --surface-3: oklch(0.935 0 0);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0 0);
+
+  --primary: oklch(0.22 0 0);
+  --primary-foreground: oklch(1 0 0);
+
+  --control: oklch(0.28 0 0);
+  --control-hover: oklch(0.34 0 0);
+  --control-border: oklch(0.42 0 0);
+  --control-foreground: oklch(0.97 0 0);
+
+  --secondary: oklch(0.965 0 0);
+  --secondary-foreground: oklch(0.22 0 0);
+
+  --muted: oklch(0.965 0 0);
+  --muted-foreground: oklch(0.52 0 0);
+
+  --accent: oklch(0.935 0 0);
+  --accent-foreground: oklch(0.22 0 0);
+
+  --destructive: oklch(0.58 0.23 28);
+  --destructive-foreground: oklch(1 0 0);
+
+  --border: oklch(0.905 0 0);
+  --border-subtle: oklch(0.945 0 0);
+  --input: oklch(0.905 0 0);
+  --ring: oklch(0.55 0.22 264);
+
+  /* Accent glow — clean indigo */
+  --glow: oklch(0.58 0.22 264);
+  --glow-muted: oklch(0.78 0.13 264);
+
+  /* Link colors — same as text, distinguished by underline only */
+  --link-color: oklch(0.22 0 0);
+  --link-underline: oklch(0.22 0 0 / 0.4);
+
+  /* Article-specific text */
+  --article-text: oklch(0.18 0 0);
+  --article-text-muted: oklch(0.42 0 0);
+
+  /* Status colors */
+  --success: oklch(0.65 0.17 150);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.74 0.16 78);
+  --warning-foreground: oklch(0.22 0 0);
+  --info: oklch(0.6 0.2 245);
+  --info-foreground: oklch(1 0 0);
+
+  /* Charts — harmonic palette */
+  --chart-1: oklch(0.58 0.22 264);
+  --chart-2: oklch(0.65 0.17 150);
+  --chart-3: oklch(0.6 0.23 28);
+  --chart-4: oklch(0.74 0.16 78);
+  --chart-5: oklch(0.6 0.2 245);
+
+  /* Navigation shares the pure-light canvas. */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.22 0 0);
+  --sidebar-primary: oklch(0.22 0 0);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.925 0 0);
+  --sidebar-accent-foreground: oklch(0.22 0 0);
+  --sidebar-border: oklch(0.89 0 0);
+  --sidebar-ring: oklch(0.58 0.22 264);
+}
+
+.black,
+[data-theme="dark"] {
+  /* Dashboard canvas — pure black. Elevated surfaces remain neutral. */
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.92 0 0);
+
+  --foreground-muted: oklch(0.64 0 0);
+  --foreground-faint: oklch(0.44 0 0);
+
+  --surface-1: oklch(0.168416 0 0);
+  --surface-2: oklch(0.217787 0 0);
+  --surface-3: oklch(0.239292 0 0);
+
+  --card: oklch(0 0 0);
+  --card-foreground: oklch(0.92 0 0);
+  /* Floating menus sit visibly above the black canvas. */
+  --popover: oklch(0.23 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+
+  --primary: oklch(0.92 0 0);
+  --primary-foreground: oklch(0.168416 0 0);
+
+  /* Selected tabs and primary actions stay charcoal on the black canvas. */
+  --control: oklch(0.3 0 0);
+  --control-hover: oklch(0.35 0 0);
+  --control-border: oklch(0.43 0 0);
+  --control-foreground: oklch(0.97 0 0);
+
+  --secondary: oklch(0.217787 0 0);
+  --secondary-foreground: oklch(0.92 0 0);
+
+  --muted: oklch(0.217787 0 0);
+  --muted-foreground: oklch(0.64 0 0);
+
+  --accent: oklch(0.217787 0 0);
+  --accent-foreground: oklch(0.92 0 0);
+
+  --destructive: oklch(0.65 0.23 27);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  /* Popup perimeter — #242424 */
+  --border: oklch(0.260325 0 0);
+  --border-subtle: oklch(0.217787 0 0);
+  --input: oklch(0.260325 0 0);
+  --ring: oklch(0.72 0.18 264);
+
+  /* Accent glow — vivid indigo, pushed into P3 */
+  --glow: oklch(0.72 0.2 264);
+  --glow-muted: oklch(0.55 0.19 264);
+
+  --link-color: oklch(0.92 0 0);
+  --link-underline: oklch(0.92 0 0 / 0.35);
+
+  --article-text: oklch(0.92 0 0);
+  --article-text-muted: oklch(0.64 0 0);
+
+  /* Navigation shares the black canvas; a fine border defines the rail. */
+  --sidebar: oklch(0 0 0);
+  --sidebar-foreground: oklch(0.92 0 0);
+  --sidebar-primary: oklch(0.92 0 0);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  /* Selected/hover row — #1a1a1a */
+  --sidebar-accent: oklch(0.217787 0 0);
+  --sidebar-accent-foreground: oklch(0.92 0 0);
+  --sidebar-border: oklch(0.260325 0 0);
+  --sidebar-guide: oklch(0.239292 0 0);
+  --sidebar-ring: oklch(0.72 0 0);
+
+  --success: oklch(0.74 0.18 150);
+  --success-foreground: oklch(0.168416 0 0);
+  --warning: oklch(0.82 0.17 85);
+  --warning-foreground: oklch(0.168416 0 0);
+  --info: oklch(0.72 0.18 240);
+  --info-foreground: oklch(0.168416 0 0);
+
+  /* Charts — harmonic palette */
+  --chart-1: oklch(0.72 0.2 264);
+  --chart-2: oklch(0.74 0.18 150);
+  --chart-3: oklch(0.74 0.21 30);
+  --chart-4: oklch(0.82 0.17 85);
+  --chart-5: oklch(0.72 0.18 240);
+}

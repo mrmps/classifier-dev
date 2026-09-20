@@ -1,0 +1,19 @@
+{
+  "version": "2026-09-20-launch-v1",
+  "models": [
+    {
+      "provider": "typesafe",
+      "model": "jev-1.13.0",
+      "inputUsdPerMillion": "0.042",
+      "outputUsdPerMillion": "0",
+      "cachedInputUsdPerMillion": "0.042"
+    },
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.8-flash",
+      "inputUsdPerMillion": "0.900",
+      "outputUsdPerMillion": "4.500",
+      "cachedInputUsdPerMillion": "0.090"
+    }
+  ]
+}

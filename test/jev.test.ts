@@ -91,7 +91,8 @@ describe("a batch Jev refuses as too large", () => {
   test("is halved until it fits, and every input still gets its answer in order", async () => {
     const calls = fakeJev(3);
     const inputs = Array.from({ length: 10 }, (_, i) => `text ${i}`);
-    const out = await jevClassify({ typesafe: "key" }, inputs, labels, undefined, false);
+    const meter = newMeter();
+    const out = await jevClassify({ typesafe: "key" }, inputs, labels, undefined, false, meter);
     expect(out).toHaveLength(10);
     out.forEach((r) => {
       expect(r.label).toBe("bug");
@@ -100,6 +101,10 @@ describe("a batch Jev refuses as too large", () => {
     expect(calls[0]).toBe(10);
     expect(Math.max(...calls.slice(1))).toBeLessThanOrEqual(5);
     expect(calls.filter((n) => n <= 3).reduce((a, b) => a + b, 0)).toBe(10);
+    const answered = calls.filter((n) => n <= 3).length;
+    expect(meter.tokens).toEqual([
+      { provider: "typesafe", model: "jev-test", calls: answered, inputTokens: answered * 10, outputTokens: null, cachedInputTokens: null },
+    ]);
   });
 
   test("keeps each half's own questions in multi-label mode", async () => {
@@ -282,6 +287,9 @@ describe("Jev through the AI Gateway", () => {
     expect(r).toEqual({ label: "bug", confidence: 0.88, scores: { bug: 0.97, feature: 0.02, praise: 0.01 }, model: "jev@vercel" });
     // What the gateway charged, which today is nothing.
     expect(meter.usd).toBe(0);
+    expect(meter.tokens).toEqual([
+      { provider: "vercel", model: "jev@vercel", calls: 1, inputTokens: 400, outputTokens: 12, cachedInputTokens: null },
+    ]);
   });
 
   test("a yes/no question is a boolean there and a noul here", async () => {

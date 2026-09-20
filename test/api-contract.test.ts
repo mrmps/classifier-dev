@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import worker from "../src/index";
 import type { Env } from "../src/index";
 import { ERROR_CODES, OPENAPI, UPSTREAM_CODE_PATTERN } from "../src/openapi";
+import { accountReadRoutes } from "../src/http/account";
+import type { AppEnv } from "../src/server/db";
 
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
 
@@ -277,6 +279,14 @@ describe("openapi.json", () => {
     for (const [route, methods] of Object.entries(OPENAPI.paths as Record<string, Record<string, unknown>>)) {
       for (const method of Object.keys(methods)) {
         const init: RequestInit = { method: method.toUpperCase() };
+        // Account routes belong to the combined application Worker. Verify that
+        // they are claimed and fail closed before touching an unconfigured DB.
+        if (route.startsWith("/v1/account/")) {
+          await expect(accountReadRoutes(new Request(`https://classifier.dev${route}`, init), {} as AppEnv))
+            .rejects.toMatchObject({ status: 503 });
+          expect((methods[method] as { security: unknown }).security).toEqual([{ accountKey: [] }]);
+          continue;
+        }
         if (method === "post") init.body = route.startsWith("/api/") ? "{}" : '{"input":"b please","labels":["a","b"]}';
         const res = await worker.fetch(new Request(`https://classifier.dev${fill(route)}`, init), env, ctx);
         // A 404 would mean the spec names a path the worker does not serve;

@@ -1,0 +1,32 @@
+import { expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Credits } from "../src/features/billing/credits";
+import { Plans } from "../src/features/billing/plans";
+import { database } from "./support/postgres";
+import { demoLogin } from "../src/server/auth";
+import { getSnapshot } from "../src/server/accounts";
+import { performAction } from "../src/server/agents";
+import { performOrganizationAction } from "../src/server/organizations";
+
+test("personal signup, team, and paid billing show the correct allowance promises", async () => {
+  const env = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
+  await demoLogin(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  const render = async (id: string) => renderToStaticMarkup(createElement(Credits, { snapshot: await getSnapshot(id, env), navigate: () => {} }));
+  const personal = await render("local-demo");
+  expect(personal).toContain("one-time signup credit");
+  expect(personal).not.toContain("Allowance resets");
+  expect(personal).not.toContain("included per month");
+  const organization = await performOrganizationAction("local-demo", undefined, { type: "create", name: "Team" }, env);
+  const team = await getSnapshot(organization.active.id, env);
+  expect(team.credits.balance).toBe(0);
+  expect(team.credits.included).toBe(0);
+  expect(await render(organization.active.id)).toContain("$0.00");
+  await performAction("local-demo", { type: "billing-subscribe", plan: "pro", idempotencyKey: "paid" }, env);
+  const paid = await render("local-demo");
+  expect(paid).toContain("$20.00");
+  expect(paid).toContain("included per month");
+  const plans = renderToStaticMarkup(createElement(Plans, { snapshot: await getSnapshot("local-demo", env), navigate: () => {}, act: async () => ({}) }));
+  expect(plans).toContain("once at personal signup");
+  expect(plans).toContain("Teams do not receive free signup credit");
+});

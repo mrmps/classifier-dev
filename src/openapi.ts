@@ -1,4 +1,5 @@
 import { DIMENSIONS_SCHEMA } from "./dimensions";
+import { ACCOUNT_PATHS } from "./account-openapi";
 import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
 import { ROADMAP, ROADMAP_KEYS } from "./newsletter";
 
@@ -112,6 +113,7 @@ export const OPENAPI = {
   // Anonymous, or a Pro/partner key: the empty object is what makes the key optional.
   security: [{}, { partnerKey: [] }],
   tags: [
+    { name: "account", description: "Workspace balance and usage; requires a workspace API key and enabled account access." },
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
     { name: "docs", description: "Documentation served over HTTP." },
     { name: "feedback", description: "Structured feedback from agents (feedback.now protocol): submit, then poll a receipt." },
@@ -119,6 +121,7 @@ export const OPENAPI = {
   ],
   servers: [{ url: "https://classifier.dev" }],
   paths: {
+    ...ACCOUNT_PATHS,
     "/subscribe": {
       post: {
         operationId: "subscribeToUpdates",
@@ -1089,6 +1092,10 @@ export const OPENAPI = {
       },
     },
     securitySchemes: {
+      accountKey: {
+        type: "http", scheme: "bearer",
+        description: "Workspace API key (classifier_agent_...) managed at /app/keys. Required for account reads; legacy Pro and partner keys are separate.",
+      },
       partnerKey: {
         type: "http",
         scheme: "bearer",

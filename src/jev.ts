@@ -23,7 +23,7 @@
  */
 
 import { recordJevAttempt } from "./jev-observability";
-import { addJevCost, addUsd, type Meter } from "./cost";
+import { addJevCost, addUsd, addTokens, type Meter } from "./cost";
 
 const API = "https://api.typesafe.ai/v1/systemone";
 const MODEL = "jev-latest";
@@ -166,7 +166,7 @@ function validAnswer(answer: unknown, question: Question): boolean {
 }
 
 export type JevAnswer = { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number };
-type JevPayload = { model: string; answers: Record<string, JevAnswer>; usage?: { input_tokens?: number } };
+type JevPayload = { model: string; answers: Record<string, JevAnswer>; usage?: { input_tokens?: unknown; output_tokens?: unknown } };
 
 function validPayload(payload: unknown, body: JevBody): payload is JevPayload {
   if (!isRecord(payload) || typeof payload.model !== "string" || !payload.model || !isRecord(payload.answers)) return false;
@@ -297,7 +297,7 @@ function fromGateway(payload: unknown): (JevPayload & { cost?: unknown }) | null
       answers[id] = { choice: a.choice as string, confidence: isProbability(confidence[id]) ? confidence[id] : (own as number), probabilities };
     }
   }
-  return { model: GATEWAY_MODEL_LABEL, answers, usage: { input_tokens: usage.inputTokens as number }, cost: gateway.cost };
+  return { model: GATEWAY_MODEL_LABEL, answers, usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }, cost: gateway.cost };
 }
 
 /**
@@ -365,6 +365,7 @@ async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?
       // is the honest guess; addUsd ignores the zero it reports today.
       if (payload.cost !== undefined) addUsd(meter, payload.cost);
       else addJevCost(meter, payload.usage?.input_tokens);
+      addTokens(meter, "vercel", payload.model, { inputTokens: payload.usage?.input_tokens, outputTokens: payload.usage?.output_tokens });
       observe(res.status);
       return payload;
     }
@@ -384,6 +385,12 @@ async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?
 
 /** The gateway when it is configured and not paused, TypeSafe otherwise; and TypeSafe again when the gateway drops a request. */
 async function post(keys: JevKeys, body: JevBody, meter?: Meter): Promise<JevPayload> {
+  // Paid work has an explicit versioned price. Do not route it through the
+  // unversioned gateway or silently follow a new model behind jev-latest.
+  if (meter?.beforeCall) {
+    if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
+    return postTypesafe(keys.typesafe, { ...body, model: "jev-1.13.0" }, meter, keys.analytics);
+  }
   // Without a TypeSafe key there is nothing to pause towards, so the gateway is always tried.
   const tryGateway = keys.gateway && (!keys.typesafe || Date.now() >= gatewayPausedUntil);
   if (keys.gateway && tryGateway) {
@@ -406,6 +413,7 @@ async function post(keys: JevKeys, body: JevBody, meter?: Meter): Promise<JevPay
 async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset): Promise<JevPayload> {
   let last: Error = new Error("typesafe: no attempt made");
   for (let attempt = 0; attempt < 3; attempt++) {
+    await meter?.beforeCall?.("typesafe", body.model, 0);
     const started = Date.now();
     const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "typesafe", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
     let res: Response;
@@ -428,6 +436,7 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics
     if (res.ok && !payload.error && validPayload(payload, body)) {
       // Only a call that answered is billed; a retried 429 is not.
       addJevCost(meter, payload.usage?.input_tokens);
+      addTokens(meter, "typesafe", payload.model, { inputTokens: payload.usage?.input_tokens, outputTokens: payload.usage?.output_tokens });
       observe(res.status);
       return payload;
     }
