@@ -835,7 +835,7 @@ const navLinks = (here: string, opensChat = true) =>
   `${navLink("Home", "/", here, "home")}${navLink("Benchmark", "/benchmark", here, "benchmark")}${navLink("Docs", "/docs", here, "developers")}${navLink("Pricing", "/pricing", here, "pricing")}<a class="site-link" href="/chat"${here === "chat" ? ' aria-current="page"' : ""}${opensChat ? ' data-chat-open aria-controls="chat" aria-expanded="false"' : ""}>Chat</a>`;
 
 const resourceLinks = (here: string) =>
-  `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}${navLink("Skills", "/skills", here, "skills")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
+  `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}${navLink("Skills", "/skills", here, "skills")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/.well-known/agent-feedback.json">Agent feedback</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
 
 const resourceMenu = (here: string) => {
   const active = ["mcp-setup", "skills"].includes(here);

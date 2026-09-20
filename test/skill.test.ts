@@ -45,4 +45,12 @@ describe("the agent skill", () => {
       expect(SKILL_MD).toContain(cmd);
     }
   });
+
+  test("tells an agent how to report a problem without leaking user data", () => {
+    expect(SKILL_MD).toContain("GET https://classifier.dev/.well-known/agent-feedback.json");
+    expect(SKILL_MD).toContain("POST /api/v1/feedback");
+    expect(SKILL_MD).toContain("/api/v1/observations");
+    expect(SKILL_MD).toContain("GET /api/v1/receipts/{id}");
+    expect(SKILL_MD).toContain("Never include credentials, private input text, or unrelated user data");
+  });
 });
