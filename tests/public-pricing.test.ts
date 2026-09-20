@@ -38,8 +38,8 @@ test("pricing renders current shared plan values and keeps legacy keys documente
   expect(html).toContain('class="plan-action" href="/auth/sign-up"');
   expect(html).toContain(`$${BILLING_PLANS.pro.priceCents / 100}`);
   expect(html).toContain(formatCreditsUsd(BILLING_PLANS.pro.includedCredits));
-  expect(html).toContain("laya-0.3.4-english-fast");
-  expect(html).toContain("laya-0.3.4-english-bulk");
+  expect(html).toContain("laya-0.3.4-routed-fast");
+  expect(html).toContain("laya-0.3.4-routed-bulk");
   expect(html).toContain('href="/auth/sign-up?returnTo=/app/plans"');
   expect(html).toContain("classifier_pro_");
   expect(html).not.toContain("/pricing/manage");
