@@ -13,7 +13,7 @@ export const Route = createFileRoute("/auth/sign-out")({
         if (!workosConfigured(bindings))
           return new Response("Sign-in is not configured.", { status: 503 });
         try {
-          await signOut({ data: { returnTo: new URL("/", request.url).href } });
+          await signOut({ data: { returnTo: new URL("/", bindings.WORKOS_REDIRECT_URI!).href } });
         } catch (error) {
           if (!isRedirect(error)) throw error;
           // AuthKit supplies the logout URL and session deletion cookies.
