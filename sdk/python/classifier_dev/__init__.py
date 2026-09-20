@@ -18,9 +18,9 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Union
 
-__all__ = ["classify", "Client", "Result", "Response", "ClassifierError"]
+__all__ = ["classify", "classify_dimensions", "Client", "Result", "DimensionResult", "DimensionResponse", "Response", "ClassifierError"]
 __version__ = "0.1.0"
 
 DEFAULT_BASE_URL = "https://classifier.dev"
@@ -62,10 +62,32 @@ class Result:
 
 
 @dataclass
+class DimensionResult:
+    """One field in a multi-dimensional classification."""
+    label: Optional[str] = None
+    confidence: Optional[float] = None
+    scores: Optional[Dict[str, float]] = None
+    escalated: bool = False
+    unscored: Optional[str] = None
+    model: Optional[str] = None
+    ms: Optional[int] = None
+
+
+@dataclass
 class Response:
     tier: str
     model: str
     results: List[Result]
+    usage: Dict[str, Any]
+    models_used: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DimensionResponse:
+    """Response from a multi-dimensional classification."""
+    tier: str
+    model: str
+    results: List[Dict[str, DimensionResult]]
     usage: Dict[str, Any]
     models_used: List[str] = field(default_factory=list)
 
@@ -174,9 +196,103 @@ class Client:
         )
 
 
+    def classify_dimensions(
+        self,
+        items: Sequence[str],
+        dimensions: Dict[str, Union[List[str], Dict[str, Any]]],
+        *,
+        tier: Optional[str] = None,
+    ) -> DimensionResponse:
+        """Classify items across multiple independent dimensions in one call.
+
+        Each dimension is a name mapped to either a list of labels or
+        ``{"labels": [...], "instructions": "..."}``. Up to 20 dimensions
+        and 1,000 item × dimension decisions.
+        """
+        if isinstance(items, (str, bytes)):
+            raise ValueError("items must be a sequence, not a string")
+        try:
+            item_values = list(items)
+        except TypeError:
+            raise ValueError("items must be a sequence") from None
+        if not all(isinstance(text, str) for text in item_values):
+            raise ValueError("items must be a sequence of strings")
+        if not 1 <= len(item_values) <= 1000:
+            raise ValueError("items must hold 1 to 1,000 texts")
+        if not isinstance(dimensions, dict) or not dimensions:
+            raise ValueError("dimensions must be a non-empty dict")
+        if len(dimensions) > 20:
+            raise ValueError("at most 20 dimensions")
+        body: Dict[str, Any] = {"items": item_values, "dimensions": dimensions}
+        if tier:
+            body["tier"] = tier
+        headers = {"content-type": "application/json", "user-agent": f"classifier-dev-python/{__version__}"}
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(f"{self.base_url}/v1/classify", data=json.dumps(body).encode(), headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as res:
+                payload = json.load(res)
+        except urllib.error.HTTPError as e:
+            try:
+                err = json.loads(e.read() or b"{}")
+            except ValueError:
+                err = {}
+            if not isinstance(err, dict):
+                err = {}
+            retry = e.headers.get("Retry-After")
+            raise ClassifierError(err.get("error", f"HTTP {e.code}"), err.get("code", f"http_{e.code}"), e.code, int(retry) if retry and retry.isdigit() else None) from None
+        except (urllib.error.URLError, OSError) as e:
+            reason = getattr(e, "reason", e)
+            timed_out = isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(reason).lower()
+            raise ClassifierError(f"{'timed out' if timed_out else 'network error'}: {reason}", "timeout" if timed_out else "network", 0) from e
+        except ValueError as e:
+            raise ClassifierError(f"response was not JSON: {e}", "bad_response", 200) from None
+        if not isinstance(payload, dict):
+            raise ClassifierError("response was not a JSON object", "bad_response", 200)
+        results = payload.get("results")
+        if not isinstance(results, list) or len(results) != len(item_values):
+            raise ClassifierError(f"{len(results) if isinstance(results, list) else 0} results for {len(item_values)} items", "bad_response", 200)
+        parsed: List[Dict[str, DimensionResult]] = []
+        for i, raw_result in enumerate(results):
+            if not isinstance(raw_result, dict):
+                raise ClassifierError(f"result {i} was not a JSON object", "bad_response", 200)
+            dims = raw_result.get("dimensions")
+            if not isinstance(dims, dict):
+                raise ClassifierError(f"result {i} has no dimensions", "bad_response", 200)
+            row: Dict[str, DimensionResult] = {}
+            for dim_name, dim_val in dims.items():
+                if not isinstance(dim_val, dict):
+                    raise ClassifierError(f"result {i} dimension {dim_name} is not an object", "bad_response", 200)
+                confidence = dim_val.get("confidence")
+                if not _probability(confidence) and confidence is not None:
+                    confidence = None
+                scores = dim_val.get("scores")
+                if scores is not None and (not isinstance(scores, dict) or not all(isinstance(k, str) and _probability(v) for k, v in scores.items())):
+                    scores = None
+                row[dim_name] = DimensionResult(
+                    label=dim_val.get("label"), confidence=confidence,
+                    scores=None if scores is None else dict(scores),
+                    escalated=bool(dim_val.get("escalated")),
+                    unscored=dim_val.get("unscored"), model=dim_val.get("model"),
+                    ms=dim_val.get("ms"),
+                )
+            parsed.append(row)
+        return DimensionResponse(
+            tier=payload.get("tier", ""), model=payload.get("model", ""),
+            models_used=payload.get("modelsUsed", []), usage=payload.get("usage", {}),
+            results=parsed,
+        )
+
+
 def classify(inputs: Sequence[str], labels: Sequence[str], **kwargs: Any) -> List[Result]:
     """One label per text, fast tier, default client. Keyword arguments as in :meth:`Client.classify`."""
     return Client().classify(inputs, labels, **kwargs).results
+
+
+def classify_dimensions(items: Sequence[str], dimensions: Dict[str, Union[List[str], Dict[str, Any]]], **kwargs: Any) -> List[Dict[str, DimensionResult]]:
+    """Classify items across dimensions, default client. See :meth:`Client.classify_dimensions`."""
+    return Client().classify_dimensions(items, dimensions, **kwargs).results
 
 
 def _cli() -> None:
