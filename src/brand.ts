@@ -1,11 +1,11 @@
 /** Brand assets. The mark is three label scores with one winner — what the API returns. */
 export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 <style>
-  .bg { fill: #a98cff; }
+  .bg { fill: #aa63ff; }
   .win { fill: #190727; }
   .rest { fill: #765db9; }
   @media (color-gamut: p3) {
-    .bg { fill: color(display-p3 0.66 0.49 1); }
+    .bg { fill: color(display-p3 0.63 0.40 1); }
     .win { fill: color(display-p3 0.075 0.018 0.13); }
     .rest { fill: color(display-p3 0.42 0.31 0.7); }
   }

@@ -3,7 +3,7 @@ import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
-import { homeHtml, benchmarkHtml, docHtml, proRow, renderBlocks } from "./home";
+import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
 import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, TERMS, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
@@ -29,7 +29,7 @@ import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } 
 export { RateLimiter } from "./limiter";
 export { BillingAccount } from "./billing";
 import { authenticatePro, handleBilling, BillingError, type BillingEnv } from "./billing";
-import { proHtml } from "./proui";
+import { pricingHtml } from "./pricingui";
 
 export interface Env extends BillingEnv, LayaEnv {
   OPENROUTER_API_KEY: string;
@@ -268,7 +268,7 @@ const agentView = (origin: string) => ({
   name: "classifier.dev",
   description: "Zero-shot text classification over plain HTTP. No API key, no account.",
   version: API_VERSION,
-  authentication: { required: false, optional_bearer: "Pro key gives 10× limits; partner key lifts limits", docs: `${origin}/auth.md` },
+  authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; legacy Pro and partner keys retain their arranged limits", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
@@ -331,7 +331,7 @@ function notFound(req: Request, origin: string) {
 const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = {
   developers: { doc: DEVELOPERS, title: "developers", desc: "Quickstart, every surface (REST, MCP, CLI, skill), limits, errors, versioning. No key needed." },
   "mcp-setup": { doc: MCP_SETUP, title: "MCP setup", desc: "Connect classifier.dev to Claude, ChatGPT, Codex, Cursor or any MCP client, step by step." },
-  pricing: { doc: PRICING, title: "pricing", desc: "Free, or Pro for $20/month with 10× classification limits." },
+  pricing: { doc: PRICING, title: "pricing", desc: "Start free, then add a workspace plan for usage credits, API keys and billing." },
   about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
   contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },
   privacy: { doc: PRIVACY, title: "privacy", desc: "Inputs are not stored. What is logged, and what is not collected." },
@@ -1190,7 +1190,12 @@ const worker = {
       req.method === "GET" && (url.searchParams.get("format") === "markdown" || /\btext\/markdown\b/.test(accept));
     const origin = url.origin;
     if (path === "pro" && req.method === "GET") {
-      return html(proHtml(), 200, { "cache-control": "no-store", "referrer-policy": "no-referrer" });
+      return new Response(null, {
+        status: 308,
+        // Old email links carry a token in the fragment. An explicit empty
+        // fragment prevents it being inherited by the new account login flow.
+        headers: { Location: `${origin}/app/plans#`, ...SECURITY },
+      });
     }
     const billing = await handleBilling(req, env);
     if (billing) return billing;
@@ -1354,9 +1359,18 @@ const worker = {
       const pg = PAGE_DOCS[pageKey];
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
-      // The pricing page is where the plan is chosen, so its Pro section ends in the button the others only point at.
-      const swap = pageKey === "pricing" ? { PRO: (body: string[]) => `<section><h2><span class="syn">## </span>Pro</h2>${renderBlocks(body)}${proRow(true)}</section>` } : undefined;
-      if (pageWantsHtml) return html(docHtml({ title: pg.title, desc: pg.desc, doc: pg.doc, path: `/${pageKey}`, here: pageKey, swap }));
+      if (pageWantsHtml)
+        return html(
+          pageKey === "pricing"
+            ? pricingHtml()
+            : docHtml({
+                title: pg.title,
+                desc: pg.desc,
+                doc: pg.doc,
+                path: `/${pageKey}`,
+                here: pageKey,
+              }),
+        );
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
     }
 
@@ -1895,7 +1909,7 @@ const worker = {
       // is pointed at the arrangement above it instead.
       const way = paid
         ? "For more, email contact@classifier.dev or see https://classifier.dev/pricing"
-        : `Pro lifts this to ${(perDay ? TIERS[tier].daily : TIERS[tier].rpm) * 10} for $20/month: https://classifier.dev/pro`;
+        : `See plans that lift this limit: https://classifier.dev/pricing`;
       return fail(
         perDay
           ? `Daily limit reached: ${TIERS[tier].daily * multiplier} ${tier} classifications ${quotaScope} per day. ${way}`
@@ -1908,7 +1922,7 @@ const worker = {
         },
         0,
         0,
-        paid ? {} : { upgrade: "https://classifier.dev/pro" },
+        paid ? {} : { upgrade: "https://classifier.dev/pricing" },
       );
     }
 

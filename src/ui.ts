@@ -19,9 +19,9 @@ export const BASE_CSS = `
   --rule:#20252e; --line:#323947;
   /* A field has to be found by its edge alone, so its edge clears 3:1 on the surface it sits in. */
   --line-strong:#5c6473;
-  /* One accent: the brand mark's lavender, and the ink it prints in. Interactive
-     things are lavender; a lavender fill carries ink. Nothing else is coloured. */
-  --accent:#a98cff; --accent-hover:#b9a4ff; --ink:#190727;
+  /* One accent: the brand mark's purple, and the ink it prints in. Interactive
+     things are purple; a purple fill carries ink. Nothing else is coloured. */
+  --accent:#aa63ff; --accent-hover:#bb82ff; --ink:#190727;
   --code-string:#c4b4ff;
   /* Two status colours: something went wrong, and, in a comparison, the
      better number. Neither means interactive. */
@@ -34,7 +34,7 @@ export const BASE_CSS = `
   /* The documents wrap at 78 columns; the page holds them to the same measure. */
   --measure:80ch;
 }
-@media (color-gamut:p3){:root{--accent:color(display-p3 .66 .49 1);--accent-hover:color(display-p3 .72 .60 1);
+@media (color-gamut:p3){:root{--accent:color(display-p3 .63 .40 1);--accent-hover:color(display-p3 .70 .52 1);
   --ink:color(display-p3 .075 .018 .13)}}
 *{box-sizing:border-box}
 html{color-scheme:dark}

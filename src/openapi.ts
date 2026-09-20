@@ -54,8 +54,8 @@ const RATE_LIMIT_HEADERS = {
 };
 const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
-  "401": err("Invalid or replaced Pro API key. Create a replacement at https://classifier.dev/pro."),
-  "403": err("Pro subscription is not active. Manage billing at https://classifier.dev/pro."),
+  "401": err("Invalid or replaced legacy Pro API key. Create a workspace key at /app/keys or contact support for a legacy account."),
+  "403": err("Legacy Pro subscription is not active. Log in with your billing email at https://classifier.dev/app/plans to manage it."),
   "503": err("Subscription verification or Laya inference is temporarily unavailable. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
   "429": err("Quota or shared Laya capacity reached. Wait Retry-After seconds. Laya trial caps also apply to paid keys and cannot be lifted by upgrading; code laya_rate_limit identifies that lane's admission limit. Daily limits use rate_limit_day.", {
@@ -1084,7 +1084,7 @@ export const OPENAPI = {
               "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable.",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
-          upgrade: { type: "string", format: "uri", description: "On a free-tier 429: the page where a plan lifts this limit (https://classifier.dev/pro). Absent on Pro and partner keys." },
+          upgrade: { type: "string", format: "uri", description: "On a free-tier 429: the page where a plan lifts this limit (https://classifier.dev/pricing). Absent on Pro and partner keys." },
           usage: { type: "string", description: "GET forms only, on a 400: the two URL shapes." },
           try: { type: "string", format: "uri", description: "GET forms only, on a 400: a URL built from what was sent that would have worked." },
         },
@@ -1107,7 +1107,7 @@ export const OPENAPI = {
       partnerKey: {
         type: "http",
         scheme: "bearer",
-        description: "Optional for classification. Pro keys (classifier_pro_...) provide 10x limits per billing account; subscribe at https://classifier.dev/pro. Partner keys retain separately arranged access. See https://classifier.dev/auth.md.",
+        description: "Optional for classification. Existing legacy Pro keys (classifier_pro_...) retain 10x limits per billing account. New workspaces use classifier_agent_ keys. Partner keys retain separately arranged access. See https://classifier.dev/auth.md.",
       },
     },
   },
@@ -1242,9 +1242,9 @@ needed, and the receipt you get back can be polled at \`/api/v1/receipts/{id}\`.
 Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
 characters; free requests accept 1,000 inputs on fast or 200 on smart.
-Pro ($20/month) gives 10x minute and daily limits per billing account, and up
-to 1,000 inputs on either tier. Subscribe at https://classifier.dev/pro and
-send Authorization: Bearer classifier_pro_... on REST or MCP requests.
+Existing legacy Pro keys retain 10x minute and daily limits per billing account,
+and up to 1,000 inputs on either tier. New workspaces and current plans are at
+https://classifier.dev/pricing.
 Exceeding a limit returns 429 with Retry-After.
 
 ## Contact

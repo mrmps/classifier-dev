@@ -235,8 +235,8 @@ describe("the rate-limit headers", () => {
     expect(res.headers.get("ratelimit-policy")).toBe("3000;w=60, 20000;w=86400");
     // Out of room is the moment to say where more is: the plan that lifts this
     // limit, named in the message and carried as a field an agent can act on.
-    expect(body.upgrade).toBe("https://classifier.dev/pro");
-    expect(body.error).toContain("30000 for $20/month");
+    expect(body.upgrade).toBe("https://classifier.dev/pricing");
+    expect(body.error).toContain("See plans that lift this limit");
   });
 
   test("a 400 carries the limit and the policy, and RateLimit-Remaining only where the limiter was asked", async () => {

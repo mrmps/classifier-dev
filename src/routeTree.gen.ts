@@ -25,6 +25,7 @@ import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppTeamRouteImport } from './routes/app.team'
 import { Route as AppUsageRouteImport } from './routes/app.usage'
 import { Route as AuthSignOutRouteImport } from './routes/auth.sign-out'
+import { Route as AuthSignUpRouteImport } from './routes/auth.sign-up'
 import { Route as ApiAuthCallbackRouteImport } from './routes/api.auth.callback'
 import { Route as ApiAuthSignInRouteImport } from './routes/api.auth.sign-in'
 import { Route as AppAgentsClientRouteImport } from './routes/app.agents.$client'
@@ -110,6 +111,11 @@ const AuthSignOutRoute = AuthSignOutRouteImport.update({
   path: '/auth/sign-out',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthSignUpRoute = AuthSignUpRouteImport.update({
+  id: '/auth/sign-up',
+  path: '/auth/sign-up',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthCallbackRoute = ApiAuthCallbackRouteImport.update({
   id: '/api/auth/callback',
   path: '/api/auth/callback',
@@ -147,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/app/team': typeof AppTeamRoute
   '/app/usage': typeof AppUsageRoute
   '/auth/sign-out': typeof AuthSignOutRoute
+  '/auth/sign-up': typeof AuthSignUpRoute
   '/app/': typeof AppIndexRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -168,6 +175,7 @@ export interface FileRoutesByTo {
   '/app/team': typeof AppTeamRoute
   '/app/usage': typeof AppUsageRoute
   '/auth/sign-out': typeof AuthSignOutRoute
+  '/auth/sign-up': typeof AuthSignUpRoute
   '/app': typeof AppIndexRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -191,6 +199,7 @@ export interface FileRoutesById {
   '/app/team': typeof AppTeamRoute
   '/app/usage': typeof AppUsageRoute
   '/auth/sign-out': typeof AuthSignOutRoute
+  '/auth/sign-up': typeof AuthSignUpRoute
   '/app/': typeof AppIndexRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/app/team'
     | '/app/usage'
     | '/auth/sign-out'
+    | '/auth/sign-up'
     | '/app/'
     | '/api/auth/callback'
     | '/api/auth/sign-in'
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/app/team'
     | '/app/usage'
     | '/auth/sign-out'
+    | '/auth/sign-up'
     | '/app'
     | '/api/auth/callback'
     | '/api/auth/sign-in'
@@ -258,6 +269,7 @@ export interface FileRouteTypes {
     | '/app/team'
     | '/app/usage'
     | '/auth/sign-out'
+    | '/auth/sign-up'
     | '/app/'
     | '/api/auth/callback'
     | '/api/auth/sign-in'
@@ -269,6 +281,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   AuthSignOutRoute: typeof AuthSignOutRoute
+  AuthSignUpRoute: typeof AuthSignUpRoute
   ApiAuthCallbackRoute: typeof ApiAuthCallbackRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
 }
@@ -387,6 +400,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthSignOutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/sign-up': {
+      id: '/auth/sign-up'
+      path: '/auth/sign-up'
+      fullPath: '/auth/sign-up'
+      preLoaderRoute: typeof AuthSignUpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/callback': {
       id: '/api/auth/callback'
       path: '/api/auth/callback'
@@ -480,6 +500,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   AuthSignOutRoute: AuthSignOutRoute,
+  AuthSignUpRoute: AuthSignUpRoute,
   ApiAuthCallbackRoute: ApiAuthCallbackRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
 }

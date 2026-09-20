@@ -358,11 +358,12 @@ LIMITS
   3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
   per day. A batch must fit the remaining quota in full. Public smart
   requests accept at most 200 inputs; larger batches return 400 so callers
-  can split them. Pro ($20/month) allows 30,000/minute and 200,000/day on
+  can split them. Existing legacy Pro keys allow 30,000/minute and 200,000/day on
   fast, 2,000/minute and 20,000/day on smart, per billing account across IPs.
-  Pro, operator and partner keys retain the 1,000-input ceiling.
-  Subscribe and create a key at https://classifier.dev/pro; send it as
-  Authorization: Bearer classifier_pro_... on REST or MCP requests.
+  Legacy Pro, operator and partner keys retain the 1,000-input ceiling.
+  New workspace keys use the workspace credit balance. See current plans at
+  https://classifier.dev/pricing. Existing legacy Pro keys remain valid and are
+  sent as Authorization: Bearer classifier_pro_... on REST or MCP requests.
 
   Every classification response carries RateLimit-Limit and RateLimit-Policy,
   plus RateLimit-Remaining once the limiter has been consulted (every 200 and
@@ -387,7 +388,7 @@ ERRORS
   404   not_found
   429   rate_limit_minute, rate_limit_day, with Retry-After; on the free
         tier the body also carries upgrade, the URL of the plan that lifts
-        the limit (https://classifier.dev/pro)
+        the limit (https://classifier.dev/pricing)
   502   typesafe or typesafe_<status> when the decision model failed;
         openrouter_<status>, chain_exhausted or timeout when the fallback
         chain did; batch_unavailable for more than twenty inputs while the
