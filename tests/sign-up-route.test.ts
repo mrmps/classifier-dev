@@ -17,7 +17,7 @@ test("sign-up binds only safe workspace destinations and fails closed when uncon
       getSignUpUrl: async ({data}) => {
         calls++;
         destination = data.returnPathname;
-        return "https://auth.example.test/sign-up";
+        return "https://auth.example.test/sign-up?state=signup-flow";
       }
     }));
     const { Route } = await import("./src/routes/auth.sign-up.ts");
@@ -37,7 +37,8 @@ test("sign-up binds only safe workspace destinations and fails closed when uncon
     ]) {
       const response = await signUp(requested);
       assert.equal(response.status, 302);
-      assert.equal(response.headers.get("Location"), "https://auth.example.test/sign-up");
+      assert.equal(response.headers.get("Location"), "https://auth.example.test/sign-up?state=signup-flow");
+      assert.match(response.headers.get("Set-Cookie"), /classifier_auth_return_/);
       assert.equal(destination, expected);
     }
     const configuredCalls = calls;

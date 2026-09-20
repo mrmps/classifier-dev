@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { workosConfigured } from "../server/auth";
 import type { AppEnv } from "../server/db";
 import { authReturnPath } from "../lib/auth-return-path";
+import { authNavigationResponse } from "../server/auth-navigation";
 
 export const Route = createFileRoute("/auth/sign-up")({
   server: {
@@ -13,14 +14,8 @@ export const Route = createFileRoute("/auth/sign-up")({
           return new Response("WorkOS sign-up is not configured.", {
             status: 503,
           });
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: await getSignUpUrl({
-              data: { returnPathname: authReturnPath(new URL(request.url).searchParams.get("returnTo")) },
-            }),
-          },
-        });
+        const returnPathname = authReturnPath(new URL(request.url).searchParams.get("returnTo"));
+        return authNavigationResponse(await getSignUpUrl({ data: { returnPathname } }), returnPathname, request);
       },
     },
   },
