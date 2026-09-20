@@ -566,6 +566,8 @@ function retryableModelFailure(status: number, malformedSuccess: boolean) {
   return malformedSuccess || status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+class ProviderConfigurationError extends Error {}
+
 async function callModel(
   env: Env,
   cfg: ModelCfg,
@@ -575,6 +577,7 @@ async function callModel(
   multi?: MultiOpts,
   meter?: Meter,
 ) {
+  if (!env.OPENROUTER_API_KEY) throw new ProviderConfigurationError("OpenRouter inference is not configured.");
   const body: Record<string, unknown> = {
     model: cfg.model,
     // An unpinned entry means "any provider"; sending only:[undefined] pins it
@@ -1986,6 +1989,7 @@ const worker = {
       if (e instanceof LayaError) return fail(e.message, e.status,
         e.status === 400 ? "laya_input" : e.status === 429 ? "laya_rate_limit" : "laya_unavailable",
         e.status === 400 ? {} : { "retry-after": String(e.retryAfter) }, Date.now() - started);
+      if (e instanceof ProviderConfigurationError) return fail(e.message, 503, "inference_unavailable", {}, Date.now() - started);
       const msg = (e as Error).message;
       return fail(`upstream: ${msg}`, 502, upstreamReason(msg), {}, Date.now() - started);
     }

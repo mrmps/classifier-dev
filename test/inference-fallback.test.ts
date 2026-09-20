@@ -31,6 +31,17 @@ async function classify(body: Record<string, unknown>) {
   }), env, ctx);
 }
 
+test.each(["fast", "smart"])("unconfigured %s fallback makes no provider requests", async tier => {
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; return single("A"); }) as typeof fetch;
+  const response = await worker.fetch(new Request("https://classifier.dev/v1/classify", {
+    method: "POST", body: JSON.stringify({ input: "test", labels: ["yes", "no"], tier }),
+  }), { ...env, OPENROUTER_API_KEY: "" }, ctx);
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({ code: "inference_unavailable" });
+  expect(calls).toBe(0);
+});
+
 test("empty 200 responses exhaust one model and fail over", async () => {
   const models: string[] = [];
   globalThis.fetch = (async (_url, init) => {

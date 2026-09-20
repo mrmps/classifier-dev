@@ -235,10 +235,12 @@ test("invalid inputs do not reserve; upstream errors return reserved credits", a
     accountClassification(request({ inputs: [] }), env),
   ).rejects.toThrow();
   expect(calls).toBe(0);
-  await expect(accountClassification(
+  const response = await accountClassification(
     request({ inputs: ["Hello"], labels: ["a", "b"] }),
     env,
-  )).rejects.toThrow("not configured for account billing");
+  );
+  expect(response?.status).toBe(503);
+  expect(await response?.json()).toMatchObject({ code: "inference_unavailable" });
   const snapshot = await getSnapshot("local-demo", env);
   expect(snapshot.credits.balance).toBe(500000);
   expect(snapshot.onboarding.completed).toBe(false);
@@ -380,12 +382,13 @@ test.each([
   expect((await getSnapshot("local-demo", env)).credits.balance).toBe(0);
 });
 
-test("unconfigured Jev inference still fails before spending and releases its reservation", async () => {
+test.each(["fast", "smart"])("unconfigured %s Jev inference fails before spending and refunds", async tier => {
   delete env.TYPESAFE_API_KEY;
   let calls = 0;
-  globalThis.fetch = (async () => { calls++; throw new Error("Must not infer"); }) as typeof fetch;
-  await expect(accountClassification(request({ input: "Invoice", labels: ["billing", "sales"], model: "jev" }), env))
-    .rejects.toMatchObject({ status: 503 });
+  globalThis.fetch = (async () => { calls++; return Response.json({ error: "Invalid credential" }, { status: 401 }); }) as typeof fetch;
+  const response = await accountClassification(request({ input: "Invoice", labels: ["billing", "sales"], model: "jev", tier }), env);
+  expect(response?.status).toBe(503);
+  expect(response?.headers.get("x-billing-status")).toBe("refunded");
   expect(calls).toBe(0);
   expect((await getSnapshot("local-demo", env)).credits.balance).toBe(500000);
   expect(await env.APP_DB.prepare("SELECT status,credits FROM app_usage").first()).toEqual({ status: "refunded", credits: 0 });
