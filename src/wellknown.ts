@@ -350,10 +350,10 @@ classifier.dev does not implement that spec's agent registration or token exchan
 
 ## Register and claim
 
-For Pro, open https://classifier.dev/pro, sign in using a one-time email link,
-and subscribe through Stripe checkout managed by Autumn. Create an API key
-and save it when shown; it is shown only once. There is no agent registration
-or claim endpoint. Free classification requires no registration.
+Create a workspace at /auth/sign-up and create or rotate workspace keys at
+/app/keys. Existing classifier_pro_ keys retain their legacy limits. There is
+no agent registration or claim endpoint. Free classification requires no
+registration.
 
 ## Use the key
 
@@ -366,9 +366,9 @@ an API credential. Existing partner keys continue to work.
 
 ## Errors
 
-- 401 — the Pro key is invalid; create a replacement in your account.
+- 401 — the key is invalid; create a replacement in your workspace.
 - 403 — the subscription does not grant Pro access, including past-due,
-  suspended or expired access. Manage the subscription at https://classifier.dev/pro.
+  suspended or expired legacy access. Contact contact@classifier.dev.
 - 429 — quota reached; wait the Retry-After seconds. RateLimit headers describe
   the allowance. The code is rate_limit_minute or rate_limit_day.
 - 400 — invalid classification parameters; the message says what to change.
@@ -380,8 +380,8 @@ remains available within free limits without a Pro credential.
 
 ## Revocation and billing
 
-Rotate a Pro key or manage your subscription at https://classifier.dev/pro.
-Rotating replaces the old key. Cancellation at the end of a paid period keeps
-access until that period ends. Partner keys are rotated through their issuing
-contact. There is no OAuth revocation or token exchange endpoint.
+Rotate workspace keys at /app/keys; rotating replaces the
+old key. Existing legacy Pro keys remain valid while their subscription is
+active. Partner keys are rotated through their issuing contact. There is no
+OAuth revocation or token exchange endpoint.
 `;

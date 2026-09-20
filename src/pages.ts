@@ -10,6 +10,8 @@
 
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
+import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
+import retailRates from "./retail-rates.json";
 
 export const MCP_SETUP = `classifier.dev MCP
 
@@ -240,10 +242,12 @@ ENDPOINTS
 
 AUTHENTICATION
 
-  Classification works without a key within the free limits. Pro ($20/month)
-  gives 10x those limits. Send Authorization: Bearer <key> on REST or MCP;
-  Pro keys start with classifier_pro_. Sign in at https://classifier.dev/pro to subscribe and
-  create a key. Partner keys remain supported. https://classifier.dev/auth.md
+  Classification works without a key within the public limits. Create a
+  workspace at https://classifier.dev/auth/sign-up and manage workspace keys at
+  https://classifier.dev/app/keys. Existing classifier_pro_ keys keep their
+  legacy 10x limits; new workspaces use classifier_agent_ keys.
+  Send Authorization: Bearer <key> on REST or MCP.
+  Partner keys remain supported. https://classifier.dev/auth.md
 
 
 EXAMPLES
@@ -296,9 +300,10 @@ KEYS AND LIMITS
   the fast tier, 200 a minute and 2,000 a day on smart. Every classification
   response carries RateLimit-Limit and RateLimit-Policy, and RateLimit-Remaining
   once the limiter has been consulted (every 200 and 429); a 429 adds
-  Retry-After. Pro ($20/month) gives 10x the minute and daily allowances per
-  billing account, across IPs: https://classifier.dev/pro. Both Pro tiers
-  accept up to 1,000 inputs per request. Use --api-key with the CLI, or set
+  Retry-After. Workspace keys are metered against the workspace credit balance;
+  current plans are at https://classifier.dev/pricing. Existing legacy Pro keys
+  retain 10x minute and daily allowances per billing account and accept up to
+  1,000 inputs per request on both tiers. Use --api-key with the CLI, or set
   CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). https://classifier.dev/auth.md
 
 
@@ -355,20 +360,18 @@ SOURCE AND SUPPORT
 
 export const PRICING = `classifier.dev pricing
 
-Start free with no API key, account or card. Pro is $20/month for 10x the
-classification rate limits. Both plans include fast and smart classification,
-the MCP servers and the CLI.
+Try classifier.dev without an API key, account or card. Create a workspace when
+you want usage credits, named API keys, shared billing and usage by connection.
+Every plan includes fast and smart classification, REST, MCP and the CLI.
 
 
-FREE TIER
+FREE
 
   Price                    $0
-  Fast tier                3,000 classifications a minute, 20,000 a day, per IP
-  Smart tier               200 a minute, 2,000 a day, per IP
-  Inputs per request       up to 1,000 fast; 200 smart
-  Labels per request       2 to 100
-  Sign-up                  none
-  Support                  GitHub issues, https://github.com/mrmps/classifier-dev/issues
+  Public access            no account; 3,000 fast/minute and 20,000/day per IP
+  Workspace credit         ${formatCreditsUsd(BILLING_PLANS.free.includedCredits)} once at personal signup
+  Workspace seats          ${BILLING_PLANS.free.seatLimit}
+  Get started              https://classifier.dev/auth/sign-up
 
   A classification is one text against one label set; 1,000 texts in one
   request are 1,000 classifications. Multi-label counts once per text, not per
@@ -377,35 +380,21 @@ FREE TIER
 
 PRO
 
-  Price                    $20/month
-  Fast tier                30,000 classifications a minute, 200,000 a day
-  Smart tier               2,000 a minute, 20,000 a day
-  Inputs per request       up to 1,000 on either tier
-  Allowance                per billing account, shared across keys and IPs
-  Sign-up and billing      https://classifier.dev/pro
+  Price                    $${BILLING_PLANS.pro.priceCents / 100}/month
+  Included usage           ${formatCreditsUsd(BILLING_PLANS.pro.includedCredits)} each month
+  Workspace seats          ${BILLING_PLANS.pro.seatLimit}
+  Billing                  https://classifier.dev/app/plans
 
-  Sign in with a one-time email link, then subscribe through Stripe checkout,
-  managed by Autumn. Create an API key after subscribing and save it when
-  shown; it is shown only once. You can rotate it from your account.
-  Send Authorization: Bearer classifier_pro_... on REST or MCP requests.
-  With the CLI, use --api-key or CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works).
-  Manage payment details and cancellation from your account.
+  Usage is charged to the workspace balance at the published token prices.
+  Smart costs the same as Fast when no escalation is needed. Usage stops when
+  the balance reaches zero; there are no automatic top-ups.
 
 
-PARTNER
+ENTERPRISE
 
   Price                    by arrangement
-  Limits                   lifted, on a bearer key
-  For                      teams beyond Pro limits, or who need a contract
+  For                      more capacity, private infrastructure or a contract
   How                      email ${SITE.email} or book https://cal.com/michaelsf/coffee
-
-  Contact us for limits beyond Pro or a separate agreement.
-
-
-ON REQUEST
-
-  The public service is one shared deployment. These are available by
-  arrangement, for teams whose data or latency budget cannot go through it:
 
   Dedicated deployment     the service in your own cloud account: AWS, GCP
                            or another
@@ -422,31 +411,36 @@ ON REQUEST
   own data before you commit.
 
 
-WHAT COUNTS
+TOKEN PRICES
 
-  Request                  Classifications
-  -------------------------------------------------------------------------
-  1 text, 2 labels                       1
-  1 text, 100 labels                     1
-  1,000 texts, 5 labels              1,000
-  1,000 texts, multi-label, 30 labels 1,000   (multi-label counts per text)
-  smart tier, 1,000 texts, 120 unsure  1,000 smart classifications; the 120
-                                       re-asks are included, not extra
+  Prices per million tokens. Fast uses Jev at cost. Smart adds Gemini at cost
+  plus 20% only when it escalates.
 
-  Both tiers, the MCP servers (https://classifier.dev/mcp) and the CLI draw
-  on the same allowance: per IP on Free, per billing account on Pro.
-  Limits reset each minute and each UTC day;
-  every response carries RateLimit-Remaining and a 429 says how long to wait.
+  Jev input               $${Number(retailRates.models[0].inputUsdPerMillion)}
+  Jev cached input        $${Number(retailRates.models[0].cachedInputUsdPerMillion)}
+  Jev output              free
+  Gemini input            $${Number(retailRates.models[1].inputUsdPerMillion)}
+  Gemini cached input     $${Number(retailRates.models[1].cachedInputUsdPerMillion)}
+  Gemini output           $${Number(retailRates.models[1].outputUsdPerMillion)}
+
+  Smart requests without escalation cost the same as Fast. Gemini output
+  includes reasoning tokens. Usage stops when your balance reaches zero.
 
 
-COMPARED WITH DOING IT YOURSELF
+INCLUDED ON EVERY PLAN
 
-  The model behind the fast tier costs about $0.005 per thousand
-  classifications and needs a TypeSafe key; the smart tier adds about $0.70
-  per thousand escalated answers. A general LLM prompted to classify costs
-  $0.002 to $0.04 per thousand and 0.7 to 3.4 seconds per item, with no
-  calibrated confidence. Numbers and method, from the providers' own usage
-  accounting: https://classifier.dev/benchmark.
+  Classify with your own labels through REST, MCP or the CLI. Inputs are not
+  stored, and billing data stays separate from classification analytics.
+  Public requests use the public limits when no workspace key is sent;
+  workspace keys charge the workspace balance. Every response reports its
+  applicable rate limit and a 429 says how long to wait.
+
+
+LEGACY PRO
+
+  Existing classifier_pro_ keys keep their 10x public rate limits. New
+  workspaces use the plans above. Email ${SITE.email} for help with a legacy
+  subscription.
 `;
 
 export const ABOUT = `About classifier.dev
@@ -718,16 +712,16 @@ NO WARRANTY, NO LIABILITY
   what you paid for the service, which for the free tier is nothing.
 
 
-PRO
+SUBSCRIPTIONS
 
-  Pro is $20 a month, billed by Stripe through Autumn against the card you
-  give at checkout, and renews monthly until you cancel from your account at
-  https://classifier.dev/pro. Cancelling stops the next charge; the
-  allowance stays until the paid month ends. The price and the Pro limits at
-  https://classifier.dev/pricing can change with notice on that page before
-  a renewal. Your API key is yours to keep secret; requests made with it
-  count against your allowance whoever sends them, and you can rotate it
-  from your account at any time.
+  Paid plans are billed by Stripe through Autumn against the card you give at
+  checkout and renew monthly until you cancel from your workspace at
+  https://classifier.dev/app/plans. Cancelling stops the next charge; included
+  usage stays available through the paid month. Existing legacy Pro subscribers
+  can contact ${SITE.email} for account help. Prices can change with notice on
+  https://classifier.dev/pricing before a renewal. Your API keys are yours to
+  keep secret; requests made with one count against its workspace or legacy
+  allowance whoever sends them.
 
 
 PARTNER KEYS

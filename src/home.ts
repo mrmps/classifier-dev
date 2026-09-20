@@ -16,11 +16,43 @@ import { headingTitle, isCommandBlock, isHeading, isPreBlock } from "./pages";
 import { chatPanel, CHAT_CSS, CHAT_SCRIPT } from "./chatui";
 
 export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
+.site-header{position:sticky;inset-block-start:0;z-index:30;background:color-mix(in srgb,var(--bg) 92%,transparent);
+  border-block-end:1px solid var(--rule);backdrop-filter:blur(16px)}
+.site-nav{max-width:1180px;min-height:72px;margin:0 auto;padding-inline:24px;display:flex;align-items:center;gap:28px}
+.site-brand{display:inline-flex;align-items:center;gap:10px;color:var(--bright);font-size:15px;font-weight:700;
+  text-decoration:none;white-space:nowrap}
+.site-mark{width:28px;height:28px;flex:none}
+.site-links{display:flex;align-items:center;gap:4px;flex:1}
+.site-link,.site-action{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 10px;
+  border-radius:var(--r-s);color:var(--muted);font-weight:600;text-decoration:none;white-space:nowrap;
+  transition-property:background-color,color,scale;transition-duration:.1s}
+.site-link[aria-current=page]{color:var(--bright);background:var(--surface)}
+.site-actions{display:flex;align-items:center;gap:4px}
+.site-action.signup{color:var(--fg);box-shadow:inset 0 0 0 1px var(--line)}
+.site-action.primary{min-height:40px;margin-inline-start:6px;padding-inline:14px;color:var(--ink);background:var(--accent)}
+.site-link:active,.site-action:active,.site-menu summary:active{scale:.96}
+.site-menu,.site-resources{position:relative}
+.site-menu{display:none}
+.site-menu summary,.site-resources summary{display:flex;align-items:center;justify-content:center;min-height:40px;padding-inline:10px;
+  border-radius:var(--r-s);color:var(--fg);font-weight:600;cursor:pointer;list-style:none}
+.site-menu summary::-webkit-details-marker,.site-resources summary::-webkit-details-marker{display:none}
+.site-menu summary::before,.site-resources summary::before{content:none}
+.site-resources summary.active{color:var(--bright);background:var(--surface)}
+.site-menu-panel,.site-resources-panel{position:absolute;inset-block-start:calc(100% + 8px);inset-inline-end:0;width:min(280px,calc(100vw - 24px));
+  padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--r) + 4px);
+  box-shadow:0 20px 48px -24px rgba(0,0,0,.9)}
+.site-resources-panel{inset-inline-start:0;inset-inline-end:auto;width:220px}
+.site-menu-panel .site-link,.site-menu-panel .site-action,.site-resources-panel .site-link{justify-content:flex-start;width:100%;min-height:44px}
+.site-menu-panel .site-action.primary{margin:4px 0 0;justify-content:center}
+@media(hover:hover){.site-link:hover,.site-action:not(.primary):hover,.site-menu summary:hover,.site-resources summary:hover{background:var(--surface);color:var(--bright)}
+  .site-action.primary:hover{background:var(--accent-hover);color:var(--ink)}}
+@media(max-width:900px){.site-nav{padding-inline:16px;gap:12px}.site-links{display:none}.site-actions{margin-inline-start:auto}
+  .site-actions .login,.site-actions .signup{display:none}.site-menu{display:block}}
+@media(max-width:420px){.site-nav{min-height:64px;padding-inline:12px}.site-brand{font-size:14px}.site-mark{width:26px;height:26px}
+  .site-action.primary{padding-inline:10px;margin-inline-start:0}}
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
-.b.pro-link{font-weight:600;background:var(--surface);box-shadow:inset 0 0 0 1px var(--accent);padding:3px 10px}
-@media(hover:hover){.b.pro-link:hover{background:var(--accent);color:var(--ink)}}
 .pro-offer{color:var(--muted)}
 .pro-offer strong{color:var(--bright)}
 .k{color:var(--bright)}
@@ -770,16 +802,28 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
 
 /** The page you are on is marked for the eye and for the screen reader alike. */
 const navLink = (label: string, href: string, here: string, key: string) =>
-  btn(label, { href, cls: here === key ? "on" : "", attrs: here === key ? ' aria-current="page"' : "" });
+  `<a class="site-link" href="${href}"${here === key ? ' aria-current="page"' : ""}>${label}</a>`;
+
+const MARK = `<svg class="site-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><rect x="6" y="9" width="20" height="4" rx="2" fill="var(--ink)"/><rect x="6" y="16" width="11" height="4" rx="2" fill="#765db9"/><rect x="6" y="23" width="6" height="4" rx="2" fill="#765db9"/></svg>`;
+
+const navLinks = (here: string) =>
+  `${navLink("Home", "/", here, "home")}${navLink("Benchmark", "/benchmark", here, "benchmark")}${navLink("Docs", "/docs", here, "developers")}${navLink("Pricing", "/pricing", here, "pricing")}<a class="site-link" href="/chat"${here === "chat" ? ' aria-current="page"' : ""} data-chat-open aria-controls="chat" aria-expanded="false">Chat</a>`;
+
+const resourceLinks = (here: string) =>
+  `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}${navLink("Skills", "/skills", here, "skills")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
+
+const resourceMenu = (here: string) => {
+  const active = ["mcp-setup", "skills"].includes(here);
+  return `<details class="site-resources"><summary${active ? ' class="active"' : ""}>Resources</summary><div class="site-resources-panel">${resourceLinks(here)}</div></details>`;
+};
 
 export const NAV = (here: string) =>
-  `<nav aria-label="Site"><p class="row">${navLink("home", "/", here, "home")}${navLink("benchmark", "/benchmark", here, "benchmark")}${navLink("docs", "/docs", here, "developers")}${navLink("mcp", "/mcp-setup", here, "mcp-setup")}${navLink("skills", "/skills", here, "skills")}${btn("chat", { href: "/chat", cls: here === "chat" ? "on" : "", attrs: ' data-chat-open aria-controls="chat" aria-expanded="false"' })}${btn("Pro · 10× usage", { href: "/pro", cls: "pro-link" })}${btn("openapi.json", { href: "/openapi.json", cls: "dim" })}${btn("skill.md", {
-    href: "/skill.md",
-    cls: "dim",
-  })}${btn("llms.txt", { href: "/llms.txt", cls: "dim" })}${btn("github", {
-    href: "https://github.com/mrmps/classifier-dev",
-    cls: "dim",
-  })}</p></nav>`;
+  `<header class="site-header"><nav class="site-nav" aria-label="Primary">
+  <a class="site-brand" href="/" aria-label="classifier.dev home">${MARK}<span>classifier.dev</span></a>
+  <div class="site-links">${navLinks(here)}${resourceMenu(here)}</div>
+  <div class="site-actions"><a class="site-action login" href="/login">Log in</a><a class="site-action signup" href="/auth/sign-up">Sign up</a><a class="site-action primary" href="/auth/sign-up">Get started</a></div>
+  <details class="site-menu"><summary>Menu</summary><div class="site-menu-panel">${navLinks(here)}${resourceLinks(here)}<a class="site-action" href="/login">Log in</a><a class="site-action" href="/auth/sign-up">Sign up</a></div></details>
+</nav></header>`;
 
 export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/terms">terms</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
 
@@ -789,11 +833,10 @@ export function homeHtml(o: { chat?: boolean } = {}): string {
     title: "classifier.dev",
     head: META("classifier.dev", desc) + JSON_LD() + HL_HEAD,
     css: HOME_CSS,
-    body: `<div class="page"><main><article class="doc prose">
+    body: `${NAV(o.chat ? "chat" : "home")}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev</h1></header>
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
-  ${NAV(o.chat ? "chat" : "home")}
-  <p class="pro-offer"><strong>10× usage with Pro.</strong> $20/month for 10× the free minute and daily limits, on fast and smart. <a class="inline" href="/pro">Get Pro →</a></p>
+  <p class="pro-offer"><strong>Start without an account.</strong> Create a workspace when you want shared usage, billing and API keys. <a class="inline" href="/pricing">See pricing →</a></p>
 
   <section class="agent" id="agent">
     <h2><span class="syn">## </span>Give your agent this prompt</h2>
@@ -862,29 +905,21 @@ ${chatPanel(!!o.chat)}`,
 }
 
 /** Any other plain-text document, rendered the same way the home page is. */
-/**
- * The one place a plan is offered on a documentation page. The label is the
- * thing you get, not a verb that presumes you already have a plan to move up
- * from; the price sits beside it so nobody clicks to find out. On the pricing
- * page it is the page's action and is filled; elsewhere it is a quiet link
- * beside the limits it lifts, with the full comparison one click away.
- */
-export const proRow = (primary = false) =>
-  `<p class="row">${btn("Pro · 10× usage · $20/mo", { href: "/pro", cls: primary ? "cta" : "" })}${primary ? "" : btn("all plans", { href: "/pricing", cls: "dim" })}</p>`;
+const pricingRow = () =>
+  `<p class="row">${btn("plans and pricing", { href: "/pricing" })}${btn("create a workspace", { href: "/auth/sign-up", cls: "dim" })}</p>`;
 
 /** The LIMITS section of the home doc, with the way past the limits beside them. */
 const limitsSection = (body: string[]) =>
-  `<section><h2><span class="syn">## </span>Limits</h2>${renderBlocks(body)}${proRow()}</section>`;
+  `<section><h2><span class="syn">## </span>Limits</h2>${renderBlocks(body)}${pricingRow()}</section>`;
 
 export function docHtml(o: { title: string; desc: string; doc: string; path: string; here: string; swap?: Record<string, string | ((body: string[]) => string)> }): string {
   return page({
     title: `${o.title} · classifier.dev`,
     head: META(o.title, o.desc, o.path) + HL_HEAD,
     css: HOME_CSS,
-    body: `<div class="page"><main><article class="doc prose">
+    body: `${NAV(o.here)}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>${esc(o.doc.split("\n")[0].trim())}</h1></header>
   <p class="quote">${esc(o.desc)}</p>
-  ${NAV(o.here)}
   ${renderDoc(o.doc, true, o.swap ?? {})}
   ${FOOT}
 </article></main></div>
@@ -899,10 +934,9 @@ export function benchmarkHtml(): string {
     title: "benchmark · classifier.dev",
     head: META("classifier.dev benchmark", desc, "/benchmark") + HL_HEAD,
     css: HOME_CSS,
-    body: `<div class="page"><main><article class="doc prose">
+    body: `${NAV("benchmark")}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev benchmark</h1></header>
   <p class="quote">${esc(desc)}</p>
-  ${NAV("benchmark")}
   ${renderDoc(BENCHMARK, true)}
   ${FOOT}
 </article></main></div>

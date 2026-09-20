@@ -18,6 +18,16 @@ const hrefs = (page: string) => [...page.matchAll(/href="([^"]*)"/g)].map((m) =>
 const htmlHeadings = (page: string) => [...page.matchAll(/<h2>(?:<span class="syn">## <\/span>)?([^<]+)<\/h2>/g)].map((m) => m[1]);
 const mdHeadings = (doc: string) => [...doc.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
 
+test("the retired Pro page redirects to pricing", async () => {
+  const response = await worker.fetch(
+    new Request("https://classifier.dev/pro", { headers: { accept: "text/html" } }),
+    env,
+    ctx,
+  );
+  expect(response.status).toBe(308);
+  expect(response.headers.get("location")).toBe("https://classifier.dev/pricing");
+});
+
 /**
  * The HTML page and the Markdown are two renderings of one plain-text
  * document, so nothing may differ between them but the markup. Each renderer

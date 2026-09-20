@@ -708,10 +708,9 @@ export function skillsHtml(items: Summary[]): string {
     title: "skills · classifier.dev",
     head: META("classifier.dev skills", PAGE_DESC, `/${SKILLS_PATH}`),
     css: HOME_CSS + SKILLS_CSS,
-    body: `<div class="page"><main><article class="doc prose">
+    body: `${NAV("skills")}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev skills</h1></header>
   <p class="quote">${esc(PAGE_DESC)}</p>
-  ${NAV("skills")}
   ${renderDoc(doc, true, { LEADERBOARD: board, "HOW A SKILL GETS IN": gates, "THE RULES IN FULL": rules }).replace('<section><h2><span class="syn">## </span>Submit one</h2>', '<section id="submit"><h2><span class="syn">## </span>Submit one</h2>')}
   ${FOOT}
 </article></main></div>`,
@@ -742,10 +741,9 @@ export function skillHtml(r: SkillRecord): string {
     title: `${r.name} · classifier.dev skills`,
     head: META(`${r.name} · classifier.dev skills`, r.description.slice(0, 300), `/${SKILLS_PATH}/${r.slug}`),
     css: HOME_CSS + SKILLS_CSS,
-    body: `<div class="page"><main><article class="doc prose">
+    body: `${NAV("skills")}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>${esc(r.name)}</h1></header>
   <p class="quote">${esc(r.description)}</p>
-  ${NAV("skills")}
   ${renderDoc(doc, true, { REVIEW: review, "THE SKILL": skill })}
   ${FOOT}
 </article></main></div>`,
