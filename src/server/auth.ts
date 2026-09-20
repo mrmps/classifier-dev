@@ -65,7 +65,14 @@ export async function requireAccount(
   const { getAuth } = await import("@workos/authkit-tanstack-react-start");
   const { user } = await getAuth();
   if (!user) throw new AppError(401, "Sign in to continue.");
-  return provisionHostedAccount(user, env);
+  if (!user.emailVerified)
+    throw new AppError(403, "Verify your email before opening your account.");
+  const accountId = await provisionHostedAccount(user, env);
+  if (env.APP_ACCOUNTS_ENABLED === "true") {
+    const { linkPersonalBilling } = await import("./billing-identity");
+    await linkPersonalBilling(user, env);
+  }
+  return accountId;
 }
 
 export function workosConfigured(env: AppEnv): boolean {

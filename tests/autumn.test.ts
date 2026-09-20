@@ -28,9 +28,11 @@ function signed(id: string, customerId = "workspace_a", when = new Date()) {
   } });
 }
 test("checkout uses stable workspace identity and enables nothing before payment", async () => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
   provider((path, body) => {
     expect(body.customer_id).toBe("workspace_a");
     if (path.endsWith("get_or_create")) return { id: body.customer_id };
+    if (path.endsWith("customers.get")) return { id: body.customer_id, subscriptions: [] };
     expect(body.enable_plan_immediately).toBe(false);
     expect(body.plan_id).toBe("pro");
     return { customer_id: body.customer_id, payment_url: "https://checkout.stripe.com/example" };
@@ -39,6 +41,7 @@ test("checkout uses stable workspace identity and enables nothing before payment
   expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='a'").first())?.balance).toBe(500000);
 });
 test("portal rejects hostile redirects", async () => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
   provider((path, body) => path.endsWith("get_or_create") ? { id: body.customer_id } : { customer_id: body.customer_id, url: "https://stripe.com.evil.test/" });
   await expect(createAutumnPortal(env, "a", "https://classifier.dev/app/plans")).rejects.toThrow();
 });
@@ -56,7 +59,7 @@ test("canonical state wins over webhook payload; duplicate events do not refetch
   expect(calls).toBe(1);
   const state = await env.APP_DB.prepare("SELECT snapshot,reconciliation_required FROM app_autumn_customers WHERE account_id='a'").first();
   expect(state?.snapshot).toEqual({ id: "workspace_a", subscriptions: [] });
-  expect(state?.reconciliation_required).toBe(true);
+  expect(state?.reconciliation_required).toBe(false);
   expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='a'").first())?.balance).toBe(500000);
 });
 test("provider failure remains retryable; unmapped customers cannot affect wallets", async () => {

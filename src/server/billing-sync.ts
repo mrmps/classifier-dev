@@ -27,6 +27,8 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
       env.APP_DB.prepare("SELECT billing_plan FROM app_accounts WHERE id=?").bind(mapping.account_id),
     ]);
     if (results[2].results[0]?.billing_plan === "pro") throw new AppError(503, "Subscription reconciliation is awaiting pending usage or a newer sync.");
+    await env.APP_DB.prepare("UPDATE app_autumn_customers SET reconciliation_required=FALSE WHERE customer_id=? AND revision=?")
+      .bind(customerId, mapping.revision).run();
     return true;
   }
   const subscription = active[0];

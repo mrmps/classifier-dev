@@ -56,11 +56,10 @@ async function customerForWorkspace(env: AutumnEnv, accountId: string) {
   const account = await env.APP_DB.prepare("SELECT a.name,a.email FROM app_accounts a JOIN app_workspaces w ON w.account_id=a.id WHERE a.id=? AND w.mode='hosted'")
     .bind(accountId).first<{ name: string; email: string }>();
   if (!account) throw new AppError(404, "Workspace not found.");
-  // Existing customer migration can insert its explicit mapping before checkout.
-  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES(?,?) ON CONFLICT(account_id) DO NOTHING")
-    .bind(accountId, `workspace_${accountId}`).run();
+  // Verified sign-in resolves the billing identity before any checkout or portal
+  // operation. Never invent a second customer for an existing subscriber.
   const mapping = await env.APP_DB.prepare("SELECT customer_id FROM app_autumn_customers WHERE account_id=?").bind(accountId).first<{ customer_id: string }>();
-  if (!mapping) throw unavailable();
+  if (!mapping) throw new AppError(409, "Sign in again to link your existing billing account before continuing.");
   const customer = await autumnRequest(env, "customers.get_or_create", { customer_id: mapping.customer_id, name: account.name, email: account.email });
   if (customer.id !== mapping.customer_id) throw unavailable();
   return mapping.customer_id;
@@ -78,6 +77,12 @@ function billingUrl(value: unknown) {
 export async function createAutumnCheckout(env: AutumnEnv, accountId: string, returnUrl: string) {
   if (!env.AUTUMN_PRO_PLAN_ID) throw unavailable();
   const customerId = await customerForWorkspace(env, accountId);
+  const customer = await getAutumnCustomer(env, customerId);
+  if (customer.subscriptions.some((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID)) {
+    // Includes scheduled, past-due and cancel-at-period-end subscriptions.
+    // Let the existing subscription's portal resolve them rather than attach again.
+    return createAutumnPortal(env, accountId, returnUrl);
+  }
   const result = await autumnRequest(env, "billing.attach", {
     customer_id: customerId, plan_id: env.AUTUMN_PRO_PLAN_ID,
     redirect_mode: "always", success_url: returnUrl, enable_plan_immediately: false,
