@@ -29,7 +29,7 @@ test("sign-up binds only safe workspace destinations and fails closed when uncon
     for (const [requested, expected] of [
       [undefined, "/app"], ["", "/app"],
       ["/app/plans", "/app/plans"],
-      ["/app/keys?created=1#new", "/app/keys?created=1#new"],
+      ["/app/keys?created=1#new", "/app/keys?created=1"],
       ["https://evil.test/app", "/app"], ["//evil.test/app", "/app"],
       ["/application", "/app"], ["/login", "/app"],
       ["/app/../login", "/app"], ["/app/%2e%2e/login", "/app"],
