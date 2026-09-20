@@ -3,7 +3,8 @@ import { handleCallbackRoute } from "@workos/authkit-tanstack-react-start";
 import { env } from "cloudflare:workers";
 import { clearWorkspaceSelection, workosConfigured } from "../server/auth";
 import type { AppEnv } from "../server/db";
-export const Route = createFileRoute("/auth/callback")({
+
+export const Route = createFileRoute("/api/auth/callback")({
   server: {
     handlers: {
       GET: async (context) => {

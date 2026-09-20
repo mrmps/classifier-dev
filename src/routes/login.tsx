@@ -51,7 +51,7 @@ function Login() {
             <ArrowRight size={16} />
           </Button>
         ) : (
-          <Button size="lg" render={<a href="/auth/sign-in" />}>
+          <Button size="lg" render={<a href="/api/auth/sign-in" />}>
             Sign in or create an account <ArrowRight size={16} />
           </Button>
         )}

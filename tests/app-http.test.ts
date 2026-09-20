@@ -62,7 +62,7 @@ test("application namespaces do not capture legacy API, docs, or classification 
     "/app",
     "/app/agents",
     "/_server/function",
-    "/auth/callback",
+    "/api/auth/callback",
     "/login",
   ])
     expect(isAppRequest(new Request(`http://localhost${path}`))).toBe(true);

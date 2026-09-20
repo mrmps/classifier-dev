@@ -49,7 +49,7 @@ describe("local account lifecycle", () => {
     const callback = clearWorkspaceSelection(new Response(null, {
       status: 302,
       headers: { "Set-Cookie": "wos-session=session; Secure; HttpOnly", Location: "/app" },
-    }), new Request("https://classifier.dev/auth/callback"));
+    }), new Request("https://classifier.dev/api/auth/callback"));
     expect(callback.headers.getSetCookie()[0]).toBe("wos-session=session; Secure; HttpOnly");
     expect(callback.headers.getSetCookie()[1]).toContain("Secure");
     expect(callback.headers.get("Location")).toBe("/app");

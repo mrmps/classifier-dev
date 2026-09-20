@@ -66,7 +66,7 @@ Before enabling APP_ACCOUNTS_ENABLED:
 1. Configure and migrate the production Neon database. Set the stable dedicated
    API_KEY_ENCRYPTION_KEY secret and back it up; losing it prevents key reveal.
 2. Configure WorkOS API/client credentials, cookie secret and the allowlisted
-   `/auth/callback` redirect. Verify hosted sign-in, sign-out and identity isolation.
+   `/api/auth/callback` redirect. Verify hosted sign-in, sign-out and identity isolation.
 3. Configure Autumn products, credentials and signed webhook delivery. Verify a
    sandbox subscription, renewal, cancellation, refund and duplicate/out-of-order
    event reconciliation against the ledger.
