@@ -15,8 +15,11 @@ and a short index at https://classifier.dev/llms.txt
 
 LAYA TRIAL
 
-  Existing calls still use Jev. To try Laya, send a POST with model: "laya"
-  and processing: "fast" or "bulk". Both lanes use the same preloaded Router:
+  Calls with neither model nor processing use Jev. To try Laya, send a POST
+  with model: "laya". Omit processing to automatically choose fast for one
+  decision (up to four multi-label questions), or bulk for larger work.
+  Supplying processing without model implies Laya. Explicit lanes are honored.
+  Both lanes use the same preloaded Router:
   English text uses the English checkpoint; other languages use multilingual.
   Processing changes batching and capacity, not checkpoint selection.
   Each result's model identifies the checkpoint and lane that answered.

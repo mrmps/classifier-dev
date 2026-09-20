@@ -100,6 +100,48 @@ test("dimensions preserve row/column order on bulk", async () => {
   expect(JSON.stringify(body.results)).toContain("bug");
 });
 
+test.each([
+  { inputs: Array(30).fill("headline"), labels: task.labels },
+  { items: ["headline"], dimensions: { team: task.labels, kind: ["bug", "request"] } },
+  { input: "headline", labels: ["ai", "security", "business", "hardware", "other"], multi: true },
+])("omitted Laya processing selects bulk for the complete workload: %j", async body => {
+  const calls = mockLaya();
+  const response = await request(body);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("x-classifier-processing")).toBe("bulk");
+  expect(calls.every(call => call.url === "https://bulk.example/predict")).toBe(true);
+});
+
+test.each(["fast", "bulk"])("processing %s implies Laya when model is omitted", async processing => {
+  const calls = mockLaya();
+  const response = await request({ model: undefined, input: task.input, labels: task.labels, processing });
+  expect(response.status).toBe(200);
+  expect(calls[0].url).toBe(`https://${processing}.example/predict`);
+});
+
+test("explicit model and lane choices are not silently overridden", async () => {
+  const calls = mockLaya();
+  expect((await request({ model: "jev", processing: "bulk", input: task.input, labels: task.labels })).status).toBe(400);
+  expect((await request({ processing: "fast", inputs: ["a", "b"], labels: task.labels })).status).toBe(400);
+  expect(calls).toHaveLength(0);
+});
+
+test("chat's MCP batch succeeds with omitted model or omitted lane", async () => {
+  const calls = mockLaya();
+  for (const options of [{ processing: "bulk" }, { model: "laya" }]) {
+    const response = await worker.fetch(new Request("https://classifier.dev/mcp", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+        name: "classify_texts", arguments: { inputs: Array(30).fill("headline"), labels: task.labels, ...options },
+      } }),
+    }), env, ctx);
+    const body = await response.json() as { result: { isError?: boolean; structuredContent: { results: unknown[] } } };
+    expect(body.result.isError).not.toBe(true);
+    expect(body.result.structuredContent.results).toHaveLength(30);
+  }
+  expect(calls.every(call => call.url === "https://bulk.example/predict")).toBe(true);
+});
+
 test.each([429, 503, 400, 500])("upstream %s never falls back or retries", async status => {
   let calls = 0;
   globalThis.fetch = (async () => { calls++; return new Response("secret upstream body", { status }); }) as typeof fetch;
