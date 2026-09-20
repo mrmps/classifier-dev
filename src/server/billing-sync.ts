@@ -5,14 +5,22 @@ import { AppError } from "./db";
  * A monotonically increasing local revision fences slower concurrent fetches. */
 export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string) {
   if (!env.AUTUMN_PRO_PLAN_ID) throw new AppError(503, "Billing plan is not configured.");
-  const mapping = await env.APP_DB.prepare("UPDATE app_autumn_customers SET revision=revision+1 WHERE customer_id=? RETURNING revision,account_id")
-    .bind(customerId).first<{ revision: number; account_id: string }>();
+  const mapping = await env.APP_DB.prepare("UPDATE app_autumn_customers SET revision=revision+1,last_attempt_at=?,reconciliation_required=TRUE WHERE customer_id=? RETURNING revision,account_id")
+    .bind(new Date().toISOString(), customerId).first<{ revision: number; account_id: string }>();
   // Unmapped customers belong to the old deployment or another application.
   if (!mapping) return false;
   const customer = await getAutumnCustomer(env, customerId);
-  await env.APP_DB.prepare("UPDATE app_autumn_customers SET snapshot=?::jsonb,synced_at=?,reconciliation_required=TRUE WHERE customer_id=? AND revision=?")
+  const snapshot = await env.APP_DB.prepare("UPDATE app_autumn_customers SET snapshot=?::jsonb,synced_at=?,reconciliation_required=TRUE WHERE customer_id=? AND revision=?")
     .bind(JSON.stringify(customer), new Date().toISOString(), customerId, mapping.revision).run();
-  const paid = customer.subscriptions.filter((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID && subscription.status === "active" && !subscription.past_due);
+  if (!snapshot.meta.changes) throw new AppError(503, "Subscription reconciliation was superseded by a newer sync.");
+  const finish = async () => {
+    const result = await env.APP_DB.prepare("UPDATE app_autumn_customers SET reconciliation_required=FALSE WHERE customer_id=? AND revision=?")
+      .bind(customerId, mapping.revision).run();
+    if (!result.meta.changes) throw new AppError(503, "Subscription reconciliation was superseded by a newer sync.");
+  };
+  // An overdue payment flag is not cancellation. The current period's invoice
+  // below determines whether an allowance was paid for, including during dunning.
+  const paid = customer.subscriptions.filter((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID && subscription.status === "active");
   if (paid.some((subscription) => subscription.current_period_start === null || subscription.current_period_end === null))
     throw new AppError(503, "The current billing period is not available yet.");
   const active = paid.filter((subscription) => subscription.current_period_end! > Date.now());
@@ -29,8 +37,7 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
       env.APP_DB.prepare("SELECT billing_plan FROM app_accounts WHERE id=?").bind(mapping.account_id),
     ]);
     if (results[2].results[0]?.billing_plan === "pro") throw new AppError(503, "Subscription reconciliation is awaiting pending usage or a newer sync.");
-    await env.APP_DB.prepare("UPDATE app_autumn_customers SET reconciliation_required=FALSE WHERE customer_id=? AND revision=?")
-      .bind(customerId, mapping.revision).run();
+    await finish();
     return true;
   }
   const subscription = active[0];
@@ -46,15 +53,21 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
   const refunded = grant && invoices.list.find((invoice) => invoice?.customer_id === customerId && invoice.stripe_id === grant.invoice_id &&
     typeof invoice.refunded_amount === "number" && invoice.refunded_amount > 0);
   if (refunded) {
-    await env.APP_DB.batch([
+    const results = await env.APP_DB.batch([
       env.APP_DB.prepare("SELECT id FROM app_accounts WHERE id=? FOR UPDATE").bind(mapping.account_id),
       env.APP_DB.prepare(`UPDATE app_accounts SET billing_hold=TRUE WHERE id=? AND EXISTS(SELECT 1 FROM app_autumn_customers WHERE customer_id=? AND revision=?)`)
         .bind(mapping.account_id, customerId, mapping.revision),
-      env.APP_DB.prepare(`UPDATE app_autumn_grants SET revoked_at=? WHERE invoice_id=? AND EXISTS(SELECT 1 FROM app_accounts WHERE id=? AND billing_hold=TRUE)`)
-        .bind(new Date().toISOString(), grant.invoice_id, mapping.account_id),
-      env.APP_DB.prepare(`UPDATE app_accounts SET balance=paid_balance WHERE id=? AND billing_hold=TRUE AND NOT EXISTS(SELECT 1 FROM app_usage WHERE account_id=? AND status='pending')`)
-        .bind(mapping.account_id, mapping.account_id),
+      env.APP_DB.prepare(`UPDATE app_autumn_grants SET revoked_at=? WHERE invoice_id=? AND EXISTS(SELECT 1 FROM app_accounts WHERE id=? AND billing_hold=TRUE)
+        AND EXISTS(SELECT 1 FROM app_autumn_customers WHERE customer_id=? AND revision=?)`)
+        .bind(new Date().toISOString(), grant.invoice_id, mapping.account_id, customerId, mapping.revision),
+      env.APP_DB.prepare(`UPDATE app_accounts SET balance=paid_balance WHERE id=? AND billing_hold=TRUE AND NOT EXISTS(SELECT 1 FROM app_usage WHERE account_id=? AND status='pending')
+        AND EXISTS(SELECT 1 FROM app_autumn_customers WHERE customer_id=? AND revision=?)`)
+        .bind(mapping.account_id, mapping.account_id, customerId, mapping.revision),
     ]);
+    // Commit the hold immediately, but keep delivery retryable until funds from
+    // pending reservations have returned and the allowance can be removed.
+    if (!results[3].meta.changes) throw new AppError(503, "Refund reconciliation is awaiting pending usage or a newer sync.");
+    await finish();
     return true;
   }
   const invoice = invoices.list.find((invoice) => invoice && typeof invoice === "object" &&
@@ -89,7 +102,7 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
         mapping.account_id, customerId, mapping.revision, mapping.account_id, start),
   ]);
   if (!results[4].results.length) throw new AppError(503, "Subscription reconciliation is awaiting pending usage or a newer sync.");
-  await env.APP_DB.prepare("UPDATE app_autumn_customers SET reconciliation_required=FALSE WHERE customer_id=? AND revision=?").bind(customerId, mapping.revision).run();
+  await finish();
   return true;
 }
 
@@ -100,7 +113,7 @@ export async function syncAutumnAccounts(env: AutumnEnv) {
   if (!env.AUTUMN_SECRET_KEY || !env.AUTUMN_PRO_PLAN_ID) return { synced: 0, failed: 0 };
   const day = new Date().toISOString().slice(0, 10);
   await env.APP_DB.prepare("INSERT INTO app_autumn_sync_budget(day) VALUES(?) ON CONFLICT DO NOTHING").bind(day).run();
-  const candidates = await env.APP_DB.prepare("SELECT customer_id FROM app_autumn_customers ORDER BY synced_at NULLS FIRST LIMIT 10")
+  const candidates = await env.APP_DB.prepare("SELECT customer_id FROM app_autumn_customers ORDER BY last_attempt_at NULLS FIRST,customer_id LIMIT 10")
     .all<{ customer_id: string }>();
   let synced = 0, failed = 0;
   for (const candidate of candidates.results) {
