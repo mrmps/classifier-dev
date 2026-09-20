@@ -358,17 +358,17 @@ LIMITS
   3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
   per day. A batch must fit the remaining quota in full. Public smart
   requests accept at most 200 inputs; larger batches return 400 so callers
-  can split them. Existing legacy Pro keys allow 30,000/minute and 200,000/day on
-  fast, 2,000/minute and 20,000/day on smart, per billing account across IPs.
-  Legacy Pro, operator and partner keys retain the 1,000-input ceiling.
-  New workspace keys use the workspace credit balance. See current plans at
-  https://classifier.dev/pricing. Existing legacy Pro keys remain valid and are
-  sent as Authorization: Bearer classifier_pro_... on REST or MCP requests.
+  can split them. Pro workspaces allow 30,000/minute and 200,000/day on
+  fast, 2,000/minute and 20,000/day on smart, shared across keys and agents.
+  Pro, operator and partner keys have a 1,000-input ceiling.
+  Workspace keys use the workspace credit balance and share workspace quotas.
+  Free workspaces have the same ceilings as public access. Current plans are at
+  https://classifier.dev/pricing. Send Authorization: Bearer classifier_agent_...
+  on REST or MCP requests.
 
   Every classification response carries RateLimit-Limit and RateLimit-Policy,
   plus RateLimit-Remaining once the limiter has been consulted (every 200 and
-  429; a 400 never reached it). The older X-RateLimit-Limit and
-  X-RateLimit-Remaining pair is sent too. Over the limit is a 429 with
+  429; a 400 never reached it). Over the limit is a 429 with
   Retry-After; nothing is slowed down or silently dropped.
 
 

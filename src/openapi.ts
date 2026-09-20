@@ -14,8 +14,8 @@ export const ERROR_CODES = [
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
   "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid",
-  // 401/403: paid classification credentials
-  "invalid_pro_key", "pro_inactive",
+  // 401: invalid classification credentials
+  "invalid_api_key",
   // 404
   "not_found",
   // 409: the same skill text is already listed
@@ -27,7 +27,7 @@ export const ERROR_CODES = [
   // 500
   "internal",
   // 503: the skills review needs both models and one of them is down
-  "review_unavailable", "billing_unavailable", "billing_error",
+  "review_unavailable",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number] | `typesafe_${number}` | `openrouter_${number}`;
 export const UPSTREAM_CODE_PATTERN = "^(typesafe|openrouter)_[0-9]{3}$";
@@ -54,9 +54,10 @@ const RATE_LIMIT_HEADERS = {
 };
 const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
-  "401": err("Invalid or replaced legacy Pro API key. Create a workspace key at /app/keys or contact support for a legacy account."),
-  "403": err("Legacy Pro subscription is not active. Log in with your billing email at https://classifier.dev/app/plans to manage it."),
-  "503": err("Subscription verification or Laya inference is temporarily unavailable. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
+  "401": err("Invalid API key. Create a workspace key at /app/keys."),
+  "402": err("Insufficient workspace balance to reserve inference usage."),
+  "403": err("The key is inactive or the workspace cannot authorize usage."),
+  "503": err("Workspace billing or Laya inference is temporarily unavailable. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
   "429": err("Quota or shared Laya capacity reached. Wait Retry-After seconds. Laya trial caps also apply to paid keys and cannot be lifted by upgrading; code laya_rate_limit identifies that lane's admission limit. Daily limits use rate_limit_day.", {
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
@@ -641,11 +642,7 @@ export const OPENAPI = {
           ...ERRORS,
           "200": {
             description: "Classification results",
-            headers: {
-              ...RATE_LIMIT_HEADERS,
-              "X-RateLimit-Limit": { schema: { type: "string" }, description: "The older spelling, kept: e.g. 3000/min" },
-              "X-RateLimit-Remaining": { schema: { type: "string" } },
-            },
+            headers: RATE_LIMIT_HEADERS,
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
           },
           ...ERRORS,
@@ -1102,12 +1099,12 @@ export const OPENAPI = {
     securitySchemes: {
       accountKey: {
         type: "http", scheme: "bearer",
-        description: "Workspace API key (classifier_agent_...) managed at /app/keys. Required for account reads; legacy Pro and partner keys are separate.",
+        description: "Workspace API key (classifier_agent_...) managed at /app/keys. Required for account reads.",
       },
       partnerKey: {
         type: "http",
         scheme: "bearer",
-        description: "Optional for classification. Existing legacy Pro keys (classifier_pro_...) retain 10x limits per billing account. New workspaces use classifier_agent_ keys. Partner keys retain separately arranged access. See https://classifier.dev/auth.md.",
+        description: "Optional for classification. Workspace keys (classifier_agent_...) use the workspace balance and quotas; Pro workspaces get 10x limits. Partner keys have separately arranged access. See https://classifier.dev/auth.md.",
       },
     },
   },
@@ -1242,8 +1239,8 @@ needed, and the receipt you get back can be polled at \`/api/v1/receipts/{id}\`.
 Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
 characters; free requests accept 1,000 inputs on fast or 200 on smart.
-Existing legacy Pro keys retain 10x minute and daily limits per billing account,
-and up to 1,000 inputs on either tier. New workspaces and current plans are at
+Pro workspaces get 10x minute and daily limits shared across keys and agents,
+and up to 1,000 inputs on either tier. Current plans are at
 https://classifier.dev/pricing.
 Exceeding a limit returns 429 with Retry-After.
 

@@ -128,15 +128,16 @@ describe("every discovery document", () => {
     expect(failures).toEqual([]);
   });
 
-  test("authentication docs distinguish workspace credits from existing legacy Pro limits", async () => {
+  test("authentication docs describe workspace credits and Pro quotas", async () => {
     const auth = await (await get("/auth.md")).text();
     expect(auth).toContain("service_auth (workspace key)");
-    expect(auth).toContain("service_auth (existing legacy Pro key)");
+    expect(auth).not.toContain("classifier_pro_");
+    expect(auth).toContain("Pro workspaces get 10x limits");
     expect(auth).toContain("Authorization: Bearer classifier_agent_");
     expect(auth).not.toContain("Pro is $20/month for");
     const docs = await (await get("/")).text();
-    expect(docs).toContain("Existing legacy Pro keys allow 30,000/minute and 200,000/day");
-    expect(docs).toContain("New workspace keys use the workspace credit balance.");
+    expect(docs).toContain("Pro workspaces allow 30,000/minute and 200,000/day");
+    expect(docs).toContain("Workspace keys use the workspace credit balance");
   });
 });
 

@@ -40,7 +40,7 @@ function analytics(operationId: string, summary: string, description: string, pa
 export const ACCOUNT_PATHS = {
   "/v1/account/balance": { get: {
     operationId: "getAccountBalance", summary: "Read exact available and reserved workspace funds",
-    description: "No query parameters. Amounts are USD decimal strings with five fractional digits. Available funds exclude pending reservations. Requires an active workspace API key; legacy Pro and partner keys do not authorize account reads. Responses are private and not cached.",
+    description: "No query parameters. Amounts are USD decimal strings with five fractional digits. Available funds exclude pending reservations. Requires an active workspace API key. Responses are private and not cached.",
     tags: ["account"], security: [{ accountKey: [] }], responses: { ...responses,
       "404": error("Workspace no longer exists."),
       "200": { description: "Exact ledger snapshot", content: json({ type: "object", required: ["currency", "available", "reserved", "exact"], properties: {

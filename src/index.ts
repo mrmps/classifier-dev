@@ -27,11 +27,9 @@ import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
 import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
-export { BillingAccount } from "./billing";
-import { authenticatePro, handleBilling, BillingError, type BillingEnv } from "./billing";
 import { pricingHtml } from "./pricingui";
 
-export interface Env extends BillingEnv, LayaEnv {
+export interface Env extends LayaEnv {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
   /**
@@ -268,7 +266,7 @@ const agentView = (origin: string) => ({
   name: "classifier.dev",
   description: "Zero-shot text classification over plain HTTP. No API key, no account.",
   version: API_VERSION,
-  authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; legacy Pro and partner keys retain their arranged limits", docs: `${origin}/auth.md` },
+  authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; Pro workspaces get 10x limits. Partner keys have separately arranged limits.", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
@@ -1199,16 +1197,6 @@ const worker = {
     const wantsMarkdown =
       req.method === "GET" && (url.searchParams.get("format") === "markdown" || /\btext\/markdown\b/.test(accept));
     const origin = url.origin;
-    if (path === "pro" && req.method === "GET") {
-      return new Response(null, {
-        status: 308,
-        // Old email links carry a token in the fragment. An explicit empty
-        // fragment prevents it being inherited by the new account login flow.
-        headers: { Location: `${origin}/app/plans#`, ...SECURITY },
-      });
-    }
-    const billing = await handleBilling(req, env);
-    if (billing) return billing;
     // The operator dashboard. Returns null for every other path.
     const admin = await adminResponse(req, env, path, ip);
     if (admin) return admin;
@@ -1722,21 +1710,13 @@ const worker = {
       return notFound(req, origin);
     }
 
-    // Paid credentials are resolved only on classification paths. The shared
-    // MCP handler forwards Authorization here too. Never put billing identity
-    // into classification analytics; only the quota bucket uses the account.
-    let pro: { customerId: string; active: boolean } | null = null;
-    if (!enterprise && !account) {
-      try { pro = await authenticatePro(req, env); }
-      catch (error) {
-        if (error instanceof BillingError) return json({ error: error.message, code: error.code }, error.status, { "cache-control": "no-store", "x-api-version": API_VERSION });
-        return json({ error: "Unable to verify Pro access. Try again shortly.", code: "billing_unavailable" }, 503, { "cache-control": "no-store", "x-api-version": API_VERSION });
-      }
+    if (!enterprise && !account && req.headers.has("authorization")) {
+      return json({ error: "Invalid API key. Create a workspace key at /app/keys.", code: "invalid_api_key" }, 401, { "cache-control": "no-store", "x-api-version": API_VERSION });
     }
-    const multiplier = account?.multiplier ?? (pro ? 10 : 1);
-    const quotaOwner = account ? `account:${account.id}` : pro ? `pro:${pro.customerId}` : ip;
-    const quotaScope = account ? "per account" : pro ? "per Pro account" : "per IP";
-    const paid = pro !== null || !!account && multiplier > 1;
+    const multiplier = account?.multiplier ?? 1;
+    const quotaOwner = account ? `account:${account.id}` : ip;
+    const quotaScope = account ? "per account" : "per IP";
+    const paid = multiplier > 1;
 
     // ---- gather params from either shape -----------------------------------
     let inputs: string[] = [];
@@ -1770,13 +1750,11 @@ const worker = {
         "x-api-version": API_VERSION,
         "ratelimit-limit": enterprise && !isLaya ? "unlimited" : String(limit),
         "ratelimit-policy": enterprise && !isLaya ? "unlimited" : `${limit};w=60, ${daily};w=86400`,
-        "x-ratelimit-limit": enterprise && !isLaya ? "unlimited" : `${limit}/min`,
       };
       if (isLaya) h["x-classifier-processing"] = processing;
       if (layaRemaining >= 0) remaining = remaining < 0 ? layaRemaining : Math.min(remaining, layaRemaining);
       if (remaining >= 0) {
         h["ratelimit-remaining"] = String(remaining);
-        h["x-ratelimit-remaining"] = String(remaining);
       }
       const idem = req.headers.get("idempotency-key");
       if (idem) h["idempotency-key"] = idem.slice(0, 255);
@@ -1910,7 +1888,7 @@ const worker = {
     }
     const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
-    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
+    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const regularQuotaStarted = performance.now();
     const gate = enterprise
       ? { limited: false, remaining: -1 }
@@ -1933,7 +1911,6 @@ const worker = {
         perDay ? "rate_limit_day" : "rate_limit_minute",
         {
           "retry-after": String(gate.resetIn ?? 60),
-          "x-ratelimit-limit": perDay ? `${TIERS[tier].daily * multiplier}/day` : `${rpm}/min`,
         },
         0,
         0,

@@ -18,10 +18,15 @@ describe("operator agent access", () => {
     expect(response.status).toBe(400);
     expect(response.headers.get("ratelimit-policy")).toBe("unlimited");
   });
-  test.each([undefined, "Bearer wrong-secret", "Basic operator-test-secret", "Bearer operator-test-secret extra"])("keeps public quotas for missing or malformed auth: %s", async (authorization) => {
-    const response = await request(authorization);
+  test("missing credentials use public quotas", async () => {
+    const response = await request();
     expect(response.status).toBe(400);
     expect(response.headers.get("ratelimit-policy")).not.toBe("unlimited");
+  });
+  test.each(["Bearer wrong-secret", "Basic operator-test-secret", "Bearer operator-test-secret extra"])("rejects invalid credentials: %s", async (authorization) => {
+    const response = await request(authorization);
+    expect(response.status).toBe(401);
+    expect((await response.json()).code).toBe("invalid_api_key");
   });
   test("does not grant access to the private operator report", async () => {
     const response = await worker.fetch(new Request("https://classifier.dev/report", {

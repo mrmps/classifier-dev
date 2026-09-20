@@ -72,11 +72,10 @@ globs = ["**/*.md"]
 # adding to it, and every deploy warns that .txt/.html/.sql will be ignored.
 fallthrough = true
 
-# Billing identities and credentials are isolated from classification analytics.
-[[durable_objects.bindings]]
-name = "BILLING"
-class_name = "BillingAccount"
-
 [[migrations]]
 tag = "v2-billing"
 new_sqlite_classes = ["BillingAccount"]
+
+[[migrations]]
+tag = "v3-workspace-billing"
+deleted_classes = ["BillingAccount"]

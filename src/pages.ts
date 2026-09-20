@@ -244,8 +244,7 @@ AUTHENTICATION
 
   Classification works without a key within the public limits. Create a
   workspace at https://classifier.dev/auth/sign-up and manage workspace keys at
-  https://classifier.dev/app/keys. Existing classifier_pro_ keys keep their
-  legacy 10x limits; new workspaces use classifier_agent_ keys.
+  https://classifier.dev/app/keys. Workspace keys use the classifier_agent_ prefix.
   Send Authorization: Bearer <key> on REST or MCP.
   Partner keys remain supported. https://classifier.dev/auth.md
 
@@ -301,8 +300,8 @@ KEYS AND LIMITS
   response carries RateLimit-Limit and RateLimit-Policy, and RateLimit-Remaining
   once the limiter has been consulted (every 200 and 429); a 429 adds
   Retry-After. Workspace keys are metered against the workspace credit balance;
-  current plans are at https://classifier.dev/pricing. Existing legacy Pro keys
-  retain 10x minute and daily allowances per billing account and accept up to
+  current plans are at https://classifier.dev/pricing. Pro workspaces have
+  10x minute and daily allowances shared across keys and agents, and accept up to
   1,000 inputs per request on both tiers. Use --api-key with the CLI, or set
   CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). https://classifier.dev/auth.md
 
@@ -383,6 +382,7 @@ PRO
   Price                    $${BILLING_PLANS.pro.priceCents / 100}/month
   Included usage           ${formatCreditsUsd(BILLING_PLANS.pro.includedCredits)} each month
   Workspace seats          ${BILLING_PLANS.pro.seatLimit}
+  Rate limits              10x Free, shared across workspace keys and agents
   Billing                  https://classifier.dev/app/plans
 
   Usage is charged to the workspace balance at the published token prices.
@@ -431,19 +431,21 @@ TOKEN PRICES
 
 INCLUDED ON EVERY PLAN
 
-  Classify with your own labels through REST, MCP or the CLI. Inputs are not
-  stored, and billing data stays separate from classification analytics.
+  Fast and Smart classification with your own labels through REST, MCP or the CLI.
   Public requests use the public limits when no workspace key is sent;
   workspace keys charge the workspace balance. Every response reports its
   applicable rate limit and a 429 says how long to wait.
 
 
-LEGACY PRO
+RATE LIMITS
 
-  Existing classifier_pro_ keys keep their 10x public rate limits. New
-  workspaces use the plans above. Log in with your billing email at
-  https://classifier.dev/login?returnTo=/app/plans to manage your existing
-  subscription. You do not need to subscribe again.
+  Free Fast     3,000/minute; 20,000/day
+  Free Smart    200/minute; 2,000/day
+  Pro Fast      30,000/minute; 200,000/day
+  Pro Smart     2,000/minute; 20,000/day
+
+  Limits count classifications and are shared across workspace keys and
+  agents. Public access is limited per IP. Laya trial limits apply to every plan.
 `;
 
 export const ABOUT = `About classifier.dev
@@ -583,8 +585,7 @@ WORKSPACES, API KEYS AND ACTIVITY
   Workspace API keys are stored as a hash for authentication and as an
   encrypted secret so owners and admins can reveal or copy them later.
   Rotating a key invalidates its previous secret. Revoking a key blocks new
-  requests, while retaining its name and usage history. Older Pro credentials
-  stored only as hashes cannot be recovered and must be rotated if lost.
+  requests, while retaining its name and usage history.
 
   Requests authenticated with workspace keys are associated with that
   workspace and key. Usage records include request IDs, timestamps, API or MCP
@@ -627,8 +628,7 @@ COOKIES AND BROWSER STORAGE
   cdnjs.cloudflare.com; Content-Security-Policy restricts other sources.
   Signed-in dashboard access uses an HttpOnly session cookie managed by
   WorkOS AuthKit and a cookie for your selected workspace. Signing out clears
-  dashboard session access and the selected workspace. The older Pro billing
-  flow has its own HttpOnly session cookie, expiring after 30 days or sign-out.
+  dashboard session access and the selected workspace.
   Theme and sidebar preferences are saved in your browser's local storage.
 
 
@@ -642,8 +642,7 @@ AGENTS AND THE MCP SERVERS
 PRO BILLING
 
   Autumn and Stripe handle subscriptions and payments. Workspace billing
-  state and credit adjustments are stored in Neon; the older Pro billing
-  flow uses separate Cloudflare Durable Object storage. Newsletter consent is
+  state and credit adjustments are stored in Neon. Newsletter consent is
   stored independently in the subscriber table. Payment details are entered in
   Stripe checkout. Billing identity is not added to the anonymous public
   service logs; authenticated workspace usage is linked to the workspace
@@ -720,10 +719,9 @@ SUBSCRIPTIONS
   Paid plans are billed by Stripe through Autumn against the card you give at
   checkout and renew monthly until you cancel from your workspace at
   https://classifier.dev/app/plans. Cancelling stops the next charge; included
-  usage stays available through the paid month. Existing legacy Pro subscribers
-  can log in with their billing email to manage the same subscription. Prices can change with notice on
+  usage stays available through the paid month. Prices can change with notice on
   https://classifier.dev/pricing before a renewal. Your API keys are yours to
-  keep secret; requests made with one count against its workspace or legacy
+  keep secret; requests made with one count against its workspace
   allowance whoever sends them.
 
 

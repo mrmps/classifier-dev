@@ -2,7 +2,7 @@ import {
   createStartHandler,
   defaultStreamHandler,
 } from "@tanstack/react-start/server";
-import legacy, { type Env } from "./index";
+import worker, { type Env } from "./index";
 import { AppError, type AppEnv } from "./server/db";
 import { accountMcp } from "./http/mcp";
 import { accountClassification } from "./http/classification";
@@ -11,7 +11,7 @@ import { appEnvironment } from "./server/environment";
 import { accountReadRoutes } from "./http/account";
 import { autumnWebhook } from "./http/autumn-webhook";
 import { syncAutumnAccounts } from "./server/billing-sync";
-export { RateLimiter, BillingAccount } from "./index";
+export { RateLimiter } from "./index";
 
 const start = createStartHandler(defaultStreamHandler);
 export default {
@@ -54,7 +54,7 @@ export default {
         },
       );
     }
-    return legacy.fetch(request, env, ctx);
+    return worker.fetch(request, env, ctx);
   },
   async scheduled(
     controller: ScheduledController,
@@ -64,6 +64,6 @@ export default {
     const env = appEnvironment(bindings);
     if (env.APP_ACCOUNTS_ENABLED === "true")
       ctx.waitUntil(syncAutumnAccounts(env));
-    return legacy.scheduled(controller, env, ctx);
+    return worker.scheduled(controller, env, ctx);
   },
 };
