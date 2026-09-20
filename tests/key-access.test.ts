@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { database } from "./support/postgres";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
 import { getSnapshot } from "../src/server/accounts";
 import { authorizeAndReserve, completeReservation } from "../src/server/usage";
 import type { AppEnv } from "../src/server/db";
 
 test("pausing an API key blocks usage and resuming retains its credential and spend", async () => {
-  const env: AppEnv = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(
+  const env: AppEnv = { APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
+  await provisionTestAccount(
     new Request("http://localhost/login", {
       headers: { Origin: "http://localhost" },
     }),
@@ -53,8 +53,8 @@ test("pausing an API key blocks usage and resuming retains its credential and sp
 });
 
 test("legacy tiny and zero connection caps no longer block usage and new connections have no app-level cap", async () => {
-  const env: AppEnv = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(
+  const env: AppEnv = { APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
+  await provisionTestAccount(
     new Request("http://localhost/login", {
       headers: { Origin: "http://localhost" },
     }),
@@ -92,7 +92,11 @@ test("legacy tiny and zero connection caps no longer block usage and new connect
     expect(connection.used).toBe(1001);
     expect("limit" in connection).toBe(false);
     expect(
-      snapshot.usage.find((row) => row.keyId === created.agentId),
+      await env.APP_DB.prepare(
+        "SELECT credits,status FROM app_usage WHERE agent_id=?",
+      )
+        .bind(created.agentId)
+        .first(),
     ).toMatchObject({ credits: 1001, status: "completed" });
     expect(snapshot.credits.balance).toBe(initialBalance - expectedCost);
     await expect(
@@ -106,8 +110,8 @@ test("legacy tiny and zero connection caps no longer block usage and new connect
 });
 
 test("connections atomically share workspace balance and exhausted workspaces reject further usage", async () => {
-  const env: AppEnv = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(
+  const env: AppEnv = { APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
+  await provisionTestAccount(
     new Request("http://localhost/login", {
       headers: { Origin: "http://localhost" },
     }),
@@ -150,5 +154,9 @@ test("connections atomically share workspace balance and exhausted workspaces re
   expect(snapshot.agents.reduce((total, agent) => total + agent.used, 0)).toBe(
     7,
   );
-  expect(snapshot.usage).toHaveLength(2);
+  expect(
+    await env.APP_DB.prepare(
+      "SELECT COUNT(*) AS count FROM app_usage WHERE account_id='local-demo'",
+    ).first(),
+  ).toEqual({ count: 2 });
 });

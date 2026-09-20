@@ -36,12 +36,7 @@ import {
   measurement,
 } from "./analytics-data";
 import {
-  dailyUsage,
-  hourlyUsage,
-  filterUsage,
-  summarizeUsage,
   tokenTotal,
-  usageBreakdown,
   usageRange,
   type UsageMetric,
   type UsageGranularity,
@@ -62,24 +57,12 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
     ...(keyId !== "all" ? { key_id: keyId } : {}),
     ...(source !== "all" ? { source } : {}),
   };
-  const summary = useAnalytics(
-    snapshot.account.id,
-    !snapshot.demo,
-    "summary",
-    params,
-  );
-  const series = useAnalytics(
-    snapshot.account.id,
-    !snapshot.demo,
-    "timeseries",
-    params,
-  );
-  const groups = useAnalytics(
-    snapshot.account.id,
-    !snapshot.demo,
-    "breakdown",
-    { ...params, group_by: dimension === "key" ? "key" : "tier" },
-  );
+  const summary = useAnalytics(snapshot.account.id, true, "summary", params);
+  const series = useAnalytics(snapshot.account.id, true, "timeseries", params);
+  const groups = useAnalytics(snapshot.account.id, true, "breakdown", {
+    ...params,
+    group_by: dimension === "key" ? "key" : "tier",
+  });
   const loading = summary.loading || series.loading || groups.loading;
   const error = summary.error || series.error || groups.error;
   useEffect(() => {
@@ -87,38 +70,23 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
     if (id && snapshot.keys.some((key) => key.id === id)) setKeyId(id);
   }, []);
   const range = usageRange(days);
-  const aggregates = filterUsage(
-    snapshot.usageAggregates,
-    range,
-    keyId,
-    source,
-  );
-  const totals = snapshot.demo
-    ? summarizeUsage(aggregates)
-    : analyticsTotals(summary.data?.data[0]);
+  const totals = analyticsTotals(summary.data?.data[0]);
   const costKnown =
-    snapshot.demo ||
     measurement(summary.data?.data[0] ?? {}, "retailCostUsd") !== null;
   const tokens = tokenTotal(totals);
-  const chart = !snapshot.demo
-    ? (series.data?.data ?? []).map((row) => ({
-        day: analyticsTimestamp(row.bucket),
-        spend: measurement(row, "retailCostUsd") ?? 0,
-        tokens: tokenTotal(analyticsTotals(row)),
-        requests: measurement(row, "requests") ?? 0,
-      }))
-    : granularity === "hourly"
-      ? hourlyUsage(aggregates, range)
-      : dailyUsage(aggregates, range.dates);
-  const breakdown = snapshot.demo
-    ? usageBreakdown(aggregates, dimension)
-    : (groups.data?.data ?? []).map((row) => ({
-        id: String(row.dimension),
-        name:
-          snapshot.keys.find((key) => key.id === row.dimension)?.name ??
-          String(row.dimension),
-        ...analyticsTotals(row),
-      }));
+  const chart = (series.data?.data ?? []).map((row) => ({
+    day: analyticsTimestamp(row.bucket),
+    spend: measurement(row, "retailCostUsd") ?? 0,
+    tokens: tokenTotal(analyticsTotals(row)),
+    requests: measurement(row, "requests") ?? 0,
+  }));
+  const breakdown = (groups.data?.data ?? []).map((row) => ({
+    id: String(row.dimension),
+    name:
+      snapshot.keys.find((key) => key.id === row.dimension)?.name ??
+      String(row.dimension),
+    ...analyticsTotals(row),
+  }));
   const keyNames = new Map(
     snapshot.usageAggregates.map((row) => [row.keyId, row.keyName]),
   );
@@ -130,25 +98,13 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
   ];
   const typeOptions = [
     { value: "all", label: "All types" },
-    ...(!snapshot.demo
-      ? [
-          { value: "api", label: "API" },
-          { value: "mcp", label: "MCP" },
-        ]
-      : Array.from(
-          new Set([
-            ...snapshot.usageAggregates.map((row) => row.type),
-            ...snapshot.usage.map((row) => row.type),
-          ]),
-          (value) => ({ value, label: value }),
-        )),
+    { value: "api", label: "API" },
+    { value: "mcp", label: "MCP" },
   ];
   const filtered = keyId !== "all" || source !== "all";
   function exportUsage() {
     const csv = [
-      snapshot.demo
-        ? "Time (UTC),Spend (USD),Tokens,Requests"
-        : "Time (UTC),Estimated spend (USD),Estimated tokens,Estimated requests",
+      "Time (UTC),Estimated spend (USD),Estimated tokens,Estimated requests",
       ...chart.map((row) =>
         [row.day, row.spend, row.tokens ?? "", row.requests].join(","),
       ),
@@ -290,15 +246,13 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
           </Button>
         </div>
       </div>
-      {!snapshot.demo && (
-        <p className="text-sm text-muted-foreground">
-          Estimated analytics · retained for 3 months ·{" "}
-          {summary.data?.meta.sampled ? "sampled" : "may be sampled"}. Your
-          billing balance is exact.
-          {summary.data &&
-            ` Queried ${new Date(summary.data.meta.queriedAt).toLocaleTimeString("en-US", { timeZone: "UTC" })} UTC.`}
-        </p>
-      )}
+      <p className="text-sm text-muted-foreground">
+        Estimated analytics · retained for 3 months ·{" "}
+        {summary.data?.meta.sampled ? "sampled" : "may be sampled"}. Your
+        billing balance is exact.
+        {summary.data &&
+          ` Queried ${new Date(summary.data.meta.queriedAt).toLocaleTimeString("en-US", { timeZone: "UTC" })} UTC.`}
+      </p>
       {error ? (
         <div role="alert" className="rounded-xl border border-border p-5">
           <p>{error}</p>
@@ -326,9 +280,7 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
                   {costKnown ? formatCreditsUsd(totals.credits) : "Unavailable"}
                 </dd>
                 <p className="text-xs text-muted-foreground">
-                  {snapshot.demo
-                    ? "Demo usage"
-                    : "Estimated, not your billing balance"}
+                  Estimated, not your billing balance
                 </p>
               </div>
               <div className="flex flex-col gap-2">
@@ -348,8 +300,7 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
                   {count(totals.requests)}
                 </dd>
                 <p className="text-xs text-muted-foreground">
-                  {count(totals.items)} items{" "}
-                  {snapshot.demo ? "classified" : "submitted"}
+                  {count(totals.items)} items submitted
                 </p>
               </div>
             </dl>
@@ -413,12 +364,9 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
                 </Empty>
               )}
               <p className="text-xs text-muted-foreground">
-                {range.start} – {range.end} · UTC ·{" "}
-                {snapshot.demo
-                  ? "Completed requests only."
-                  : "Includes successful and failed requests."}{" "}
-                Today is still in progress.
-                {!snapshot.demo && " Activity can take time to appear."}
+                {range.start} – {range.end} · UTC · Includes successful and
+                failed requests. Today is still in progress. Activity can take
+                time to appear.
               </p>
             </section>
           </div>
@@ -428,7 +376,7 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
           >
             <div className="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
               <h2 id="usage-breakdown" className="font-medium">
-                {snapshot.demo ? "Breakdown" : "Breakdown · top 50"}
+                Breakdown · top 50
               </h2>
               <ToggleGroup
                 value={[dimension]}
@@ -439,9 +387,7 @@ export function Usage({ snapshot }: { snapshot: AppSnapshot }) {
                 aria-label="Usage breakdown grouping"
               >
                 <ToggleGroupItem value="key">By API key</ToggleGroupItem>
-                <ToggleGroupItem value="type">
-                  {snapshot.demo ? "By type" : "By tier"}
-                </ToggleGroupItem>
+                <ToggleGroupItem value="type">By tier</ToggleGroupItem>
               </ToggleGroup>
             </div>
             <Table className="min-w-[560px] table-fixed [&_th]:px-4 [&_th]:sm:px-5 [&_td]:px-4 [&_td]:sm:px-5 [&_td]:h-14 [&_td]:py-3">

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, CreditCard } from "@/components/ui/icons";
@@ -67,12 +66,7 @@ export function Credits({
               <CreditCard className="size-5" />
             </div>
             <div className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold">{plan.name} plan</h2>
-                {billing.mode === "demo" && (
-                  <Badge variant="secondary">Demo</Badge>
-                )}
-              </div>
+              <h2 className="text-base font-semibold">{plan.name} plan</h2>
               <p className="text-sm text-muted-foreground">
                 <span className="tabular-nums">
                   {formatCents(plan.priceCents)}
@@ -127,7 +121,7 @@ export function Credits({
                 ? `Changes to ${scheduledPlan.name} on ${renewal}.`
                 : billing.plan === "free"
                   ? "Free credit is granted once at personal signup. It does not replenish or transfer to teams."
-                  : `${billing.mode === "demo" ? "Demo period renews" : "Renews"} on ${renewal}.`}
+                  : `Renews on ${renewal}.`}
             </p>
             {snapshot.credits.bonus > 0 && (
               <p>
@@ -177,8 +171,6 @@ export function Credits({
                 >
                   {openingPortal ? "Opening…" : "Manage payments and invoices"}
                 </Button>
-              ) : billing.mode === "demo" ? (
-                "No real payments are made in this demo."
               ) : billing.mode === "autumn" ? (
                 "Your workspace owner manages payments and invoices."
               ) : (

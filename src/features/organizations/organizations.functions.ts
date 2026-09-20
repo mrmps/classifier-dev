@@ -25,21 +25,15 @@ export const organizationAction = createServerFn({ method: "POST" })
     const { env } = await import("cloudflare:workers");
     const { getRequest, setResponseHeader } =
       await import("@tanstack/react-start/server");
-    const { requireAccount, assertSameOrigin, isLocalDemo } =
+    const { requireAccount, assertSameOrigin } =
       await import("../../server/auth");
     const { performOrganizationAction, selectedWorkspace } =
       await import("../../server/organizations");
-    const { AppError } = await import("../../server/db");
     const bindings = appEnvironment(env);
     const request = getRequest();
     assertSameOrigin(request);
     setResponseHeader("Cache-Control", "no-store");
     const identity = await requireAccount(request, bindings);
-    if (data?.type !== "switch" && !isLocalDemo(request, bindings))
-      throw new AppError(
-        503,
-        "Hosted organization management is not configured.",
-      );
     const result = await performOrganizationAction(
       identity,
       selectedWorkspace(request),

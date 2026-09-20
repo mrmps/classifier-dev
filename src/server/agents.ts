@@ -1,7 +1,4 @@
 import { createApiKey, revealApiKey, rotateApiKey } from "./api-keys";
-import { isDemoWorkspace } from "./organizations";
-import { performBillingAction } from "./billing";
-import { isBillingPlanId } from "../lib/billing";
 import type { AppAction, ActionResult } from "./contracts";
 import { AppError, type AppEnv } from "./db";
 import { getSnapshot } from "./accounts";
@@ -11,15 +8,10 @@ export async function performAction(
   env: AppEnv,
 ): Promise<ActionResult> {
   action = validateAppAction(action);
-  if (
-    !(await isDemoWorkspace(accountId, env)) &&
-    env.APP_ACCOUNTS_ENABLED !== "true"
-  )
+  if (env.APP_ACCOUNTS_ENABLED !== "true")
     throw new AppError(503, "Account management is not enabled yet.");
   let secret: string | undefined, agentId: string | undefined;
-  if (action.type === "billing-subscribe") {
-    await performBillingAction(accountId, action, env);
-  } else if (action.type === "enroll" || action.type === "create-key") {
+  if (action.type === "enroll" || action.type === "create-key") {
     const client = action.type === "enroll" ? action.client : "API";
     const name = (action.name || client).trim();
     if (!name || name.length > 80 || !client || client.length > 40)
@@ -102,10 +94,6 @@ export function validateAppAction(value: unknown): AppAction {
         403,
         "Only subscriptions are available. Top-ups and automatic purchases are disabled.",
       );
-    case "billing-subscribe":
-      if (!text("idempotencyKey", 120) || !isBillingPlanId(action.plan))
-        throw new AppError(400, "Invalid plan.");
-      break;
     case "refresh":
       break;
     case "enroll":

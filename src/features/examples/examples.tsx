@@ -59,11 +59,9 @@ export function ExampleCards({
 }
 export function ExamplePage({
   slug,
-  demo,
   navigate,
 }: {
   slug?: string;
-  demo: boolean;
   navigate: (path: string) => void;
 }) {
   const example = examples.find((item) => item.slug === slug);
@@ -110,13 +108,13 @@ export function ExamplePage({
                 className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words text-xs leading-6"
               >
                 {value === "agent"
-                  ? getConnectionTask(sample, demo)
+                  ? getConnectionTask(sample)
                   : JSON.stringify(sample, null, 2)}
               </pre>
               <CopyButton
                 value={
                   value === "agent"
-                    ? getConnectionTask(sample, demo)
+                    ? getConnectionTask(sample)
                     : JSON.stringify(sample, null, 2)
                 }
                 label={value === "agent" ? "Copy task" : "Copy JSON"}

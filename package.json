@@ -15,8 +15,7 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 3000",
     "db:migrate": "bun scripts/migrate-postgres.ts",
-    "db:local": "bun --env-file=.dev.vars scripts/migrate-postgres.ts",
-    "demo": "npm run db:local && npm run dev"
+    "db:local": "bun --env-file=.dev.vars scripts/migrate-postgres.ts"
   },
   "keywords": [],
   "author": "Michael Ryaboy",

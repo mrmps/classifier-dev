@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/tooltip";
 import { getAgentSetupPrompt } from "../onboarding/connection-instructions";
 
-export function HomeSetupPrompt({ demo }: { demo: boolean }) {
+export function HomeSetupPrompt() {
   const [origin, setOrigin] = useState("");
   const [dismissed, setDismissed] = useState(false);
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
@@ -18,7 +18,7 @@ export function HomeSetupPrompt({ demo }: { demo: boolean }) {
   }, []);
   if (dismissed) return null;
   async function copy() {
-    const prompt = `Set up classifier.dev in my coding agent. Identify the client I’m using first; if you cannot determine it, ask me which client to configure.\n\n${getAgentSetupPrompt("Other", origin, demo)}`;
+    const prompt = `Set up classifier.dev in my coding agent. Identify the client I’m using first; if you cannot determine it, ask me which client to configure.\n\n${getAgentSetupPrompt("Other", origin)}`;
     try {
       await navigator.clipboard.writeText(prompt);
       setStatus("copied");

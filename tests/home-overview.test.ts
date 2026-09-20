@@ -3,15 +3,19 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Home } from "../src/features/dashboard/home";
 import { getSnapshot } from "../src/server/accounts";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
 import { authorizeAndReserve, completeReservation } from "../src/server/usage";
 import type { AppEnv } from "../src/server/db";
 import { database } from "./support/postgres";
 let env: AppEnv;
 beforeEach(async () => {
-  env = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(
+  env = {
+    APP_DB: database(),
+    APP_ACCOUNTS_ENABLED: "true",
+    API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters",
+  };
+  await provisionTestAccount(
     new Request("http://localhost/login", {
       headers: { Origin: "http://localhost" },
     }),
@@ -37,7 +41,7 @@ test("a new or unused-key workspace starts with both setup paths, not empty char
 });
 test("home always exposes balance and setup without an onboarding link", async () => {
   const html = await render(true);
-  expect(html).toContain("Used this period");
+  expect(html).toContain("Estimated spend · 7 days");
   expect(html).toContain("Remaining balance");
   expect(html).toContain("Current plan");
   expect(html).toContain("Try an API request");
@@ -59,9 +63,9 @@ test("successful attributed use unlocks the overview with activity and hourly us
   );
   await completeReservation(reservation!, env, true);
   const html = await render();
-  expect(html).toContain("Spend by hour, in UTC");
+  expect(html).toContain("Last 7 days · hourly · UTC");
   expect(html).toContain("Feedback app");
-  expect(html).toContain("Succeeded");
+  expect(html).toContain("View sampled activity");
   expect(html).toContain("Your API key");
   expect(html).not.toContain("Continue setup");
   expect(html).not.toContain(created.secret!);

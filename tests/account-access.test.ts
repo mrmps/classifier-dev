@@ -39,12 +39,10 @@ test("paused, revoked, malformed and unknown credentials cannot read account dat
   await expect(requireApiAccount(new Request("https://classifier.dev/v1/account/balance"), env)).rejects.toThrow("Provide");
 });
 
-test("production feature gate and local credential isolation are enforced", async () => {
+test("the production feature gate applies identically on every hostname", async () => {
   const env = await setup();
   await expect(requireApiAccount(request(), { ...env, APP_ACCOUNTS_ENABLED: "false" })).rejects.toThrow("not enabled");
-  await expect(requireApiAccount(request("local-demo"), env)).rejects.toThrow("Local credentials");
-  expect(await requireApiAccount(request("local-demo", "/v1/account/balance", "http://localhost"),
-    { ...env, APP_DEMO: "true", APP_ACCOUNTS_ENABLED: "false" })).toBe("local-demo");
+  expect(await requireApiAccount(request("local-demo"), env)).toBe("local-demo");
 });
 
 test("analytics SQL tenant is derived from key and revoked keys never query AE", async () => {

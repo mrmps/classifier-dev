@@ -3,11 +3,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Link2,
-} from "@/components/ui/icons";
+import { ArrowLeft, ArrowRight, Link2 } from "@/components/ui/icons";
 import type { ElementType } from "react";
 import type { ActionResult, AppAction, AppSnapshot } from "@/server/contracts";
 import { AgentSetup } from "./agent-setup";
@@ -240,10 +236,8 @@ export function AgentCatalog({
               )}
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
-              Authenticate with an API key using a Bearer header.
-              {snapshot.demo
-                ? " This local server must stay running and is only reachable from your computer."
-                : " Uses Streamable HTTP."}
+              Authenticate with an API key using a Bearer header. Uses
+              Streamable HTTP.
             </p>
           </section>
           <section
@@ -277,9 +271,6 @@ export function AgentCatalog({
             <p className="text-xs leading-5 text-muted-foreground">
               Set CLASSIFY_API_KEY in your environment to attribute requests to
               your workspace.
-              {snapshot.demo
-                ? " Set CLASSIFY_ENDPOINT to this server’s /v1/classify endpoint for local usage."
-                : ""}
             </p>
           </section>
         </div>

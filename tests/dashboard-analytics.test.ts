@@ -8,7 +8,7 @@ import {
   measurement,
 } from "../src/features/usage/analytics-data";
 import { getSnapshot } from "../src/server/accounts";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { Usage } from "../src/features/usage/usage";
 import { Activity } from "../src/features/usage/activity";
 import { Credits } from "../src/features/billing/credits";
@@ -45,11 +45,11 @@ test("analytics ranges use UTC, stay inside retention, and stabilize minute prec
 
 test("hosted dashboard never scans the usage ledger and renders loading rather than zero", async () => {
   const db = database();
-  await demoLogin(
+  await provisionTestAccount(
     new Request("http://localhost/login", {
       headers: { origin: "http://localhost" },
     }),
-    { APP_DB: db, APP_DEMO: "true" },
+    { APP_DB: db, APP_ACCOUNTS_ENABLED: "true" },
   );
   const queries: string[] = [];
   const snapshot = await getSnapshot("local-demo", {
@@ -62,7 +62,6 @@ test("hosted dashboard never scans the usage ledger and renders loading rather t
     },
   });
   expect(queries.some((sql) => sql.includes("app_usage"))).toBe(false);
-  expect(snapshot.demo).toBe(false);
   const usage = renderToStaticMarkup(createElement(Usage, { snapshot }));
   expect(usage).toContain("Loading usage");
   expect(usage).toContain("Estimated analytics");
@@ -80,7 +79,6 @@ test("hosted dashboard never scans the usage ledger and renders loading rather t
     createElement(Plans, {
       snapshot,
       navigate() {},
-      act: async () => ({ snapshot }),
     }),
   );
   expect(plans).toContain("Token prices");

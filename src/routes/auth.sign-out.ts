@@ -1,12 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { signOut } from "@workos/authkit-tanstack-react-start";
 import { env } from "cloudflare:workers";
-import {
-  assertSameOrigin,
-  isLocalDemo,
-  logout,
-  workosConfigured,
-} from "../server/auth";
+import { assertSameOrigin, workosConfigured } from "../server/auth";
 import type { AppEnv } from "../server/db";
 import { appEnvironment } from "../server/environment";
 export const Route = createFileRoute("/auth/sign-out")({
@@ -15,7 +10,6 @@ export const Route = createFileRoute("/auth/sign-out")({
       POST: async ({ request }) => {
         assertSameOrigin(request);
         const bindings = appEnvironment(env);
-        if (isLocalDemo(request, bindings)) return logout(request, bindings);
         if (!workosConfigured(bindings))
           return new Response("Sign-in is not configured.", { status: 503 });
         await signOut({ data: { returnTo: "/" } });

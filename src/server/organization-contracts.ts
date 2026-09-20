@@ -24,7 +24,7 @@ export interface OrganizationContext {
     createdAt: string;
     status: "prepared";
   }>;
-  mode: "demo" | "unconfigured";
+  mode: "unconfigured";
 }
 export type OrganizationAction =
   | { type: "create"; name: string }

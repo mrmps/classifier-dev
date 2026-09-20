@@ -78,10 +78,7 @@ export function Team({
   >(null);
   const usedSeats = context.members.length + context.invitations.length;
   const full = seatLimit !== null && usedSeats >= seatLimit;
-  const canManage =
-    context.mode === "demo" &&
-    context.active.kind === "organization" &&
-    context.active.role !== "member";
+  const canManage = false;
   async function run(action: Parameters<OrganizationActionHandler>[0]) {
     if (busy) return;
     setBusy(true);
@@ -105,20 +102,21 @@ export function Team({
         title="Team"
         description="The people in your organization and what they can manage."
         action={
-          context.active.kind === "organization" &&
-          <Button
-            disabled={!canManage || busy}
-            onClick={() => {
-              if (full) navigate("/app/plans");
-              else {
-                setError("");
-                setInviteOpen(true);
-              }
-            }}
-          >
-            <Plus data-icon="inline-start" />
-            {full ? "View plans" : "Prepare invitation"}
-          </Button>
+          context.active.kind === "organization" && (
+            <Button
+              disabled={!canManage || busy}
+              onClick={() => {
+                if (full) navigate("/app/plans");
+                else {
+                  setError("");
+                  setInviteOpen(true);
+                }
+              }}
+            >
+              <Plus data-icon="inline-start" />
+              {full ? "View plans" : "Prepare invitation"}
+            </Button>
+          )
         }
       />
       {context.active.kind === "personal" && (
@@ -129,15 +127,13 @@ export function Team({
       )}
       {context.active.kind === "organization" && !canManage && (
         <p className="text-sm text-muted-foreground">
-          {context.mode !== "demo"
-            ? "Team changes are not available in this workspace yet."
-            : "An owner or admin can manage invitations. Ask them to add a teammate."}
+          Team changes are not available in this workspace yet.
         </p>
       )}
       {canManage && full && (
         <p className="text-sm text-muted-foreground">
-          All {seatLimit} seats are in use, including prepared invitations. Cancel
-          an unused invitation or upgrade to a plan with more seats.
+          All {seatLimit} seats are in use, including prepared invitations.
+          Cancel an unused invitation or upgrade to a plan with more seats.
         </p>
       )}
       <section
@@ -386,8 +382,7 @@ export function Team({
               </Field>
             </FieldGroup>
             <p className="rounded-lg bg-muted p-3 text-xs leading-relaxed text-muted-foreground">
-              Local demo: this saves a prepared invitation. Email delivery and
-              accepting invitations are not connected yet.
+              Email delivery and accepting invitations are not connected yet.
             </p>
             {error && (
               <p role="alert" className="text-sm text-destructive">

@@ -28,11 +28,12 @@ workspaces receive one Default key on their first dashboard load. Revoking it
 does not cause a replacement to be generated. Default and named keys have the
 same permissions and work with both the API and supported MCP clients.
 
-Run `npm install`, then `npm run demo`. This applies `migrations/postgres/*.sql`
-to the development branch before starting the repository's Vite/Cloudflare
-runtime at http://127.0.0.1:3000. Migration execution requires Bun. The local demo
-persists its account data in that Neon branch; only local Durable Objects/KV use
-`.wrangler/state`.
+Run `npm install`, `npm run db:local`, then `npm run dev`. This applies
+`migrations/postgres/*.sql` to the development branch before starting the
+repository's Vite/Cloudflare runtime at http://127.0.0.1:3000. Migration
+execution requires Bun. Local development uses the same product paths as hosted
+deployments, backed by development credentials; only local Durable Objects/KV
+use `.wrangler/state`.
 
 A regular `postgres://localhost/...` URL does **not** work in this Worker: Neon
 HTTP requires Neon's query endpoint. Native PostgreSQL URLs are supported by the

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { database } from "./support/postgres";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
 import { authorizeAndReserve } from "../src/server/usage";
 import { extendTokenReservation, providerCallBound } from "../src/server/token-reservation";
@@ -18,8 +18,8 @@ test("provider bounds reject unpriced fallback and invalid output allowance", ()
 });
 
 test("parallel reservation extensions cannot overspend and refund restores paid sources once", async () => {
-  const env: AppEnv = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(new Request("http://localhost/login", { headers: { origin: "http://localhost" } }), env);
+  const env: AppEnv = { APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
+  await provisionTestAccount(new Request("http://localhost/login", { headers: { origin: "http://localhost" } }), env);
   await env.APP_DB.prepare("UPDATE app_accounts SET balance=1000,paid_balance=700 WHERE id='local-demo'").run();
   const key = await performAction("local-demo", { type: "create-key", name: "Reservation test" }, env);
   const request = new Request("http://localhost/v1/classify", { headers: { authorization: `Bearer ${key.secret}` } });

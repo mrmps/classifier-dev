@@ -54,8 +54,8 @@ test("local dev uses the same SQL runtime without a fake D1 database", () => {
   const config = Bun.TOML.parse(readFileSync(new URL("wrangler.local.toml", root), "utf8")) as any;
   expect(config.main).toBe("src/server.ts");
   expect(config.d1_databases).toBeUndefined();
-  expect(config.vars.APP_DEMO).toBe("true");
-  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("false");
+  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("true");
+  expect(config.vars.APP_DEMO).toBeUndefined();
   expect(config.vars.DATABASE_URL).toBeUndefined();
 });
 

@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { database } from "./support/postgres";
-import { clearWorkspaceSelection, demoLogin, isLocalDemo, logout, requireAccount } from "../src/server/auth";
+import { clearWorkspaceSelection } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { getSnapshot } from "../src/server/accounts";
 import { performAction } from "../src/server/agents";
 import { authorizeAndReserve, completeReservation } from "../src/server/usage";
@@ -19,82 +20,35 @@ async function enroll() {
   );
 }
 beforeEach(async () => {
-  env = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(
+  env = {
+    APP_DB: database(),
+    APP_ACCOUNTS_ENABLED: "true",
+    API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters",
+  };
+  await provisionTestAccount(
     new Request("http://localhost/login", {
       headers: { Origin: "http://localhost" },
     }),
     env,
   );
 });
-describe("local account lifecycle", () => {
-  test("authentication transitions clear previous workspace selection without losing auth cookies", async () => {
-    const request = new Request("http://localhost/auth/demo", {
-      headers: { Origin: "http://localhost", Cookie: "classifier_workspace=old-team" },
-    });
-    const login = await demoLogin(request, env);
-    expect(login.headers.getSetCookie()).toHaveLength(2);
-    expect(login.headers.getSetCookie()[1]).toContain("classifier_workspace=;");
-    expect(login.headers.getSetCookie()[1]).toContain("Max-Age=0");
-    const cookie = login.headers.getSetCookie()[0];
-    const signedOut = await logout(new Request("http://localhost/auth/logout", {
-      headers: { Origin: "http://localhost", Cookie: cookie },
-    }), env);
-    expect(signedOut.headers.getSetCookie()).toHaveLength(2);
-    expect(signedOut.headers.getSetCookie()[1]).toContain("classifier_workspace=;");
-    await expect(requireAccount(new Request("http://localhost/app", {
-      headers: { Cookie: cookie },
-    }), env)).rejects.toThrow("session expired");
-
-    const callback = clearWorkspaceSelection(new Response(null, {
-      status: 302,
-      headers: { "Set-Cookie": "wos-session=session; Secure; HttpOnly", Location: "/app" },
-    }), new Request("https://classifier.dev/api/auth/callback"));
-    expect(callback.headers.getSetCookie()[0]).toBe("wos-session=session; Secure; HttpOnly");
+describe("account lifecycle", () => {
+  test("authentication transitions clear the previous workspace selection", () => {
+    const callback = clearWorkspaceSelection(
+      new Response(null, {
+        status: 302,
+        headers: {
+          "Set-Cookie": "wos-session=session; Secure; HttpOnly",
+          Location: "/app",
+        },
+      }),
+      new Request("https://classifier.dev/api/auth/callback"),
+    );
+    expect(callback.headers.getSetCookie()[0]).toBe(
+      "wos-session=session; Secure; HttpOnly",
+    );
     expect(callback.headers.getSetCookie()[1]).toContain("Secure");
     expect(callback.headers.get("Location")).toBe("/app");
-  });
-  test("local auth rejects deployed origins, proxied requests and missing opt-in", () => {
-    expect(isLocalDemo(new Request("https://classifier.dev"), env)).toBe(false);
-    expect(
-      isLocalDemo(
-        new Request("http://localhost", { headers: { "CF-Ray": "remote" } }),
-        env,
-      ),
-    ).toBe(false);
-    expect(
-      isLocalDemo(
-        new Request("http://localhost", {
-          headers: { "X-Forwarded-For": "8.8.8.8" },
-        }),
-        env,
-      ),
-    ).toBe(false);
-    expect(isLocalDemo(request(), { ...env, APP_DEMO: "false" })).toBe(false);
-  });
-  test("login session survives requests and cookie never contains a key", async () => {
-    const login = await demoLogin(
-      new Request("http://localhost/login", {
-        headers: { Origin: "http://localhost" },
-      }),
-      env,
-    );
-    const cookie = login.headers.get("Set-Cookie")!;
-    expect(cookie).toContain("HttpOnly");
-    expect(
-      await requireAccount(
-        new Request("http://localhost/app", { headers: { Cookie: cookie } }),
-        env,
-      ),
-    ).toBe("local-demo");
-    await expect(
-      requireAccount(
-        new Request("https://classifier.dev/app", {
-          headers: { Cookie: cookie },
-        }),
-        env,
-      ),
-    ).rejects.toThrow();
   });
   test("successful first call settles usage only once without granting extra credits", async () => {
     const enrolled = await enroll();
@@ -109,7 +63,11 @@ describe("local account lifecycle", () => {
     expect(snap.credits.balance).toBe(499997);
     expect(snap.agents[0].used).toBe(3);
     expect(snap.agents[0].status).toBe("connected");
-    expect(snap.usage[0].status).toBe("completed");
+    expect(
+      await env.APP_DB.prepare(
+        "SELECT status FROM app_usage WHERE account_id='local-demo' LIMIT 1",
+      ).first(),
+    ).toEqual({ status: "completed" });
     expect(JSON.stringify(snap)).not.toContain(enrolled.secret!);
   });
   test("upstream failure refunds once and does not activate", async () => {
@@ -249,45 +207,7 @@ describe("credit periods and reservation recovery", () => {
     expect((await getSnapshot("local-demo", env)).credits.balance).toBe(500000);
     expect((await getSnapshot("local-demo", env)).agents[0].used).toBe(0);
   });
-  test("stale reservations refund exactly once; late success cannot grant a bonus", async () => {
-    const connection = await enroll();
-    const reservation = (await authorizeAndReserve(
-      request(connection.secret),
-      env,
-      3,
-    ))!;
-    await env.APP_DB.prepare(
-      "UPDATE app_usage SET created_at='2020-01-01T00:00:00.000Z' WHERE id=?",
-    )
-      .bind(reservation.id)
-      .run();
-    await getSnapshot("local-demo", env);
-    await getSnapshot("local-demo", env);
-    await completeReservation(reservation, env, true);
-    const snapshot = await getSnapshot("local-demo", env);
-    expect(snapshot.credits.balance).toBe(500000);
-    expect(snapshot.credits.bonus).toBe(0);
-    expect(snapshot.agents[0].used).toBe(0);
-    expect(snapshot.onboarding.completed).toBe(false);
-  });
-  test("rejects expired sessions and malformed runtime actions", async () => {
-    const login = await demoLogin(
-      new Request("http://localhost/login", {
-        headers: { Origin: "http://localhost" },
-      }),
-      env,
-    );
-    await env.APP_DB.prepare(
-      "UPDATE app_sessions SET expires_at='2020-01-01T00:00:00.000Z'",
-    ).run();
-    await expect(
-      requireAccount(
-        new Request("http://localhost/app", {
-          headers: { Cookie: login.headers.get("Set-Cookie")! },
-        }),
-        env,
-      ),
-    ).rejects.toThrow("expired");
+  test("rejects malformed runtime actions", async () => {
     for (const action of [
       null,
       {},

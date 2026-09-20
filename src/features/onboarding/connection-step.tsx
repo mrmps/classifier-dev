@@ -19,17 +19,13 @@ export function ConnectionStep({
   secret,
   sample,
   busy,
-  onVerify,
   onCheck,
-  demo,
 }: {
   client: string;
   secret: string;
   sample: OnboardingSample;
   busy: boolean;
-  onVerify: () => void;
   onCheck: () => void;
-  demo: boolean;
 }) {
   const api = client === "your app";
   const [tab, setTab] = useState<"setup" | "test">(api ? "test" : "setup");
@@ -41,7 +37,6 @@ export function ConnectionStep({
     client,
     secret,
     origin,
-    demo,
   });
   const command = [
     `curl ${origin}/v1/classify`,
@@ -49,7 +44,7 @@ export function ConnectionStep({
     `  -H 'Content-Type: application/json'`,
     `  -d '${JSON.stringify(sample).replaceAll("'", "'\"'\"'")}'`,
   ].join(" \\\n");
-  const task = getConnectionTask(sample, demo);
+  const task = getConnectionTask(sample);
   return (
     <>
       <div className="step-heading">
@@ -78,12 +73,11 @@ export function ConnectionStep({
         <section id="connection-setup" aria-label="Agent setup">
           {client === "ChatGPT" ? (
             <Alert>
-              <AlertTitle>ChatGPT cannot reach this local server.</AlertTitle>
+              <AlertTitle>ChatGPT workspace setup is not available yet.</AlertTitle>
               <AlertDescription>
-                This demo runs on your computer. ChatGPT requires a publicly
-                reachable HTTPS MCP server and a supported authentication flow.
-                Use Claude Code, Codex, or Cursor locally, or test this
-                credential below.
+                ChatGPT requires a publicly reachable HTTPS MCP server and a
+                supported authentication flow. Use Claude Code, Codex, Cursor,
+                or test this credential below.
               </AlertDescription>
               <Button variant="outline" onClick={() => setTab("test")}>
                 Test the API instead <ArrowRight data-icon="inline-end" />
@@ -134,9 +128,8 @@ export function ConnectionStep({
               </div>
               <p className="subtle-note">
                 <InfoIcon size={16} aria-hidden="true" />
-                {demo
-                  ? "Keep the local development server running while your agent uses it."
-                  : "We will verify the first successful classification automatically."}
+                We will verify the first successful classification
+                automatically.
               </p>
               <p className="tiny muted connection-wait" role="status">
                 Waiting for your first classification. Copying setup
@@ -155,27 +148,11 @@ export function ConnectionStep({
             <pre tabIndex={0}>{command}</pre>
           </div>
           <Alert>
-            <AlertTitle>
-              {demo ? "Try a real request locally" : "Verify your credential"}
-            </AlertTitle>
+            <AlertTitle>Verify your credential</AlertTitle>
             <AlertDescription>
-              {demo
-                ? "Run the command in your terminal, or send a request from this browser. Classification runs through classifier.dev; usage is saved locally. Browser verification tests the credential, not installation in your agent."
-                : "Run the command from your client. We will confirm the first successful request automatically."}
+              Run the command from your client. We will confirm the first
+              successful request automatically.
             </AlertDescription>
-            {demo && (
-              <Button variant="default" disabled={busy} onClick={onVerify}>
-                {busy ? (
-                  <LoaderCircle
-                    className="animate-spin"
-                    data-icon="inline-start"
-                  />
-                ) : (
-                  <ArrowRight data-icon="inline-end" />
-                )}{" "}
-                Run first classification
-              </Button>
-            )}
           </Alert>
         </section>
       )}

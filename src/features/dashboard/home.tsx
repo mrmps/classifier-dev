@@ -9,8 +9,6 @@ import { KeyAccess } from "../keys/key-access";
 import { ApiSetup } from "../onboarding/connection-setup";
 import { ExampleCards } from "../examples/examples";
 import { UsageChart } from "../usage/usage-chart";
-import { hourlyUsage, usageRange } from "../usage/usage-data";
-import { ActivityTable } from "../usage/activity";
 import { useAnalytics } from "../usage/use-analytics";
 import {
   analyticsParameters,
@@ -32,20 +30,20 @@ export function Home({
   const plan = BILLING_PLANS[snapshot.billing.plan];
   const summary = useAnalytics(
     snapshot.account.id,
-    !snapshot.demo,
+    true,
     "summary",
     analyticsParameters(7, "hourly"),
   );
   const series = useAnalytics(
     snapshot.account.id,
-    !snapshot.demo && used,
+    used,
     "timeseries",
     analyticsParameters(7, "hourly"),
   );
   const spend = measurement(summary.data?.data[0] ?? {}, "retailCostUsd");
   return (
     <div className="flex min-w-0 flex-col gap-8">
-      <HomeSetupPrompt demo={snapshot.demo} />
+      <HomeSetupPrompt />
       <PageHeader
         title="Home"
         description={
@@ -60,21 +58,17 @@ export function Home({
       >
         <div className="rounded-xl border border-border p-5">
           <p className="text-sm text-muted-foreground">
-            {snapshot.demo ? "Used this period" : "Estimated spend · 7 days"}
+            Estimated spend · 7 days
           </p>
           <p className="mt-3 text-2xl font-medium tabular-nums">
-            {snapshot.demo
-              ? formatCreditsUsd(snapshot.usageTotals.credits)
-              : summary.loading
-                ? "Loading…"
-                : spend === null
-                  ? "Unavailable"
-                  : formatCreditsUsd(spend * 100_000)}
+            {summary.loading
+              ? "Loading…"
+              : spend === null
+                ? "Unavailable"
+                : formatCreditsUsd(spend * 100_000)}
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            {snapshot.demo
-              ? `${snapshot.usageTotals.requests.toLocaleString()} requests`
-              : "Analytics may be sampled; balance is exact"}
+            Analytics may be sampled; balance is exact
           </p>
         </div>
         <div className="rounded-xl border border-border p-5">
@@ -124,23 +118,18 @@ export function Home({
             <p role="alert">{series.error}</p>
           ) : series.loading ? (
             <p role="status">Loading usage…</p>
-          ) : !snapshot.demo &&
-            series.data?.data.some(
+          ) : series.data?.data.some(
               (row) => measurement(row, "retailCostUsd") === null,
             ) ? (
             <p>Spend is unavailable for some requests.</p>
           ) : (
             <UsageChart
-              data={
-                snapshot.demo
-                  ? hourlyUsage(snapshot.usageAggregates, usageRange(7))
-                  : (series.data?.data ?? []).map((row) => ({
-                      day: analyticsTimestamp(row.bucket),
-                      spend: measurement(row, "retailCostUsd") ?? 0,
-                      requests: measurement(row, "requests") ?? 0,
-                      tokens: null,
-                    }))
-              }
+              data={(series.data?.data ?? []).map((row) => ({
+                day: analyticsTimestamp(row.bucket),
+                spend: measurement(row, "retailCostUsd") ?? 0,
+                requests: measurement(row, "requests") ?? 0,
+                tokens: null,
+              }))}
               metric="spend"
               granularity="hourly"
             />
@@ -208,14 +197,10 @@ export function Home({
             View all <ArrowRight />
           </Button>
         </div>
-        {snapshot.demo ? (
-          <ActivityTable rows={snapshot.usage.slice(0, 5)} />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            View sampled activity from the last 3 months. Request history is
-            loaded only when you open Activity.
-          </p>
-        )}
+        <p className="text-sm text-muted-foreground">
+          View sampled activity from the last 3 months. Request history is
+          loaded only when you open Activity.
+        </p>
       </section>
     </div>
   );
