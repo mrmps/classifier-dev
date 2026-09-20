@@ -421,12 +421,6 @@
       transparent 53%
     );
   }
-  .login-brand {
-    margin: 32px 42px;
-    font-size: 19px;
-    letter-spacing: -0.7px;
-    font-weight: 550;
-  }
   .login-panel {
     width: min(430px, calc(100% - 44px));
     margin: auto;
@@ -448,28 +442,6 @@
     width: 100%;
     height: 44px;
     font-size: 13px;
-  }
-  .login-note {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 7px;
-    color: var(--foreground-muted);
-    font-size: 11px;
-    margin-top: 18px;
-  }
-  .login-panel > .login-disclosure {
-    font-size: 10px;
-    line-height: 1.8;
-    max-width: 325px;
-    color: var(--foreground-faint);
-    margin-top: 22px;
-  }
-  .login-page > footer {
-    text-align: center;
-    padding: 28px;
-    color: var(--foreground-faint);
-    font-size: 11px;
   }
   .theme-changing *,
   .theme-changing *::before,
