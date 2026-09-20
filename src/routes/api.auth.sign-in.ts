@@ -16,7 +16,13 @@ export const Route = createFileRoute("/api/auth/sign-in")({
           });
         const search = new URL(request.url).searchParams;
         const returnPathname = authReturnPath(search.get("returnTo") ?? search.get("returnPathname"));
-        return authNavigationResponse(await getSignInUrl({ data: { returnPathname } }), returnPathname, request);
+        const url = new URL(await getSignInUrl({ data: { returnPathname } }));
+        // AuthKit's invitation entry point supplies this token. Preserve the SDK's
+        // PKCE/state cookies while forwarding the documented WorkOS parameter.
+        const invitationToken = search.get("invitation_token");
+        if (invitationToken && invitationToken.length <= 2048)
+          url.searchParams.set("invitation_token", invitationToken);
+        return authNavigationResponse(url.href, returnPathname, request);
       },
     },
   },

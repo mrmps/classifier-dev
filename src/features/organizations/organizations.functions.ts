@@ -4,7 +4,7 @@ import { appEnvironment } from "../../server/environment";
 export const getOrganizationContext = createServerFn({ method: "GET" }).handler(
   async () => {
     const { env } = await import("cloudflare:workers");
-    const { getRequest, setResponseHeader } =
+    const { getRequest, setResponseHeader, setCookie } =
       await import("@tanstack/react-start/server");
     const { requireAccount } = await import("../../server/auth");
     const { getOrganizationContext, selectedWorkspace } =
@@ -23,7 +23,7 @@ export const organizationAction = createServerFn({ method: "POST" })
   .validator((data: OrganizationAction) => data)
   .handler(async ({ data }) => {
     const { env } = await import("cloudflare:workers");
-    const { getRequest, setResponseHeader } =
+    const { getRequest, setResponseHeader, setCookie } =
       await import("@tanstack/react-start/server");
     const { requireAccount, assertSameOrigin } =
       await import("../../server/auth");
@@ -40,9 +40,25 @@ export const organizationAction = createServerFn({ method: "POST" })
       data,
       bindings,
     );
-    setResponseHeader(
-      "Set-Cookie",
-      `classifier_workspace=${encodeURIComponent(result.active.id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`,
-    );
+    if (
+      (data.type === "create" || data.type === "switch") &&
+      result.active.kind === "organization"
+    ) {
+      const { switchToOrganization } =
+        await import("@workos/authkit-tanstack-react-start");
+      await switchToOrganization({
+        data: {
+          organizationId: result.active.id.slice(7),
+          returnTo: "/app/team",
+        },
+      });
+    }
+    setCookie("classifier_workspace", result.active.id, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 31536000,
+      secure: new URL(request.url).protocol === "https:",
+    });
     return result;
   });

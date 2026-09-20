@@ -31,6 +31,9 @@ test("sign-in binds a safe destination and callback preserves AuthKit state", ()
       assert.match(response.headers.get("Set-Cookie"),/classifier_workspace=;/);
       assert.match(response.headers.get("Set-Cookie"),/classifier_auth_return_.*Max-Age=0/);
     }
+    const invitationResponse = await signIn.options.server.handlers.GET({request:new Request("https://example.test/api/auth/sign-in?invitation_token=invite_test")});
+    assert.equal(new URL(invitationResponse.headers.get("Location")).searchParams.get("invitation_token"), "invite_test");
+    assert.equal(new URL(invitationResponse.headers.get("Location")).searchParams.get("state"), "flow-test");
     const search=login.options.validateSearch({error:"auth_failed",returnTo:"/app/plans"});
     assert.equal(login.options.beforeLoad({search}),undefined);
     try { login.options.beforeLoad({search:login.options.validateSearch({returnTo:"/app/plans"})}); assert.fail("must redirect"); }

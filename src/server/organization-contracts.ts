@@ -22,9 +22,9 @@ export interface OrganizationContext {
     email: string;
     role: "admin" | "member";
     createdAt: string;
-    status: "prepared";
+    status: "pending";
   }>;
-  mode: "unconfigured";
+  mode: "unconfigured" | "workos";
 }
 export type OrganizationAction =
   | { type: "create"; name: string }

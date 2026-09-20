@@ -224,7 +224,7 @@ export const app_accounts = pgTable("app_accounts", {
 	billing_hold: boolean().default(false).notNull(),
 	signup_granted_at: text(),
 }, (table) => [
-	unique("app_accounts_email_key").on(table.email),
+	uniqueIndex("app_accounts_personal_email").on(table.email).where(sql`id NOT LIKE 'workos:org_%'`),
 	check("app_accounts_balance_check", sql`balance >= 0`),
 	check("app_accounts_paid_balance_check", sql`paid_balance >= 0`),
 	check("app_accounts_fractional_spend_nano_check", sql`(fractional_spend_nano >= 0) AND (fractional_spend_nano < 10000)`),
@@ -265,3 +265,9 @@ export const app_billing_commands = pgTable("app_billing_commands", {
 		}),
 	primaryKey({ columns: [table.idempotency_key, table.account_id], name: "app_billing_commands_pkey"}),
 ]);
+
+export const app_organization_operations = pgTable("app_organization_operations", {
+ workspace_id: text().primaryKey().references(() => app_workspaces.account_id),
+ token: text().notNull(),
+ expires_at: timestamp({ withTimezone: true }).notNull(),
+});
