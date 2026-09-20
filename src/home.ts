@@ -187,11 +187,16 @@ h2{scroll-margin-top:24px}
    is read in full. Empty is gone, so nothing has to toggle it. */
 .dock .said{flex:1 0 100%;padding:0 4px;text-wrap:pretty}
 .dock .said:empty{display:none}
-/* On a phone the field is what matters: the heading goes, the strip's inset
-   and the button's type step down with the rest of the page, and the address
-   keeps the room. */
-@media (max-width:640px){.dock{padding-left:12px;padding-right:12px}.dock .head{display:none}
-  .dock form{--pad:6px;gap:6px}.dock .b.cta{font-size:inherit;padding-left:12px;padding-right:12px}}
+/* On a phone the dock is the short path to subscribing, not a second copy of
+   the full preferences form. Keep the optional checklist in the in-page form
+   and stack the address above the actions so neither can be squeezed out by
+   the dismiss control. This also keeps the focused dock above the software
+   keyboard instead of expanding to fill most of the remaining viewport. */
+@media (max-width:640px){.dock{padding-left:12px;padding-right:12px}.dock .head,.dock .more{display:none}
+  .dock form{--pad:6px}.dock .sub{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+  .dock input[type=email]{grid-column:1/-1;width:100%}
+  .dock .b.cta{grid-column:1;font-size:inherit;padding-left:12px;padding-right:12px}
+  .dock [data-dismiss]{grid-column:2}.dock .said{grid-column:1/-1}}
 @media (prefers-reduced-motion:reduce){.dock{translate:none}
   .dock .more,.dock .more>div,.opt input,.opt input::after{transition:none}}
 `;

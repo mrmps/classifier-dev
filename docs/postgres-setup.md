@@ -35,10 +35,20 @@ execution requires Bun. Local development uses the same product paths as hosted
 deployments, backed by development credentials; only local Durable Objects/KV
 use `.wrangler/state`.
 
+Drizzle owns the typed schema in
+`drizzle/schema.ts` and executes migrations over Neon's serverless transport;
+`npm run db:generate` shows the SQL implied by a schema change. Review that SQL
+and add the approved statements as the next ordered file in
+`migrations/postgres/`, which remains the immutable deployment history.
+The generated `drizzle/0001_free_wendell_rand.sql` corresponds to the already
+ordered `0007_billing_identity.sql`; deploy only through `npm run db:migrate`,
+not by applying the generated SQL a second time.
+
 A regular `postgres://localhost/...` URL does **not** work in this Worker: Neon
-HTTP requires Neon's query endpoint. Native PostgreSQL URLs are supported by the
-Bun migration runner and optional database tests, which use TCP. Tests use PGlite
-or a separately supplied test database; they do not substitute SQLite for PG.
+HTTP requires Neon's query endpoint. The Drizzle migration runner uses Neon's
+WebSocket transport so CI and local development exercise the same serverless
+connection path. Tests use PGlite or a separately supplied test database; they
+do not substitute SQLite for PG.
 
 ## Production
 
@@ -47,6 +57,19 @@ URL and `DATABASE_URL_UNPOOLED` to its direct URL. CI migrates through the direc
 URL and passes only the pooled URL to Wrangler's `--secrets-file`. Neither is
 rendered into `wrangler.toml` or printed. Other existing Worker secrets remain
 configured in Cloudflare.
+
+The production account database contains the following application tables:
+`app_accounts`, `app_workspaces`, `app_memberships`, `app_invitations`,
+`app_sessions`, `app_agents`, `app_usage`, `app_transactions`,
+`app_billing_commands`, `app_autumn_customers`, `app_autumn_events`,
+`app_autumn_grants`, and `app_autumn_sync_budget`. `app_schema_migrations`
+records the immutable migration name and checksum.
+
+Newsletter addresses remain in the separate `classifier-newsletter` Neon
+project, whose only application table is `subscriber`. Neon-managed roles have
+project-wide privileges, so moving that table into the account project would
+make the address list reachable by account-database credentials and violate the
+documented privacy boundary.
 
 For a manual deployment, configure the Worker with the pooled URL using `npx
 wrangler secret put DATABASE_URL` and supply the direct URL as `DATABASE_URL` to

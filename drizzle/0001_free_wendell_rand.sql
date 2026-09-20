@@ -1,0 +1,1 @@
+ALTER TABLE "app_autumn_customers" ADD COLUMN "identity_verified_at" text;

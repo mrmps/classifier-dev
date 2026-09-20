@@ -16,7 +16,8 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 3000",
     "db:migrate": "bun scripts/migrate-postgres.ts",
-    "db:local": "bun --env-file=.dev.vars scripts/migrate-postgres.ts"
+    "db:local": "bun --env-file=.dev.vars scripts/migrate-postgres.ts",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts"
   },
   "keywords": [],
   "author": "Michael Ryaboy",
@@ -32,6 +33,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "ajv": "^8.20.0",
     "atmn": "2.0.8",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "wrangler": "^4.122.0"
@@ -40,11 +42,13 @@
     "@base-ui/react": "^1.8.0",
     "@neondatabase/serverless": "^1.1.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.103.1",
     "@tanstack/react-router": "^1.170.38",
     "@tanstack/react-start": "^1.168.56",
     "@workos/authkit-tanstack-react-start": "^0.11.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
     "nucleo-core-essential-outline-24": "^1.1.7",
     "nucleo-ui-essential-outline-18": "^1.1.8",
     "nuqs": "^2.10.1",
