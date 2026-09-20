@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Webhook } from "svix";
 import { database } from "./support/postgres";
+import { hashToken } from "../src/server/db";
+import { authorizeAndReserve, completeReservation } from "../src/server/usage";
 import { billingReturnUrl, createAutumnCheckout, createAutumnPortal, type AutumnEnv } from "../src/server/autumn";
 import { autumnWebhook } from "../src/http/autumn-webhook";
 import { reconcileAutumnCustomer, syncAutumnAccounts } from "../src/server/billing-sync";
@@ -166,4 +168,108 @@ test("scheduled reconciliation respects a global daily provider call budget", as
   expect((await syncAutumnAccounts(env)).synced).toBe(0);
   expect(calls).toBe(1);
   expect((await env.APP_DB.prepare("SELECT calls FROM app_autumn_sync_budget WHERE day=?").bind(day).first())?.calls).toBe(60);
+});
+
+function paidProvider(state: { pastDue?: boolean; refunded?: number }, start: number, end: number) {
+  provider((path) => path.endsWith("customers.get") ? { id: "workspace_a", subscriptions: [{
+    id: "sub_1", plan_id: "pro", status: "active", past_due: state.pastDue ?? false,
+    current_period_start: start, current_period_end: end,
+  }] } : { list: [{ customer_id: "workspace_a", entity_id: null, status: "paid", currency: "usd", amount_paid: 20, total: 20,
+    refunded_amount: state.refunded ?? 0, stripe_id: "invoice_1", items: [{ plan_id: "pro", feature_id: null, amount: 20, period_start: start, period_end: end }],
+  }] });
+}
+
+test("overdue payment flags cannot erase an allowance backed by the current paid invoice", async () => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  const state = { pastDue: false };
+  paidProvider(state, Date.now() - 60_000, Date.now() + 86400_000);
+  await reconcileAutumnCustomer(env, "workspace_a");
+  await env.APP_DB.prepare("UPDATE app_accounts SET balance=balance-42 WHERE id='a'").run();
+  state.pastDue = true;
+  await reconcileAutumnCustomer(env, "workspace_a");
+  expect(await env.APP_DB.prepare("SELECT balance,billing_plan FROM app_accounts WHERE id='a'").first())
+    .toEqual({ balance: 1999958, billing_plan: "pro" });
+  state.pastDue = false;
+  await reconcileAutumnCustomer(env, "workspace_a");
+  expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='a'").first())?.balance).toBe(1999958);
+  expect((await env.APP_DB.prepare("SELECT COUNT(*) AS count FROM app_transactions").first())?.count).toBe(1);
+});
+
+test("refund webhooks retry until pending reservations settle and included funds are removed", async () => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  const state = { refunded: 0 };
+  paidProvider(state, Date.now() - 60_000, Date.now() + 86400_000);
+  await reconcileAutumnCustomer(env, "workspace_a");
+  await env.APP_DB.prepare("UPDATE app_accounts SET balance=balance+123,paid_balance=123 WHERE id='a'").run();
+  await env.APP_DB.prepare("INSERT INTO app_agents(id,account_id,name,client,token_hash,prefix,created_at) VALUES('key','a','test','test','hash','prefix','2026-01-01')").run();
+  const token = "classifier_agent_refund_test";
+  await env.APP_DB.prepare("UPDATE app_agents SET token_hash=? WHERE id='key'").bind(await hashToken(token)).run();
+  const reservation = await authorizeAndReserve(new Request("https://classifier.dev/v1/classify", {
+    headers: { Authorization: `Bearer ${token}` },
+  }), { ...env, APP_ACCOUNTS_ENABLED: "true" }, 1);
+  state.refunded = 20;
+  expect((await autumnWebhook(signed("refund-pending"), env)).status).toBe(503);
+  expect((await env.APP_DB.prepare("SELECT billing_hold FROM app_accounts WHERE id='a'").first())?.billing_hold).toBe(true);
+  expect((await env.APP_DB.prepare("SELECT processed_at FROM app_autumn_events WHERE id='refund-pending'").first())?.processed_at).toBeNull();
+  await completeReservation(reservation!, env, false);
+  expect((await autumnWebhook(signed("refund-pending"), env)).status).toBe(204);
+  expect(await env.APP_DB.prepare("SELECT balance,paid_balance,billing_hold FROM app_accounts WHERE id='a'").first())
+    .toEqual({ balance: 123, paid_balance: 123, billing_hold: true });
+  expect((await env.APP_DB.prepare("SELECT reconciliation_required FROM app_autumn_customers WHERE account_id='a'").first())?.reconciliation_required).toBe(false);
+});
+
+test("failing customers rotate out of the repair queue so other payments can reconcile", async () => {
+  for (let i = 0; i < 11; i++) {
+    await env.APP_DB.prepare("INSERT INTO app_accounts(id,email,name,balance,reset_at,created_at) VALUES(?,?,'Test',0,'2026-01-01','2026-01-01')")
+      .bind(`queue_${i}`, `queue_${i}@example.test`).run();
+    await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES(?,?)").bind(`queue_${i}`, `customer_${i}`).run();
+    await env.APP_DB.prepare("UPDATE app_autumn_customers SET synced_at=? WHERE account_id=?")
+      .bind(new Date(2026, 0, i + 1).toISOString(), `queue_${i}`).run();
+  }
+  const attempted = new Set<string>();
+  globalThis.fetch = (async (_input, init) => {
+    attempted.add(JSON.parse(String(init?.body)).customer_id);
+    return new Response(null, { status: 503 });
+  }) as typeof fetch;
+  expect((await syncAutumnAccounts(env)).failed).toBe(10);
+  expect((await syncAutumnAccounts(env)).failed).toBe(10);
+  expect(attempted.size).toBe(11);
+});
+
+test("an overdue subscription without a paid invoice cannot grant credits", async () => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  provider((path) => path.endsWith("customers.get") ? { id: "workspace_a", subscriptions: [{
+    id: "sub", plan_id: "pro", status: "active", past_due: true,
+    current_period_start: Date.now() - 60_000, current_period_end: Date.now() + 86400_000,
+  }] } : { list: [] });
+  await expect(reconcileAutumnCustomer(env, "workspace_a")).rejects.toThrow("paid invoice");
+  expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='a'").first())?.balance).toBe(500000);
+  expect((await env.APP_DB.prepare("SELECT COUNT(*) AS count FROM app_transactions").first())?.count).toBe(0);
+});
+
+test("a stale refund cannot mutate a held wallet after a newer sync starts", async () => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  const state = { refunded: 0 };
+  paidProvider(state, Date.now() - 60_000, Date.now() + 86400_000);
+  await reconcileAutumnCustomer(env, "workspace_a");
+  await env.APP_DB.prepare("UPDATE app_accounts SET billing_hold=TRUE WHERE id='a'").run();
+  state.refunded = 20;
+  const fetchPaid = globalThis.fetch;
+  let release!: () => void, arrived!: () => void;
+  const waiting = new Promise<void>((resolve) => { arrived = resolve; });
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  globalThis.fetch = (async (input, init) => {
+    if (String(input).endsWith("invoices.list")) { arrived(); await paused; }
+    return fetchPaid(input, init);
+  }) as typeof fetch;
+  const stale = reconcileAutumnCustomer(env, "workspace_a").catch((error: Error) => error);
+  await waiting;
+  globalThis.fetch = (async () => new Response(null, { status: 503 })) as typeof fetch;
+  await expect(reconcileAutumnCustomer(env, "workspace_a")).rejects.toThrow();
+  release();
+  expect(await stale).toBeInstanceOf(Error);
+  expect(String(await stale)).toContain("newer sync");
+  expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='a'").first())?.balance).toBe(2000000);
+  expect((await env.APP_DB.prepare("SELECT revoked_at FROM app_autumn_grants WHERE invoice_id='invoice_1'").first())?.revoked_at).toBeNull();
+  expect((await env.APP_DB.prepare("SELECT reconciliation_required FROM app_autumn_customers WHERE account_id='a'").first())?.reconciliation_required).toBe(true);
 });
