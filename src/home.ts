@@ -842,27 +842,34 @@ const resourceMenu = (here: string) => {
   return `<details class="site-resources"><summary${active ? ' class="active"' : ""}>Resources</summary><div class="site-resources-panel">${resourceLinks(here)}</div></details>`;
 };
 
-export const NAV = (here: string) =>
-  `<header class="site-header"><nav class="site-nav" aria-label="Primary">
+export const NAV = (here: string, signedIn = false) => {
+  const actions = signedIn
+    ? '<a class="site-action primary" href="/app">Dashboard</a>'
+    : '<a class="site-action login" href="/login">Log in</a><a class="site-action signup" href="/auth/sign-up">Sign up</a><a class="site-action primary" href="/auth/sign-up">Get started</a>';
+  const menuActions = signedIn
+    ? '<a class="site-action primary" href="/app">Dashboard</a>'
+    : '<a class="site-action" href="/login">Log in</a><a class="site-action" href="/auth/sign-up">Sign up</a><a class="site-action primary" href="/auth/sign-up">Get started</a>';
+  return `<header class="site-header"><nav class="site-nav" aria-label="Primary">
   <a class="site-brand" href="/" aria-label="classifier.dev home">${MARK}<span>classifier.dev</span></a>
   <div class="site-links">${navLinks(here)}${resourceMenu(here)}</div>
-  <div class="site-actions"><a class="site-action login" href="/login">Log in</a><a class="site-action signup" href="/auth/sign-up">Sign up</a><a class="site-action primary" href="/auth/sign-up">Get started</a></div>
+  <div class="site-actions">${actions}</div>
   <details class="site-menu"><summary><span class="sr">Menu</span><span class="site-menu-icon" aria-hidden="true"></span></summary><div class="site-menu-panel">
     <div class="site-menu-links">${navLinks(here, false)}</div>
     <details class="site-menu-resources"><summary>Resources</summary><div class="site-menu-resources-panel">${resourceLinks(here)}</div></details>
-    <div class="site-menu-actions"><a class="site-action" href="/login">Log in</a><a class="site-action" href="/auth/sign-up">Sign up</a><a class="site-action primary" href="/auth/sign-up">Get started</a></div>
+    <div class="site-menu-actions">${menuActions}</div>
   </div></details>
 </nav></header>`;
+};
 
 export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/terms">terms</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
 
-export function homeHtml(o: { chat?: boolean } = {}): string {
+export function homeHtml(o: { chat?: boolean; signedIn?: boolean } = {}): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";
   return page({
     title: "classifier.dev",
     head: META("classifier.dev", desc) + JSON_LD() + HL_HEAD,
     css: HOME_CSS,
-    body: `${NAV(o.chat ? "chat" : "home")}<div class="page"><main><article class="doc prose">
+    body: `${NAV(o.chat ? "chat" : "home", o.signedIn)}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev</h1></header>
   <p class="quote">zero-shot text classification over plain HTTP — no API key, no account</p>
   <p class="pro-offer"><strong>Start without an account.</strong> Create a workspace when you want shared usage, billing and API keys. <a class="inline" href="/pricing">See pricing →</a></p>
@@ -941,12 +948,12 @@ const pricingRow = () =>
 const limitsSection = (body: string[]) =>
   `<section><h2><span class="syn">## </span>Limits</h2>${renderBlocks(body)}${pricingRow()}</section>`;
 
-export function docHtml(o: { title: string; desc: string; doc: string; path: string; here: string; swap?: Record<string, string | ((body: string[]) => string)> }): string {
+export function docHtml(o: { title: string; desc: string; doc: string; path: string; here: string; signedIn?: boolean; swap?: Record<string, string | ((body: string[]) => string)> }): string {
   return page({
     title: `${o.title} · classifier.dev`,
     head: META(o.title, o.desc, o.path) + HL_HEAD,
     css: HOME_CSS,
-    body: `${NAV(o.here)}<div class="page"><main><article class="doc prose">
+    body: `${NAV(o.here, o.signedIn)}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>${esc(o.doc.split("\n")[0].trim())}</h1></header>
   <p class="quote">${esc(o.desc)}</p>
   ${renderDoc(o.doc, true, o.swap ?? {})}
@@ -957,13 +964,13 @@ ${chatPanel()}`,
   });
 }
 
-export function benchmarkHtml(): string {
+export function benchmarkHtml(signedIn = false): string {
   const desc = "Measured accuracy, calibration, cost and latency for every model considered.";
   return page({
     title: "benchmark · classifier.dev",
     head: META("classifier.dev benchmark", desc, "/benchmark") + HL_HEAD,
     css: HOME_CSS,
-    body: `${NAV("benchmark")}<div class="page"><main><article class="doc prose">
+    body: `${NAV("benchmark", signedIn)}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev benchmark</h1></header>
   <p class="quote">${esc(desc)}</p>
   ${renderDoc(BENCHMARK, true)}

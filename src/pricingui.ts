@@ -5,7 +5,7 @@ import { esc, page } from "./ui";
 
 const feature = (text: string) => `<li>${esc(text)}</li>`;
 
-export function pricingHtml() {
+export function pricingHtml(signedIn = false) {
   const pro = BILLING_PLANS.pro;
   const tokenRows = retailRates.models
     .map(
@@ -58,7 +58,7 @@ export function pricingHtml() {
 @media(max-width:760px){.pricing>*+*{margin-top:44px}.plan-grid{grid-template-columns:1fr}.plan{min-height:0;padding:24px 20px}.plan+.plan{border-inline-start:0;border-block-start:1px solid var(--line)}.plan-kicker{min-height:0}.plan-price{margin-top:24px}.plan-action{margin-top:8px}}
 @media(max-width:480px){.pricing-intro{padding-block-start:8px}.plan-summary{grid-template-columns:1fr;gap:5px}.plan-summary dd+dt{margin-top:14px}}
 `,
-    body: `${NAV("pricing")}<div class="page"><main class="doc pricing" id="main">
+    body: `${NAV("pricing", signedIn)}<div class="page"><main class="doc pricing" id="main">
   <header class="pricing-intro"><h1>pricing</h1><p>simple plans with upfront usage</p></header>
   <dl class="plan-summary"><dt>Every plan</dt><dd>fast + smart classification · REST, MCP + CLI</dd><dt>Upgrade</dt><dd>more included usage + a shared workspace</dd></dl>
   <section class="plan-grid" aria-label="Plans">
