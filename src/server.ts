@@ -11,6 +11,10 @@ import { appEnvironment } from "./server/environment";
 import { accountReadRoutes } from "./http/account";
 import { autumnWebhook } from "./http/autumn-webhook";
 import { syncAutumnAccounts } from "./server/billing-sync";
+import {
+  mayRenderPublicHtml,
+  publicNavigationAuth,
+} from "./server/public-navigation-auth";
 export { RateLimiter, BillingAccount } from "./index";
 
 const start = createStartHandler(defaultStreamHandler);
@@ -54,7 +58,27 @@ export default {
         },
       );
     }
-    return legacy.fetch(request, env, ctx);
+    const auth = mayRenderPublicHtml(request)
+      ? await publicNavigationAuth(request, env)
+      : { signedIn: false, setCookies: [] };
+    const response = await legacy.fetch(request, env, ctx, {
+      viewer: { signedIn: auth.signedIn },
+    });
+    if (!auth.signedIn && auth.setCookies.length === 0) return response;
+
+    const headers = new Headers(response.headers);
+    if (
+      auth.signedIn &&
+      response.headers.get("Content-Type")?.startsWith("text/html")
+    ) {
+      headers.set("Cache-Control", "private, no-store");
+    }
+    for (const cookie of auth.setCookies) headers.append("Set-Cookie", cookie);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   },
   async scheduled(
     controller: ScheduledController,

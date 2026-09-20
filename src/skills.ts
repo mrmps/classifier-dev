@@ -695,7 +695,7 @@ const GATES_HTML = `<ol class="gates">
   <li><span class="n">3</span><span><b>Judged by a reasoning model.</b> Safety, usefulness, novelty and clarity out of 10, with a reason for every deduction.</span></li>
 </ol>`;
 
-export function skillsHtml(items: Summary[]): string {
+export function skillsHtml(items: Summary[], signedIn = false): string {
   const doc = skillsDoc(items);
   const board = `<section id="leaderboard"><h2><span class="syn">## </span>Leaderboard</h2>${leaderboardHtml(items)}
     <p class="lead">The score is usefulness, novelty, clarity and safety, out of 100. Nothing under safety 8 is listed.</p>
@@ -708,7 +708,7 @@ export function skillsHtml(items: Summary[]): string {
     title: "skills · classifier.dev",
     head: META("classifier.dev skills", PAGE_DESC, `/${SKILLS_PATH}`),
     css: HOME_CSS + SKILLS_CSS,
-    body: `${NAV("skills")}<div class="page"><main><article class="doc prose">
+    body: `${NAV("skills", signedIn)}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>classifier.dev skills</h1></header>
   <p class="quote">${esc(PAGE_DESC)}</p>
   ${renderDoc(doc, true, { LEADERBOARD: board, "HOW A SKILL GETS IN": gates, "THE RULES IN FULL": rules }).replace('<section><h2><span class="syn">## </span>Submit one</h2>', '<section id="submit"><h2><span class="syn">## </span>Submit one</h2>')}
@@ -718,7 +718,7 @@ export function skillsHtml(items: Summary[]): string {
   });
 }
 
-export function skillHtml(r: SkillRecord): string {
+export function skillHtml(r: SkillRecord, signedIn = false): string {
   const doc = skillDoc(r);
   const j = r.review.judge;
   const review = `<section><h2><span class="syn">## </span>Review</h2>
@@ -741,7 +741,7 @@ export function skillHtml(r: SkillRecord): string {
     title: `${r.name} · classifier.dev skills`,
     head: META(`${r.name} · classifier.dev skills`, r.description.slice(0, 300), `/${SKILLS_PATH}/${r.slug}`),
     css: HOME_CSS + SKILLS_CSS,
-    body: `${NAV("skills")}<div class="page"><main><article class="doc prose">
+    body: `${NAV("skills", signedIn)}<div class="page"><main><article class="doc prose">
   <header><h1><span class="syn"># </span>${esc(r.name)}</h1></header>
   <p class="quote">${esc(r.description)}</p>
   ${renderDoc(doc, true, { REVIEW: review, "THE SKILL": skill })}
