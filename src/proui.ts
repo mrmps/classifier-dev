@@ -41,7 +41,13 @@ curl https://classifier.dev/v1/classify -H "Authorization: Bearer $CLASSIFY_API_
   let account;
   let activationTimer;
   let activationAttempts = 0;
-  const checkoutReturn = new URLSearchParams(location.search).get('checkout') === 'complete';
+  const params = new URLSearchParams(location.search);
+  let checkoutReturn = params.get('checkout') === 'complete';
+  if (checkoutReturn) {
+    params.delete('checkout');
+    const query = params.toString();
+    history.replaceState(null, '', location.pathname + (query ? '?' + query : '') + location.hash);
+  }
   const stopActivation = () => { clearTimeout(activationTimer); activationTimer = undefined; };
   const message = (text, error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   async function api(path, data) {
@@ -51,24 +57,34 @@ curl https://classifier.dev/v1/classify -H "Authorization: Bearer $CLASSIFY_API_
     return result;
   }
   function clearKey() { $('api-key').value = ''; $('key-result').hidden = true; }
-  function signedOut() { account = null; stopActivation(); clearKey(); $('signin').hidden = false; $('account').hidden = true; $('keys').hidden = true; }
+  function signedOut() { account = null; endActivation(); clearKey(); $('signin').hidden = false; $('account').hidden = true; $('keys').hidden = true; }
   async function refresh() {
     try {
       account = await api('account');
-      $('signin').hidden = true; $('account').hidden = false;
-      $('account-email').textContent = account.email;
-      $('plan-status').textContent = account.active ? 'Pro is active · 10× usage' : checkoutReturn ? 'Confirming your Pro subscription' : 'Subscribe to unlock 10× usage';
-      $('checkout').hidden = account.active || checkoutReturn;
-      $('keys').hidden = !account.active;
-      $('create-key').textContent = account.hasKey ? 'Replace API key' : 'Create API key';
-      $('rotation-warning').hidden = !account.hasKey;
-      $('create-key').classList.toggle('primary', !account.hasKey);
-      $('pending').hidden = account.active;
-      $('pending').textContent = checkoutReturn ? 'Waiting for payment confirmation. You can refresh your status or check Manage billing. No need to subscribe again.' : 'Continue to secure checkout, then return here to create your API key.';
-      $('key-instructions').textContent = account.hasKey ? 'Your API key unlocks 10× limits on REST, MCP and the CLI. Requests without it still use the free limits.' : 'Create an API key, then add it to your app to use your 10× limits. Requests without it still use the free limits.';
-      if (account.active) { stopActivation(); if (checkoutReturn) message('Pro is active. Add your API key to start using 10× limits.'); }
-      if (!account.active) clearKey();
+      if (account.active) {
+        if (checkoutReturn) message('Pro is active. Add your API key to start using 10× limits.');
+        endActivation();
+      }
+      renderAccount();
     } catch (error) { if (error.status === 401) signedOut(); else throw error; }
+  }
+  function renderAccount() {
+    $('signin').hidden = true; $('account').hidden = false;
+    $('account-email').textContent = account.email;
+    $('plan-status').textContent = account.active ? 'Pro is active · 10× usage' : checkoutReturn ? 'Confirming your Pro subscription' : 'Subscribe to unlock 10× usage';
+    $('checkout').hidden = account.active || checkoutReturn;
+    $('keys').hidden = !account.active;
+    $('create-key').textContent = account.hasKey ? 'Replace API key' : 'Create API key';
+    $('rotation-warning').hidden = !account.hasKey;
+    $('create-key').classList.toggle('primary', !account.hasKey);
+    $('pending').hidden = account.active;
+    $('pending').textContent = checkoutReturn ? 'Waiting for payment confirmation. You can refresh your status or check Manage billing. No need to subscribe again.' : 'Continue to secure checkout, then return here to create your API key.';
+    $('key-instructions').textContent = account.hasKey ? 'Your API key unlocks 10× limits on REST, MCP and the CLI. Requests without it still use the free limits.' : 'Create an API key, then add it to your app to use your 10× limits. Requests without it still use the free limits.';
+    if (!account.active) clearKey();
+  }
+  function endActivation() {
+    stopActivation();
+    checkoutReturn = false;
   }
   async function run(button, action) {
     button.disabled = true;
@@ -88,7 +104,8 @@ curl https://classifier.dev/v1/classify -H "Authorization: Bearer $CLASSIFY_API_
     stopActivation();
     const token = new URLSearchParams(location.hash.slice(1)).get('token');
     if (token) history.replaceState(null, '', location.pathname);
-    try { if (token) await api('session', {token}); await refresh(); if (!checkoutReturn || !account || !account.active) message(''); if (checkoutReturn && account && !account.active) checkActivation(); }
+    const confirming = checkoutReturn;
+    try { if (token) await api('session', {token}); await refresh(); if (!confirming || !account || !account.active) message(''); if (checkoutReturn && account && !account.active) checkActivation(); }
     catch (error) { signedOut(); message(error.message, true); }
   }
   function checkActivation() {
@@ -98,8 +115,16 @@ curl https://classifier.dev/v1/classify -H "Authorization: Bearer $CLASSIFY_API_
         await refresh();
         if (!account || account.active) return;
         if (++activationAttempts < 6) checkActivation();
-        else $('pending').textContent = 'Payment confirmation is taking longer than usual. Refresh your status in a moment, or check Manage billing. No need to subscribe again.';
-      } catch (error) { message(error.message, true); }
+        else {
+          endActivation();
+          renderAccount();
+          $('pending').textContent = 'No active subscription was found. If you already paid, check Manage billing or refresh your status before starting another checkout.';
+        }
+      } catch (error) {
+        endActivation();
+        if (account) renderAccount();
+        message(error.message, true);
+      }
     }, 5000);
   }
   addEventListener('hashchange', signInFromLocation);
