@@ -1814,8 +1814,8 @@ const worker = {
       const b = body as Record<string, unknown>;
       if (b.model !== undefined && b.model !== "jev" && b.model !== "laya") return fail('model must be "jev" or "laya"', 400, "bad_model");
       selectedModel = b.model === "laya" || (b.model === undefined && b.processing !== undefined) ? "laya" : "jev";
-      if (b.processing !== undefined && (selectedModel !== "laya" || (b.processing !== "fast" && b.processing !== "bulk")))
-        return fail('processing must be "fast" or "bulk"; omit model or use model: "laya"', 400, "bad_processing");
+      if (b.processing !== undefined && b.processing !== "fast" && b.processing !== "bulk")
+        return fail('processing must be "fast" or "bulk"', 400, "bad_processing");
       processing = b.processing === "bulk" ? "bulk" : "fast";
       automaticProcessing = b.processing === undefined;
       if (Object.hasOwn(b, "dimensions")) mode = "dimensions";

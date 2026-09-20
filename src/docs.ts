@@ -19,6 +19,7 @@ LAYA TRIAL
   with model: "laya". Omit processing to automatically choose fast for one
   decision (up to four multi-label questions), or bulk for larger work.
   Supplying processing without model implies Laya. Explicit lanes are honored.
+  With explicit model: "jev", processing is accepted but has no effect.
   Both lanes use the same preloaded Router:
   English text uses the English checkpoint; other languages use multilingual.
   Processing changes batching and capacity, not checkpoint selection.
