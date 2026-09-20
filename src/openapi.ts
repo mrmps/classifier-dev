@@ -83,8 +83,8 @@ export const OPENAPI = {
       "smart, which re-asks answers below 0.7 confidence of a fast reasoning model. " +
       "Free limits are per IP and counted in classifications: 3,000/min and 20,000/day on fast, " +
       "200/min and 2,000/day on smart. Benchmarks: https://classifier.dev/benchmark\n\n" +
-      "Authentication: optional for classification. Pro ($20/month) bearer keys provide fast 30,000/min and 200,000/day, " +
-      "smart 2,000/min and 20,000/day per billing account across IPs. Partner keys remain supported " +
+      "Authentication: optional for classification. Pro ($20/month) workspaces provide fast 30,000/min and 200,000/day, " +
+      "smart 2,000/min and 20,000/day shared across workspace keys and agents. Partner keys remain supported " +
       "(see https://classifier.dev/auth.md).\n\n" +
       "Versioning: the current major is v1, addressed as POST /v1/classify; POST / is an alias that tracks the current major. " +
       "Response shapes are additive within a major (fields are added, never renamed or removed). Every response carries an " +
@@ -94,7 +94,8 @@ export const OPENAPI = {
       "response, RateLimit-Remaining once the limiter has been consulted (every 200 and 429), Retry-After on 429s. " +
       "Idempotency: classification has no side effects; an Idempotency-Key header is accepted and " +
       "echoed so generic retry logic keeps working.\n\n" +
-      "Errors: every non-2xx body is {error, code} — see components.schemas.Error for the codes. The two GET forms answer " +
+      "Errors: classification failures return {error, code}; workspace authorization and billing errors return {error}. " +
+      "See components.schemas.Error for classification codes. The two GET forms answer " +
       "plain text (`error:`, `usage:`, `try:` lines) unless ?verbose=1 or Accept: application/json asks for the JSON object.\n\n" +
       "MCP: the same capability as tools at https://classifier.dev/mcp (Streamable HTTP, no auth), documented at " +
       "https://classifier.dev/mcp-setup. Batch: the inputs array is the batch operation — up to 1,000 texts per request; " +

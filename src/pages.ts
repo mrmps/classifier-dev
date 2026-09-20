@@ -316,7 +316,7 @@ SANDBOX
 
 ERRORS
 
-  Every POST error is JSON with a message and a stable code:
+  POST errors are JSON. Classification errors include a stable code:
 
     {"error": "Provide at least 2 labels; got 1 (\"spam\").", "code": "too_few_labels"}
 
@@ -332,7 +332,11 @@ ERRORS
   Retry-After). 502: typesafe or typesafe_<status> when the decision model
   failed; openrouter_<status>, chain_exhausted or timeout when the fallback
   chain did; batch_unavailable for more than twenty inputs while the decision
-  model is down; upstream_other. Retry 502s with backoff. There are no 401s.
+  model is down; upstream_other. Retry 502s with backoff.
+  401: invalid_api_key for unsupported credentials. Workspace authentication
+  also returns 401 for invalid, paused or revoked keys; workspace errors carry
+  an error message without a code. 402: insufficient balance for inference.
+  403: the key is inactive or the workspace cannot authorize usage.
   The list a client can validate against: components.schemas.Error in
   https://classifier.dev/openapi.json
 

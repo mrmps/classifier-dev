@@ -377,7 +377,7 @@ LIMITS
 
 ERRORS
 
-  A POST that fails answers JSON with a message and a stable code:
+  POST errors are JSON. Classification errors include a stable code:
 
     {"error": "Provide at least 2 labels; got 1 (\"spam\").", "code": "too_few_labels"}
 
@@ -388,6 +388,11 @@ ERRORS
 
   400   bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels,
         empty_label, duplicate_labels, empty_input, input_too_long, bad_tier
+  401   invalid_api_key for unsupported credentials. Workspace authentication
+        also rejects invalid, paused or revoked keys with an error message;
+        workspace errors do not include a code.
+  402   insufficient workspace balance for inference
+  403   the key is inactive or the workspace cannot authorize usage
   404   not_found
   429   rate_limit_minute, rate_limit_day, with Retry-After; on the free
         tier the body also carries upgrade, the URL of the plan that lifts
