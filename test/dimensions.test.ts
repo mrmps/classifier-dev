@@ -202,10 +202,16 @@ describe("single-label smart confidence", () => {
     expect(body.usage.escalated).toBe(1);
   });
   test("failed escalation keeps the original answer and probabilities", async () => {
-    globalThis.fetch = (async (url) => String(url).includes("typesafe")
-      ? Response.json({ model: "jev-test", answers: { i0: { choice: "bug", confidence: 0.4, probabilities: { bug: 0.4, request: 0.6 } } } })
-      : Response.json({ error: { code: "bad_key" } }, { status: 401 })) as typeof fetch;
+    const escalationModels: string[] = [];
+    globalThis.fetch = (async (url, init) => {
+      if (String(url).includes("typesafe")) {
+        return Response.json({ model: "jev-test", answers: { i0: { choice: "bug", confidence: 0.4, probabilities: { bug: 0.4, request: 0.6 } } } });
+      }
+      escalationModels.push((JSON.parse(String(init?.body)) as { model: string }).model);
+      return Response.json({ error: { code: "bad_key" } }, { status: 401 });
+    }) as typeof fetch;
     const { body } = await harness().post({ input: "please improve this", labels: ["bug", "request"], tier: "smart" });
+    expect(escalationModels).toEqual(["google/gemini-3.8-flash"]);
     expect(body.results[0]).toMatchObject({ label: "bug", confidence: 0.4, scores: { bug: 0.4, request: 0.6 } });
     expect(body.results[0].escalated).toBeUndefined();
     expect(body.usage.escalation_failed).toBe(1);

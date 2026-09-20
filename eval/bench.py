@@ -138,21 +138,36 @@ def call_model(key, model, provider, text, labels, stats, max_labels=None, timeo
     raise RuntimeError(last)
 
 
-def jev_classify(text, labels, stats, max_labels=None, threshold=0.7):
+def jev_classify(text, labels, stats, max_labels=None, threshold=0.7, shared_rubric=False):
     """One TypeSafe request: a yes/no per label, read off the probabilities. Mirrors jev.ts."""
     key = os.environ.get("TYPESAFE_API_KEY") or sys.exit("set TYPESAFE_API_KEY to bench jev")
     started = time.time()
-    qs = {
-        f"l{i}": {
-            "type": "noul",
-            "instructions": f'Does the category "{l}" apply to item `i0`? '
-            "A category applies if the text meaningfully touches it, even briefly.",
+    if shared_rubric:
+        state = [{
+            "id": "i0",
+            "text": text,
+            "rubric": "A category applies if the text meaningfully touches it, even briefly.",
+        }]
+        qs = {
+            f"l{i}": {
+                "type": "noul",
+                "instructions": f'Does the category "{l}" apply to `i0` under its `rubric`?',
+            }
+            for i, l in enumerate(labels)
         }
-        for i, l in enumerate(labels)
-    }
+    else:
+        state = [{"id": "i0", "text": text}]
+        qs = {
+            f"l{i}": {
+                "type": "noul",
+                "instructions": f'Does the category "{l}" apply to item `i0`? '
+                "A category applies if the text meaningfully touches it, even briefly.",
+            }
+            for i, l in enumerate(labels)
+        }
     req = urllib.request.Request(
         "https://api.typesafe.ai/v1/systemone",
-        data=json.dumps({"state": [{"id": "i0", "text": text}], "model": "jev-latest", "questions": qs}).encode(),
+        data=json.dumps({"state": state, "model": "jev-latest", "questions": qs}).encode(),
         headers={"authorization": f"Bearer {key}", "content-type": "application/json"},
     )
     payload = json.load(urllib.request.urlopen(req, timeout=120))
@@ -165,8 +180,8 @@ def jev_classify(text, labels, stats, max_labels=None, threshold=0.7):
 
 def classify_one(key, model, provider, text, labels, stats, max_labels=None):
     """Transcription of classifyOne(): sweep in chunks, then verify the survivors."""
-    if model == "jev":
-        return jev_classify(text, labels, stats, max_labels)
+    if model in ("jev", "jev-shared"):
+        return jev_classify(text, labels, stats, max_labels, shared_rubric=model == "jev-shared")
     started = time.time()
     if len(labels) <= MULTI_CHUNK:
         got = call_model(key, model, provider, text, labels, stats, max_labels)
@@ -248,7 +263,7 @@ def main():
     args = ap.parse_args()
 
     key = os.environ.get("OPENROUTER_API_KEY", "")
-    if not key and any(m != "jev" for m in args.models.split(",")):
+    if not key and any(m not in ("jev", "jev-shared") for m in args.models.split(",")):
         sys.exit("set OPENROUTER_API_KEY")
 
     models = [m.strip() for m in args.models.split(",") if m.strip()]

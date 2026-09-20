@@ -57,7 +57,7 @@ describe(`real multidimensional API at ${base.origin}`, { concurrency: false, ti
     assert.equal(data.usage.escalation_failed, undefined, "reasoning provider must be reachable");
     assert.ok(data.usage.escalated > 0, "fixtures must exercise real escalation; confidence drift must not silently skip this check");
     for (const row of data.results) for (const field of Object.values(row.dimensions)) {
-      if (field.escalated) assert.ok(!/^jev(?:-|@)/.test(field.model));
+      if (field.escalated) assert.equal(field.model, "google/gemini-3.8-flash");
     }
     t.diagnostic(JSON.stringify({ models: data.modelsUsed, ...data.usage }));
   });

@@ -21,7 +21,7 @@ describe("the token estimate", () => {
 
   test("posted single and multi requests keep every input ordered and below both conservative budgets", async () => {
     const realFetch = globalThis.fetch;
-    const calls: { state: { id: string; text: string }[]; questions: Record<string, Question> }[] = [];
+    const calls: { state: { id: string; text: string; rubric?: string }[]; questions: Record<string, Question> }[] = [];
     globalThis.fetch = (async (_url, init) => {
       const body = JSON.parse(String(init?.body));
       calls.push(body);
@@ -48,7 +48,7 @@ describe("the token estimate", () => {
         expect(calls.length).toBeGreaterThan(1);
         expect(calls.flatMap((call) => call.state.map((item) => item.id))).toEqual(scenario.inputs.map((_, i) => `i${i}`));
         for (const call of calls) {
-          const state = call.state.reduce((sum, item) => sum + estimateTokens(item.text) + 20, 0);
+          const state = call.state.reduce((sum, item) => sum + estimateTokens(item.text) + (item.rubric ? estimateTokens(item.rubric) : 0) + 20, 0);
           const costs = Object.values(call.questions).map((question) =>
             estimateTokens(JSON.stringify(question)) + 16 * (question.type === "choice" ? Object.keys(question.criteria).length : 0) + 40);
           expect(state + costs.reduce((sum, cost) => sum + cost, 0)).toBeLessThanOrEqual(48000);
@@ -291,8 +291,14 @@ describe("Jev through the AI Gateway", () => {
     }));
     const meter = newMeter();
     const [r] = await jevClassify(both, ["one"], labels, undefined, true, meter);
-    const body = JSON.parse(String(calls[0].init.body)) as { questions: Record<string, { type: string }> };
+    const body = JSON.parse(String(calls[0].init.body)) as {
+      state: { rubric?: string }[];
+      questions: Record<string, { type: string; instructions: string }>;
+    };
     expect(Object.values(body.questions).map((q) => q.type)).toEqual(["boolean", "boolean", "boolean"]);
+    expect(body.state[0].rubric).toBe("A category applies if the text meaningfully touches it, even briefly.");
+    expect(Object.values(body.questions).every((q) => q.instructions.includes("under its `rubric`"))).toBe(true);
+    expect(Object.values(body.questions).some((q) => q.instructions.includes("meaningfully touches"))).toBe(false);
     expect(r.scores).toEqual({ bug: 0.91, feature: 0.2, praise: 0.05 });
     expect(r.label).toBe("bug");
     // No charge reported: metered at Jev's own rate rather than as free.

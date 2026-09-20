@@ -138,7 +138,8 @@ export type Question =
   | { type: "choice"; instructions: string; criteria: Record<string, null> }
   | { type: "noul"; instructions: string };
 
-type JevBody = { state: { id: string; text: string }[]; model: string; questions: Record<string, Question> };
+type JevState = { id: string; text: string; rubric?: string };
+type JevBody = { state: JevState[]; model: string; questions: Record<string, Question> };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -180,9 +181,7 @@ function questionsFor(id: string, labels: string[], instructions: string | undef
     labels.forEach((l, i) => {
       out[`${id}_${i}`] = {
         type: "noul",
-        instructions:
-          `Does the category "${l}" apply to item \`${id}\`? ` +
-          `A category applies if the text meaningfully touches it, even briefly.${extra}`,
+        instructions: `Does the category "${l}" apply to \`${id}\` under its \`rubric\`?`,
       };
     });
   } else {
@@ -197,19 +196,19 @@ function questionsFor(id: string, labels: string[], instructions: string | undef
 
 /** An indivisible set of questions about one state item. Recovery splits between groups, never within one. */
 export type JevQuestionGroup<T> = {
-  state: { id: string; text: string };
+  state: JevState;
   questions: Record<string, Question>;
   value: T;
 };
 
 /** A prepared request. Callers retain it when validation must happen before quota or network work. */
-export type JevBatch<T> = { groups: JevQuestionGroup<T>[]; state: { id: string; text: string }[]; questions: Record<string, Question> };
+export type JevBatch<T> = { groups: JevQuestionGroup<T>[]; state: JevState[]; questions: Record<string, Question> };
 
 /** A single dimension cell can be rejected before quota work; ordinary classification lets Jev make that decision. */
 export class JevContextError extends Error {}
 
 function stateCost(state: JevQuestionGroup<unknown>["state"]) {
-  return est(state.text) + 20;
+  return est(state.text) + (state.rubric ? est(state.rubric) : 0) + 20;
 }
 
 function questionCost(question: Question) {
@@ -217,7 +216,7 @@ function questionCost(question: Question) {
 }
 
 function batchFrom<T>(groups: JevQuestionGroup<T>[]): JevBatch<T> {
-  const states = new Map<string, { id: string; text: string }>();
+  const states = new Map<string, JevState>();
   const questions: Record<string, Question> = {};
   for (const group of groups) {
     states.set(group.state.id, group.state);
@@ -500,7 +499,10 @@ export async function jevClassify(
 ): Promise<JevResult[]> {
   const groups = inputs.map((text, index): JevQuestionGroup<number> => {
     const id = `i${index}`;
-    return { state: { id, text }, questions: questionsFor(id, labels, instructions, multi), value: index };
+    const rubric = multi
+      ? `A category applies if the text meaningfully touches it, even briefly.${instructions ? ` ${instructions.trim()}` : ""}`
+      : undefined;
+    return { state: { id, text, ...(rubric ? { rubric } : {}) }, questions: questionsFor(id, labels, instructions, multi), value: index };
   });
   const answered = await runJevBatches(keys, prepareJevBatches(groups), meter);
   return answered.map(({ value: index, model, answers }) => {
