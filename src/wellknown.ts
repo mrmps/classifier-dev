@@ -302,7 +302,7 @@ export function apiCatalog(origin: string) {
 
 /**
  * RFC 9728 protected-resource metadata. Truthful: no authorization server,
- * no scopes, anonymous classification; optional workspace, legacy Pro and partner keys.
+ * no scopes, anonymous classification; optional workspace and partner keys.
  */
 export function oauthProtectedResource(origin: string) {
   return {
@@ -316,7 +316,7 @@ export function oauthProtectedResource(origin: string) {
     resource_tos_uri: `${origin}/terms`,
     // Not part of RFC 9728; states in plain words what the empty lists mean.
     anonymous_access: true,
-    note: "Classification and docs support anonymous access. Workspace bearer keys use the workspace credit balance. Existing legacy Pro keys retain 10x rate limits per billing account. Partner keys remain supported. Billing endpoints require a signed-in session.",
+    note: "Classification and docs support anonymous access. Workspace bearer keys use the workspace credit balance; Pro workspaces get 10x rate limits. Partner keys have separately arranged access. Billing requires a signed-in session.",
   };
 }
 
@@ -326,8 +326,8 @@ Canonical: https://classifier.dev/auth.md · Last updated ${SITE_UPDATED}
 
 Classification and documentation work without a key. Workspace API keys use
 the workspace credit balance; current plans are at https://classifier.dev/pricing.
-Existing legacy Pro keys keep their 10x public rate limits. Send API keys as
-bearer credentials on REST or MCP. Billing uses a separate browser sign-in session.
+Send API keys as bearer credentials on REST or MCP.
+Billing uses a separate browser sign-in session.
 This file follows the discovery path from https://github.com/workos/auth.md;
 classifier.dev does not implement that spec's agent registration or token exchange.
 
@@ -344,19 +344,17 @@ classifier.dev does not implement that spec's agent registration or token exchan
 - **anonymous** — free, per IP: fast 3,000/minute and 20,000/day;
   smart 200/minute and 2,000/day. No account or card.
 - **service_auth (workspace key)** — classifier_agent_ keys charge the workspace
-  credit balance. Create and manage keys in /app/keys.
-- **service_auth (existing legacy Pro key)** — classifier_pro_ keys retain their
-  legacy limits per billing account across IPs and keys:
-  fast 30,000/minute and 200,000/day; smart 2,000/minute and 20,000/day.
-  Up to 1,000 inputs per request on either tier.
+  credit balance. Create and manage keys in /app/keys. Free workspaces have
+  the public ceilings, shared across keys. Pro workspaces get 10x limits:
+  fast 30,000/minute and 200,000/day; smart 2,000/minute and 20,000/day,
+  shared across keys and agents. Pro accepts up to 1,000 inputs per request.
 - **service_auth (partner key)** — separately arranged limits;
   contact https://cal.com/michaelsf/coffee.
 
 ## Register and claim
 
 Create a workspace at /auth/sign-up and create or rotate workspace keys at
-/app/keys. Existing classifier_pro_ keys retain their legacy limits. There is
-no agent registration or claim endpoint. Free classification requires no
+/app/keys. There is no agent registration or claim endpoint. Public classification requires no
 registration.
 
 ## Use the key
@@ -366,27 +364,23 @@ registration.
 Use the same header on REST and MCP. For the CLI, use --api-key or set
 CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). Keep keys out of URLs.
 No token exchange or refresh is needed. Your browser billing session is not
-an API credential. Existing classifier_pro_ and partner keys continue to work.
+an API credential.
 
 ## Errors
 
 - 401 — the key is invalid; create a replacement in your workspace.
-- 403 — the subscription does not grant Pro access, including past-due,
-  suspended or expired legacy access. Manage billing at https://classifier.dev/app/plans.
+- 402 — insufficient workspace balance. Manage billing at https://classifier.dev/app/plans.
+- 403 — the key is inactive or the workspace cannot authorize usage.
 - 429 — quota reached; wait the Retry-After seconds. RateLimit headers describe
   the allowance. The code is rate_limit_minute or rate_limit_day.
 - 400 — invalid classification parameters; the message says what to change.
 - 502 — classification provider failure; retry with backoff.
 - 503 — billing verification is unavailable; retry later.
 
-Legacy Pro subscription access is cached for at most 60 seconds. Anonymous
-classification remains available within public limits without a credential.
-
 ## Revocation and billing
 
-Rotate workspace keys at /app/keys; rotating replaces the
-old key. Existing legacy Pro keys remain valid while their subscription is
-active. Log in with your billing email at /app/plans to manage the same
-subscription. Partner keys are rotated through their issuing contact. There is no
+Rotate workspace keys at /app/keys; rotating invalidates the previous key.
+Manage your subscription at /app/plans.
+Partner keys are rotated through their issuing contact. There is no
 OAuth revocation or token exchange endpoint.
 `;

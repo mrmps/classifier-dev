@@ -1,10 +1,16 @@
 import { expect, test } from "bun:test";
-import { HOME_CSS, homeHtml } from "../src/home";
+import { HOME_CSS, NAV, homeHtml } from "../src/home";
 import { CHAT_CSS } from "../src/chatui";
 import { BILLING_PLANS, formatCreditsUsd } from "../src/lib/billing";
 import { PRICING } from "../src/pages";
 import { pricingHtml } from "../src/pricingui";
 import { BASE_CSS } from "../src/ui";
+import worker, { type Env } from "../src/index";
+
+const ctx = {
+  waitUntil() {},
+  passThroughOnException() {},
+} as unknown as ExecutionContext;
 
 test("public navigation exposes pricing and the WorkOS entry points", () => {
   const html = homeHtml();
@@ -21,6 +27,28 @@ test("public navigation exposes pricing and the WorkOS entry points", () => {
   expect(html).toContain('class="site-menu-actions"');
   expect(html).toContain('<span class="sr">Menu</span>');
   expect(html).not.toContain('href="/pro"');
+});
+
+test("authenticated navigation replaces account entry points with the dashboard", () => {
+  const html = NAV("home", true);
+  expect(html).toContain('href="/app">Dashboard</a>');
+  expect(html).not.toContain('href="/login"');
+  expect(html).not.toContain('href="/auth/sign-up"');
+});
+
+test("the public worker renders authenticated navigation as a cookie variant", async () => {
+  const response = await worker.fetch(
+    new Request("https://classifier.dev/", {
+      headers: { Accept: "text/html" },
+    }),
+    {} as Env,
+    ctx,
+    { viewer: { signedIn: true } },
+  );
+  const html = await response.text();
+
+  expect(html).toContain('href="/app">Dashboard</a>');
+  expect(response.headers.get("Vary")).toContain("cookie");
 });
 
 test("public navigation and its menus stay above content but below the chat controls", () => {
@@ -47,10 +75,10 @@ test("desktop navigation uses one compact control row and a wide-gamut purple ac
   expect(BASE_CSS).toContain("--accent:color(display-p3 .63 .40 1)");
 });
 
-test("pricing renders current shared plan values and keeps legacy keys documented", () => {
+test("pricing renders workspace plans and Pro rate limits", () => {
   const html = pricingHtml();
   expect(html).toContain("simple plans with upfront usage");
-  expect(html).toContain("more included usage + a shared workspace");
+  expect(html).toContain("10× rate limits");
   expect(html).toContain('class="plan-grid"');
   expect(html).toContain('class="plan-action" href="/auth/sign-up"');
   expect(html).toContain(`$${BILLING_PLANS.pro.priceCents / 100}`);
@@ -58,7 +86,9 @@ test("pricing renders current shared plan values and keeps legacy keys documente
   expect(html).toContain("laya-0.3.4-routed-fast");
   expect(html).toContain("laya-0.3.4-routed-bulk");
   expect(html).toContain('href="/auth/sign-up?returnTo=/app/plans"');
-  expect(html).toContain("classifier_pro_");
+  expect(html).not.toContain("classifier_pro_");
+  expect(html).toContain("30,000/min · 200,000/day");
+  expect(html).toContain("shared across workspace keys and agents");
   expect(html).not.toContain("/pricing/manage");
   expect(PRICING).toContain(formatCreditsUsd(BILLING_PLANS.free.includedCredits));
   expect(PRICING).toContain(formatCreditsUsd(BILLING_PLANS.pro.includedCredits));

@@ -19,7 +19,7 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
-import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
+import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, readQuotaTiming, type QuotaTiming, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, addTokens, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -27,11 +27,9 @@ import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
 import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
-export { BillingAccount } from "./billing";
-import { authenticatePro, handleBilling, BillingError, type BillingEnv } from "./billing";
 import { pricingHtml } from "./pricingui";
 
-export interface Env extends BillingEnv, LayaEnv {
+export interface Env extends LayaEnv {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
   /**
@@ -268,7 +266,7 @@ const agentView = (origin: string) => ({
   name: "classifier.dev",
   description: "Zero-shot text classification over plain HTTP. No API key, no account.",
   version: API_VERSION,
-  authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; legacy Pro and partner keys retain their arranged limits", docs: `${origin}/auth.md` },
+  authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; Pro workspaces get 10x limits. Partner keys have separately arranged limits.", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
@@ -427,7 +425,7 @@ const html = async (body: string, status = 200, extra: Record<string, string> = 
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=300",
       // Representations depend on Accept and agent-specific User-Agent handling.
-      vary: "accept, user-agent",
+      vary: "accept, user-agent, cookie",
       "content-security-policy": await pagePolicy(body),
       ...CORS,
       ...SECURITY,
@@ -1130,13 +1128,14 @@ export function record(env: Env, ctx: ExecutionContext, d: {
 }
 
 /** Ask the IP or Pro account Durable Object whether the batch fits. */
-async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1) {
+async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1, timing?: QuotaTiming) {
   const rpm = TIERS[tier].rpm * multiplier;
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
     const res = await env.LIMITER.get(id).fetch(
-      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}`,
+      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}${timing ? "&timing=1" : ""}`,
     );
+    readQuotaTiming(res, timing);
     return (await res.json()) as {
       limited: boolean;
       remaining: number;
@@ -1153,12 +1152,14 @@ async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplie
 export type ClassificationExecution = {
   meter?: Meter;
   account?: { id: string; multiplier: number };
+  viewer?: { signedIn: boolean };
 };
 
 const worker = {
   async fetch(req: Request, env: Env, ctx: ExecutionContext, execution?: ClassificationExecution): Promise<Response> {
     const workerStarted = performance.now();
     const account = execution?.account;
+    const signedIn = execution?.viewer?.signedIn === true;
     if (account && (!account.id.trim() || !Number.isSafeInteger(account.multiplier) || account.multiplier < 1)) {
       throw new Error("Invalid internal classification account context");
     }
@@ -1208,16 +1209,6 @@ const worker = {
     const wantsMarkdown =
       req.method === "GET" && (url.searchParams.get("format") === "markdown" || /\btext\/markdown\b/.test(accept));
     const origin = url.origin;
-    if (path === "pro" && req.method === "GET") {
-      return new Response(null, {
-        status: 308,
-        // Old email links carry a token in the fragment. An explicit empty
-        // fragment prevents it being inherited by the new account login flow.
-        headers: { Location: `${origin}/app/plans#`, ...SECURITY },
-      });
-    }
-    const billing = await handleBilling(req, env);
-    if (billing) return billing;
     // The operator dashboard. Returns null for every other path.
     const admin = await adminResponse(req, env, path, ip);
     if (admin) return admin;
@@ -1380,13 +1371,14 @@ const worker = {
       if (pageWantsHtml)
         return html(
           pageKey === "pricing"
-            ? pricingHtml()
+            ? pricingHtml(signedIn)
             : docHtml({
                 title: pg.title,
                 desc: pg.desc,
                 doc: pg.doc,
                 path: `/${pageKey}`,
                 here: pageKey,
+                signedIn,
               }),
         );
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
@@ -1400,7 +1392,7 @@ const worker = {
       const items = await skills.list(env);
       const dynamic = { "cache-control": "public, max-age=60", vary: "accept, user-agent" };
       if (path.endsWith(".md") || wantsMarkdown) return markdown(skills.skillsMarkdown(items, origin), 200, dynamic);
-      if (pageWantsHtml) return html(skills.skillsHtml(items), 200, dynamic);
+      if (pageWantsHtml) return html(skills.skillsHtml(items, signedIn), 200, dynamic);
       return text(skills.skillsDoc(items), 200, dynamic);
     }
     const skillPage = req.method === "GET" && path.match(/^skills\/([a-z0-9-]{1,64})(\.md)?$/);
@@ -1411,7 +1403,7 @@ const worker = {
       if (skillPage[2] || wantsMarkdown) {
         return new Response(r.content, { headers: { "content-type": "text/markdown; charset=utf-8", "content-disposition": 'inline; filename="SKILL.md"', ...dynamic, ...CORS, ...SECURITY } });
       }
-      if (pageWantsHtml) return html(skills.skillHtml(r), 200, dynamic);
+      if (pageWantsHtml) return html(skills.skillHtml(r, signedIn), 200, dynamic);
       return text(skills.skillDoc(r), 200, dynamic);
     }
     if (path === skills.API_PATH || path.startsWith(`${skills.API_PATH}/`)) {
@@ -1609,12 +1601,12 @@ const worker = {
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
         return html(unfurlHtml(), 200, { "cache-control": "public, max-age=3600", ...link });
       }
-      if (wantsHtml) return html(homeHtml(), 200, link);
+      if (wantsHtml) return html(homeHtml({ signedIn }), 200, link);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
     // The front page with the sidebar already open. curl gets told where the chat is.
     if (req.method === "GET" && path === "chat") {
-      if (wantsHtml) return html(homeHtml({ chat: true }), 200, { link: LINKS(origin) });
+      if (wantsHtml) return html(homeHtml({ chat: true, signedIn }), 200, { link: LINKS(origin) });
       return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
     }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
@@ -1624,7 +1616,7 @@ const worker = {
       if (path === "benchmark.md" || wantsMarkdown) {
         return markdown(toMarkdown(BENCHMARK, { title: "classifier.dev benchmark", canonical: `${origin}/benchmark`, description: "Measured accuracy, calibration, cost and latency." }));
       }
-      if (wantsHtml) return html(benchmarkHtml());
+      if (wantsHtml) return html(benchmarkHtml(signedIn));
       return text(BENCHMARK, 200, { vary: "accept" });
     }
     if (path === "robots.txt") return text(robotsTxt(origin), 200, CACHE_HOUR);
@@ -1730,25 +1722,17 @@ const worker = {
       return notFound(req, origin);
     }
 
-    // Paid credentials are resolved only on classification paths. The shared
-    // MCP handler forwards Authorization here too. Never put billing identity
-    // into classification analytics; only the quota bucket uses the account.
     if (!account && /^Bearer\s+classifier_agent_/i.test(req.headers.get("authorization") || "")) {
       return json({ error: "Account classification supports POST /v1/classify.", code: "account_route_required" }, 400,
         { "cache-control": "no-store" });
     }
-    let pro: { customerId: string; active: boolean } | null = null;
-    if (!enterprise && !account) {
-      try { pro = await authenticatePro(req, env); }
-      catch (error) {
-        if (error instanceof BillingError) return json({ error: error.message, code: error.code }, error.status, { "cache-control": "no-store", "x-api-version": API_VERSION });
-        return json({ error: "Unable to verify Pro access. Try again shortly.", code: "billing_unavailable" }, 503, { "cache-control": "no-store", "x-api-version": API_VERSION });
-      }
+    if (!enterprise && !account && req.headers.has("authorization")) {
+      return json({ error: "Invalid API key. Create a workspace key at /app/keys.", code: "invalid_api_key" }, 401, { "cache-control": "no-store", "x-api-version": API_VERSION });
     }
-    const multiplier = account?.multiplier ?? (pro ? 10 : 1);
-    const quotaOwner = account ? `account:${account.id}` : pro ? `pro:${pro.customerId}` : ip;
-    const quotaScope = account ? "per account" : pro ? "per Pro account" : "per IP";
-    const paid = pro !== null || !!account && multiplier > 1;
+    const multiplier = account?.multiplier ?? 1;
+    const quotaOwner = account ? `account:${account.id}` : ip;
+    const quotaScope = account ? "per account" : "per IP";
+    const paid = multiplier > 1;
 
     // ---- gather params from either shape -----------------------------------
     let inputs: string[] = [];
@@ -1761,6 +1745,7 @@ const worker = {
     let layaRemaining = -1;
     let layaTiming: LayaRequestTiming | undefined;
     let regularQuotaMs = 0, layaQuotaMs = 0;
+    const regularQuotaTiming: QuotaTiming = {}, laneQuotaTiming: QuotaTiming = {};
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
     let dimensions: Dimension[] | undefined;
@@ -1783,13 +1768,11 @@ const worker = {
         "x-api-version": API_VERSION,
         "ratelimit-limit": enterprise && !isLaya ? "unlimited" : String(limit),
         "ratelimit-policy": enterprise && !isLaya ? "unlimited" : `${limit};w=60, ${daily};w=86400`,
-        "x-ratelimit-limit": enterprise && !isLaya ? "unlimited" : `${limit}/min`,
       };
       if (isLaya) h["x-classifier-processing"] = processing;
       if (layaRemaining >= 0) remaining = remaining < 0 ? layaRemaining : Math.min(remaining, layaRemaining);
       if (remaining >= 0) {
         h["ratelimit-remaining"] = String(remaining);
-        h["x-ratelimit-remaining"] = String(remaining);
       }
       const idem = req.headers.get("idempotency-key");
       if (idem) h["idempotency-key"] = idem.slice(0, 255);
@@ -1927,11 +1910,11 @@ const worker = {
     }
     const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
-    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
+    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const regularQuotaStarted = performance.now();
     const gate = enterprise
       ? { limited: false, remaining: -1 }
-      : await limited(env, tier, quotaOwner, decisions, multiplier);
+      : await limited(env, tier, quotaOwner, decisions, multiplier, layaTiming ? regularQuotaTiming : undefined);
     regularQuotaMs = performance.now() - regularQuotaStarted;
     if (gate.limited) {
       const perDay = gate.scope === "day";
@@ -1950,7 +1933,6 @@ const worker = {
         perDay ? "rate_limit_day" : "rate_limit_minute",
         {
           "retry-after": String(gate.resetIn ?? 60),
-          "x-ratelimit-limit": perDay ? `${TIERS[tier].daily * multiplier}/day` : `${rpm}/min`,
         },
         0,
         0,
@@ -1962,7 +1944,7 @@ const worker = {
     // the separate, deliberately small Laya allowance.
     if (layaPlan) {
       const layaQuotaStarted = performance.now();
-      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost); }
+      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost, layaTiming ? laneQuotaTiming : undefined); }
       catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
           error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -2013,6 +1995,8 @@ const worker = {
       const durations: Record<string, number | undefined> = {
         worker_total: performance.now() - workerStarted,
         quota_regular: regularQuotaMs, quota_laya: layaQuotaMs,
+        regular_handler: regularQuotaTiming.handler, regular_read: regularQuotaTiming.read, regular_write: regularQuotaTiming.write,
+        lane_handler: laneQuotaTiming.handler, lane_read: laneQuotaTiming.read, lane_write: laneQuotaTiming.write,
         laya_run: layaTiming.runMs, modal_fetch: layaTiming.fetchMs,
         modal_headers: layaTiming.headersMs, backend: layaTiming.backendMs,
       };
