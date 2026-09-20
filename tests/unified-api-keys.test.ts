@@ -134,7 +134,7 @@ test("key reveal and mutations require membership and management permissions", a
   ] as const) {
     await expect(
       performWorkspaceAction("member", "local-demo", action, env),
-    ).rejects.toThrow("Only workspace owners and admins");
+    ).rejects.toThrow("do not have access");
   }
   await expect(
     performAction("member", { type: "reveal-key", keyId: key.agentId! }, env),

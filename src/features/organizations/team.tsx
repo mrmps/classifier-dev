@@ -78,7 +78,10 @@ export function Team({
   >(null);
   const usedSeats = context.members.length + context.invitations.length;
   const full = seatLimit !== null && usedSeats >= seatLimit;
-  const canManage = false;
+  const canManage =
+    context.mode === "workos" &&
+    context.active.kind === "organization" &&
+    context.active.role !== "member";
   async function run(action: Parameters<OrganizationActionHandler>[0]) {
     if (busy) return;
     setBusy(true);
@@ -114,7 +117,7 @@ export function Team({
               }}
             >
               <Plus data-icon="inline-start" />
-              {full ? "View plans" : "Prepare invitation"}
+              {full ? "View plans" : "Invite member"}
             </Button>
           )
         }
@@ -127,12 +130,12 @@ export function Team({
       )}
       {context.active.kind === "organization" && !canManage && (
         <p className="text-sm text-muted-foreground">
-          Team changes are not available in this workspace yet.
+          Only owners and admins can invite people to this organization.
         </p>
       )}
       {canManage && full && (
         <p className="text-sm text-muted-foreground">
-          All {seatLimit} seats are in use, including prepared invitations.
+          All {seatLimit} seats are in use, including pending invitations.
           Cancel an unused invitation or upgrade to a plan with more seats.
         </p>
       )}
@@ -255,7 +258,7 @@ export function Team({
               ? `${usedSeats} seats used · unlimited available`
               : `${usedSeats} / ${seatLimit} seats used`}
             {context.invitations.length > 0
-              ? " · includes prepared invitations"
+              ? " · includes pending invitations"
               : ""}
           </span>
         </div>
@@ -263,13 +266,13 @@ export function Team({
       {context.invitations.length > 0 && (
         <section
           className="flex flex-col gap-4"
-          aria-label="Prepared invitations"
+          aria-label="Pending invitations"
         >
           <div>
-            <h2 className="text-base font-medium">Prepared invitations</h2>
+            <h2 className="text-base font-medium">Pending invitations</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Saved locally. No email has been sent and access has not been
-              granted.
+              Invitations have been emailed. Access begins when the recipient
+              accepts.
             </p>
           </div>
           <div className="rounded-xl border border-border p-2">
@@ -285,7 +288,7 @@ export function Team({
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Badge variant="secondary">Prepared</Badge>
+                  <Badge variant="secondary">Pending</Badge>
                   {canManage && (
                     <Button
                       variant="ghost"
@@ -321,9 +324,9 @@ export function Team({
       >
         <DialogContent showCloseButton={!busy}>
           <DialogHeader>
-            <DialogTitle>Prepare an invitation</DialogTitle>
+            <DialogTitle>Invite a member</DialogTitle>
             <DialogDescription>
-              Prepare an invitation for {context.active.name}.
+              Send an invitation to join {context.active.name}.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -382,7 +385,8 @@ export function Team({
               </Field>
             </FieldGroup>
             <p className="rounded-lg bg-muted p-3 text-xs leading-relaxed text-muted-foreground">
-              Email delivery and accepting invitations are not connected yet.
+              We’ll email a secure invitation link. The recipient must accept it
+              to join.
             </p>
             {error && (
               <p role="alert" className="text-sm text-destructive">
@@ -399,7 +403,7 @@ export function Team({
                 Cancel
               </Button>
               <Button type="submit" disabled={busy || !email.trim()}>
-                {busy ? "Preparing…" : "Prepare invitation"}
+                {busy ? "Sending…" : "Invite member"}
               </Button>
             </DialogFooter>
           </form>

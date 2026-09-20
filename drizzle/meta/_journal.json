@@ -29,6 +29,13 @@
       "when": 1789911326499,
       "tag": "0003_newsletter_latency",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789914914673,
+      "tag": "0004_organizations",
+      "breakpoints": true
     }
   ]
 }

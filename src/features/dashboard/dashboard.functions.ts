@@ -13,21 +13,29 @@ export const getDashboard = createServerFn({ method: "GET" })
   .validator((data: { returnTo?: string } | undefined) => authReturnPath(data?.returnTo))
   .handler(async ({ data }) => {
     const { env } = await import("cloudflare:workers");
-    const { getRequest, setResponseHeader } =
+    const { getRequest, setResponseHeader, setCookie } =
       await import("@tanstack/react-start/server");
     const { requireAccount } = await import("../../server/auth");
     const { getSnapshot } = await import("../../server/accounts");
     setResponseHeader("Cache-Control", "no-store");
     const bindings = appEnvironment(env);
     try {
-      const { getOrganizationContext, selectedWorkspace } =
+      const { getDashboardOrganizationContext, selectedWorkspace } =
         await import("../../server/organizations");
       const request = getRequest();
-      const organizations = await getOrganizationContext(
+      const organizations = await getDashboardOrganizationContext(
         await requireAccount(request, bindings),
         selectedWorkspace(request),
         bindings,
       );
+      if (
+        selectedWorkspace(request) &&
+        selectedWorkspace(request) !== organizations.active.id
+      )
+        setCookie("classifier_workspace", "", {
+          httpOnly: true, sameSite: "lax", path: "/", maxAge: 0,
+          secure: new URL(request.url).protocol === "https:",
+        });
       const { ensureDefaultKey } = await import("../../server/api-keys");
       await ensureDefaultKey(organizations.active.id, bindings);
       return {
@@ -38,11 +46,13 @@ export const getDashboard = createServerFn({ method: "GET" })
     } catch (error) {
       const { AppError } = await import("../../server/db");
       if (error instanceof AppError && error.status === 401)
-        throw redirect({ to: "/login", search: { returnTo: data, error: undefined } });
+        throw redirect({
+          to: "/login",
+          search: { returnTo: data, error: undefined },
+        });
       throw error;
     }
-  },
-);
+  });
 
 export const dashboardAction = createServerFn({ method: "POST" })
   .validator((data: AppAction) => data)
