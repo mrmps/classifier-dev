@@ -19,7 +19,7 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
-import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
+import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, readQuotaTiming, type QuotaTiming, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, addTokens, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -1127,13 +1127,14 @@ export function record(env: Env, ctx: ExecutionContext, d: {
 }
 
 /** Ask the IP or Pro account Durable Object whether the batch fits. */
-async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1) {
+async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1, timing?: QuotaTiming) {
   const rpm = TIERS[tier].rpm * multiplier;
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
     const res = await env.LIMITER.get(id).fetch(
       `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}`,
     );
+    readQuotaTiming(res, timing);
     return (await res.json()) as {
       limited: boolean;
       remaining: number;
@@ -1758,6 +1759,7 @@ const worker = {
     let layaRemaining = -1;
     let layaTiming: LayaRequestTiming | undefined;
     let regularQuotaMs = 0, layaQuotaMs = 0;
+    const regularQuotaTiming: QuotaTiming = {}, laneQuotaTiming: QuotaTiming = {};
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
     let dimensions: Dimension[] | undefined;
@@ -1928,7 +1930,7 @@ const worker = {
     const regularQuotaStarted = performance.now();
     const gate = enterprise
       ? { limited: false, remaining: -1 }
-      : await limited(env, tier, quotaOwner, decisions, multiplier);
+      : await limited(env, tier, quotaOwner, decisions, multiplier, layaTiming ? regularQuotaTiming : undefined);
     regularQuotaMs = performance.now() - regularQuotaStarted;
     if (gate.limited) {
       const perDay = gate.scope === "day";
@@ -1959,7 +1961,7 @@ const worker = {
     // the separate, deliberately small Laya allowance.
     if (layaPlan) {
       const layaQuotaStarted = performance.now();
-      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost); }
+      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost, layaTiming ? laneQuotaTiming : undefined); }
       catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
           error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -2009,6 +2011,8 @@ const worker = {
       const durations: Record<string, number | undefined> = {
         worker_total: performance.now() - workerStarted,
         quota_regular: regularQuotaMs, quota_laya: layaQuotaMs,
+        regular_handler: regularQuotaTiming.handler, regular_read: regularQuotaTiming.read, regular_write: regularQuotaTiming.write,
+        lane_handler: laneQuotaTiming.handler, lane_read: laneQuotaTiming.read, lane_write: laneQuotaTiming.write,
         laya_run: layaTiming.runMs, modal_fetch: layaTiming.fetchMs,
         modal_headers: layaTiming.headersMs, backend: layaTiming.backendMs,
       };

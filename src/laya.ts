@@ -53,11 +53,21 @@ export function planLaya(tasks: LayaTask[], processing: Processing): LayaPlan {
   return { batches, tasks, cost, processing };
 }
 
-export async function limitLaya(env: LayaEnv, lane: Processing, owner: string, cost: number) {
+export type QuotaTiming = Partial<Record<"handler" | "read" | "write", number>>;
+export function readQuotaTiming(response: Response, timing?: QuotaTiming) {
+  if (!timing) return;
+  for (const part of (response.headers.get("server-timing") ?? "").split(",")) {
+    const match = /^(handler|read|write);dur=(\d+(?:\.\d+)?)$/.exec(part.trim());
+    if (match && Number.isFinite(Number(match[2]))) timing[match[1] as keyof QuotaTiming] = Number(match[2]);
+  }
+}
+
+export async function limitLaya(env: LayaEnv, lane: Processing, owner: string, cost: number, timing?: QuotaTiming) {
   const { rpm, daily } = LAYA_LIMITS[lane];
   try {
     const id = env.LIMITER.idFromName(`laya:${lane}:${owner}`);
     const response = await env.LIMITER.get(id).fetch(`https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}`);
+    readQuotaTiming(response, timing);
     if (!response.ok) throw new Error("limiter unavailable");
     const result = await response.json() as { limited: boolean; remaining: number; resetIn?: number; scope?: "minute" | "day" };
     if (typeof result.limited !== "boolean" || !Number.isFinite(result.remaining)) throw new Error("invalid limiter response");

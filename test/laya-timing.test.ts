@@ -1,5 +1,13 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { planLaya, runLaya, type LayaEnv, type LayaTiming } from "../src/laya";
+import { planLaya, runLaya, readQuotaTiming, type QuotaTiming, type LayaEnv, type LayaTiming } from "../src/laya";
+
+test("quota timing accepts only known finite numeric spans", () => {
+  const timing: QuotaTiming = {};
+  readQuotaTiming(new Response(null, { headers: { "server-timing": "handler;dur=9.50, read;dur=2, write;dur=7.5, secret;dur=123, read;dur=-5, write;dur=Infinity" } }), timing);
+  expect(timing).toEqual({ handler: 9.5, read: 2, write: 7.5 });
+  readQuotaTiming(new Response(null), timing);
+  expect(timing.handler).toBe(9.5);
+});
 
 const originalFetch = globalThis.fetch;
 let clock: ReturnType<typeof spyOn> | undefined;
