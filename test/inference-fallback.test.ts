@@ -119,6 +119,26 @@ test("fallback preserves valid logprob scores for nonword input", async () => {
   expect(body.results[0].unscored).toBeUndefined();
 });
 
+test("fallback confidence describes the selected label rather than the largest score", async () => {
+  globalThis.fetch = (async () => single("B")) as typeof fetch;
+  const response = await classify({ input: "a useful sentence", labels: ["bug", "feature"] });
+  const body = await response.json();
+  expect(response.status).toBe(200);
+  expect(body.results[0]).toMatchObject({ label: "feature", confidence: 0.2689 });
+  expect(body.results[0].confidence).toBe(body.results[0].scores.feature);
+});
+
+test("prose tokens are not category probabilities", async () => {
+  globalThis.fetch = (async () => Response.json({
+    choices: [{ message: { content: "A" }, logprobs: { content: [{ top_logprobs: [
+      { token: "Actually", logprob: -0.1 }, { token: "Because", logprob: -1 },
+    ] }] } }],
+  })) as typeof fetch;
+  const response = await classify({ input: "a useful sentence", labels: ["bug", "feature"] });
+  expect(response.status).toBe(200);
+  expect((await response.json()).results[0]).toMatchObject({ label: "bug", confidence: null, scores: null });
+});
+
 test("a verifier's explicit none result clears the multi-label shortlist", async () => {
   const labels = Array.from({ length: 13 }, (_, i) => `label-${i}`);
   let calls = 0;
