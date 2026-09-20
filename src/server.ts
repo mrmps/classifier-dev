@@ -4,11 +4,9 @@ import {
 } from "@tanstack/react-start/server";
 import legacy, { type Env } from "./index";
 import { AppError, type AppEnv } from "./server/db";
-import { accountMcp } from "./http/mcp";
-import { accountClassification } from "./http/classification";
+import { accountApi } from "./http/account-api";
 import { isAppRequest } from "./http/dispatch";
 import { appEnvironment } from "./server/environment";
-import { accountReadRoutes } from "./http/account";
 import { autumnWebhook } from "./http/autumn-webhook";
 import { syncAutumnAccounts } from "./server/billing-sync";
 export { RateLimiter, BillingAccount } from "./index";
@@ -24,17 +22,8 @@ export default {
     try {
       const path = new URL(request.url).pathname;
       if (path === "/webhooks/autumn") return await autumnWebhook(request, env);
-      const accountRead = await accountReadRoutes(request, env);
-      if (accountRead) return accountRead;
-      const mcp = await accountMcp(request, env, ctx);
-      if (mcp) return mcp;
-      const classification = await accountClassification(
-        request,
-        env,
-        "API",
-        ctx,
-      );
-      if (classification) return classification;
+      const account = await accountApi(request, env, ctx);
+      if (account) return account;
       if (isAppRequest(request)) {
         const response = await start(request);
         response.headers.set("Cache-Control", "no-store");

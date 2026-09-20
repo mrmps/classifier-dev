@@ -309,10 +309,11 @@ KEYS AND LIMITS
 
 SANDBOX
 
-  There is no separate test environment because there is nothing to protect:
-  no stored inputs, no per-account state. Production is the sandbox. Build
-  against the fast tier with a handful of inputs; every example on this page
-  is safe to run again and again.
+  The sandbox endpoint, POST /v1/sandbox/classify, runs real inference with
+  the same authentication, quotas and billing as POST /v1/classify. Workspace
+  keys spend workspace credits. Request content is not stored; usage and
+  billing metadata are. Start with a handful of inputs. This is not a
+  simulated billing environment.
 
 
 ERRORS

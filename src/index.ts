@@ -1348,12 +1348,11 @@ const worker = {
         CACHE_HOUR,
       );
     }
-    // A sandbox for tooling that insists on one: identical to production, which
-    // stores nothing and costs nothing, so there is no data to protect.
+    // Sandbox URLs run real inference with normal authentication and billing.
     if (path === "v1/sandbox/classify" || path === "sandbox/classify") {
       const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, req), env, ctx, execution);
       const h = new Headers(r.headers);
-      h.set("x-sandbox", "true; identical to production, nothing is stored");
+      h.set("x-sandbox", "true; identical to production; normal billing applies; request content is not stored");
       return new Response(r.body, { status: r.status, headers: h });
     }
 
@@ -1725,6 +1724,10 @@ const worker = {
     // Paid credentials are resolved only on classification paths. The shared
     // MCP handler forwards Authorization here too. Never put billing identity
     // into classification analytics; only the quota bucket uses the account.
+    if (!account && /^Bearer\s+classifier_agent_/i.test(req.headers.get("authorization") || "")) {
+      return json({ error: "Account classification supports POST /v1/classify.", code: "account_route_required" }, 400,
+        { "cache-control": "no-store" });
+    }
     let pro: { customerId: string; active: boolean } | null = null;
     if (!enterprise && !account) {
       try { pro = await authenticatePro(req, env); }
