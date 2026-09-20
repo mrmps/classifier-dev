@@ -1,15 +1,13 @@
 /**
  * The updates list.
  *
- * Email, subscription state and which roadmap items the person ticked, in a
- * Postgres that holds nothing else. No IP, no user agent, no request id. The
- * columns you would join a person to a classification on were never created,
- * so the schema enforces this and no policy has to. PRIVACY on the home page
- * promises the API keeps no text; this keeps the same promise about the
- * people who ask for news.
+ * Email, subscription state and which roadmap items the person ticked, in the
+ * shared application Postgres. No IP, user agent, request id or workspace
+ * foreign key is stored on subscriber rows. Newsletter consent remains
+ * independent of accounts and API activity.
  *
  * The table, for whoever next touches it (`migrations/` holds the changes;
- * the original was made by hand):
+ * the original was made by hand; now managed in migrations/postgres):
  *
  *   create table subscriber (
  *     id bigint generated always as identity primary key,
@@ -26,7 +24,7 @@
  * so the three cannot drift.
  *
  * The write goes over Neon's HTTP SQL endpoint rather than a Postgres driver,
- * because a Worker has no TCP and this file is not worth a dependency.
+ * using the same DATABASE_URL as the account application.
  */
 
 import type { Env } from "./index";
@@ -158,7 +156,7 @@ export async function verifyToken(env: Env, token: unknown, now = Date.now()): P
 
 /** No database row exists until the inbox owner confirms. */
 export async function requestConfirmation(env: Env, email: string, wants: ReadonlyArray<string> = []): Promise<void> {
-  if (!env.NEWSLETTER_RESEND_API_KEY || !env.NEWSLETTER_FROM || !env.NEWSLETTER_DATABASE_URL) throw new Unavailable("newsletter is not configured");
+  if (!env.NEWSLETTER_RESEND_API_KEY || !env.NEWSLETTER_FROM || !env.DATABASE_URL) throw new Unavailable("newsletter is not configured");
   const token = await confirmationToken(env, email, Date.now(), wants);
   const names = wantedNames(wants);
   const link = `https://classifier.dev/${CONFIRM_PATH}?token=${encodeURIComponent(token)}`;
@@ -210,8 +208,8 @@ export async function requestConfirmation(env: Env, email: string, wants: Readon
  * by this call.
  */
 export async function subscribe(env: Env, email: string, source: string, wants: ReadonlyArray<string> = []): Promise<boolean> {
-  const conn = env.NEWSLETTER_DATABASE_URL;
-  if (!conn) throw new Unavailable("NEWSLETTER_DATABASE_URL is not set");
+  const conn = env.DATABASE_URL;
+  if (!conn) throw new Unavailable("DATABASE_URL is not set");
   const res = await fetch(`https://${new URL(conn).host}/sql`, {
     method: "POST",
     headers: { "content-type": "application/json", "neon-connection-string": conn },
@@ -268,7 +266,7 @@ export async function notify(env: Env, email: string, source: string, wants: Rea
     `Wants: ${names.length ? names.join(", ") : "(nothing ticked)"}`,
     `Date: ${date}`,
     "",
-    "The subscriber list is in the newsletter Neon project.",
+    "The subscriber list is in the application's subscriber table.",
   ].join("\n");
 
   const res = await fetch("https://api.resend.com/emails", {

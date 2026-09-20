@@ -4,13 +4,23 @@ import { Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { sql } from "drizzle-orm";
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("Set DATABASE_URL to the target Neon/Postgres database.");
-const client = new Pool({ connectionString: url, max: 1 });
-const database = drizzle(client);
-const directory = new URL("../migrations/postgres/", import.meta.url);
-try {
+export async function migratePostgres(
+  url: string,
+  directory: URL = new URL("../migrations/postgres/", import.meta.url),
+  schema?: string,
+) {
+  // Fail before connecting, without letting driver errors repeat credentials.
+  const connection = new URL(url);
+  if (!["postgres:", "postgresql:"].includes(connection.protocol)) {
+    throw new Error("DATABASE_URL must be a PostgreSQL connection URL.");
+  }
+  // Migrations need a direct endpoint; runtime HTTP queries retain pooling.
+  connection.hostname = connection.hostname.replace(/-pooler(?=\.)/, "");
+  const client = new Pool({ connectionString: connection.toString(), max: 1 });
+  const database = drizzle(client);
+  try {
   await database.transaction(async (transaction) => {
+    if (schema) await transaction.execute(sql`SET LOCAL search_path TO ${sql.identifier(schema)}`);
     // One runner owns the migration history until all files have committed.
     await transaction.execute(sql`SELECT pg_advisory_xact_lock(820916240)`);
     await transaction.execute(sql`CREATE TABLE IF NOT EXISTS app_schema_migrations (
@@ -34,6 +44,13 @@ try {
       console.log(`Applied ${name}`);
     }
   });
-} finally {
-  await client.end();
+  } finally {
+    await client.end();
+  }
+}
+
+if (import.meta.main) {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("Set DATABASE_URL to the target Neon/Postgres database.");
+  await migratePostgres(url);
 }

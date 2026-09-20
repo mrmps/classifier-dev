@@ -33,9 +33,10 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   live in `src/jev.ts`. Nothing downstream should know which door answered
   beyond the `model` label.
 - The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
-  text, the signup form and the Markdown all render from it. Addresses go to a
-  separate Neon project and the table stores nothing that could join them to API
-  traffic — keep it that way.
+  text, the signup form and the Markdown all render from it. Addresses go to the
+  `subscriber` table in the shared application Neon database. Preserve consent,
+  timestamps, preferences and unsubscribe state; never link newsletter consent
+  to account membership or write API traffic identifiers into subscriber rows.
 - The skills directory (`src/skills.ts`, cleaners in `src/skillscan.ts`) stores
   accepted skills in the `STATS` KV under `skill:{slug}`, `skills:index` and
   `skillhash:{sha}`; rejections store nothing. The three gates run in order

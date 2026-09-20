@@ -65,11 +65,23 @@ The production account database contains the following application tables:
 `app_autumn_grants`, and `app_autumn_sync_budget`. `app_schema_migrations`
 records the immutable migration name and checksum.
 
-Newsletter addresses remain in the separate `classifier-newsletter` Neon
-project, whose only application table is `subscriber`. Neon-managed roles have
-project-wide privileges, so moving that table into the account project would
-make the address list reachable by account-database credentials and violate the
-documented privacy boundary.
+Newsletter addresses are in `subscriber` in the same `classify` project and
+`neondb` database, using `DATABASE_URL`. Subscriber consent has no account or
+workspace foreign key. Administrative credentials can access both kinds of data;
+the public privacy page describes this shared storage explicitly.
+
+The consolidation script `scripts/consolidate-newsletter.ts` takes a consistent
+source snapshot, preserves every column (including identity values, microsecond
+timestamps, preferences and unsubscribe state), rejects conflicting destination
+rows, and verifies exact equality before committing. Before production cutover,
+create and verify a source backup branch. Freeze source subscriber writes with
+`scripts/newsletter-freeze.sql`, run the copy, deploy, and verify source rows
+against the destination again. During the brief freeze, confirmation requests
+on the old Worker fail with a retryable 503; existing confirmation tokens remain
+valid. Keep the source project and backup branch intact. Never replay the copy
+over destination changes: conflicts deliberately abort instead of overwriting
+consent. Rollback requires reconciling new destination subscribers before
+removing the source freeze with `scripts/newsletter-unfreeze.sql`.
 
 For a manual deployment, configure the Worker with the pooled URL using `npx
 wrangler secret put DATABASE_URL` and supply the direct URL as `DATABASE_URL` to

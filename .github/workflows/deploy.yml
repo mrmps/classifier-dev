@@ -48,6 +48,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Worker tests
+        env:
+          NEON_MIGRATION_TEST_URL: ${{ secrets.NEON_MIGRATION_TEST_URL }}
         run: npm test
       - name: CLI tests
         run: node --test

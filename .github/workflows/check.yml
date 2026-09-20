@@ -19,6 +19,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+        env:
+          NEON_MIGRATION_TEST_URL: ${{ secrets.NEON_MIGRATION_TEST_URL }}
       - run: node --test
         working-directory: cli
       - name: Render secret-free build configuration
