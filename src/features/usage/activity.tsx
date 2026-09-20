@@ -195,41 +195,28 @@ export function Activity({ snapshot }: { snapshot: AppSnapshot }) {
     [days, setDays] = useState("7"),
     [page, setPage] = useState(0);
   useEffect(() => setPage(0), [key, source, state, days]);
-  const analytics = useAnalytics(
-    snapshot.account.id,
-    !snapshot.demo,
-    "activity",
-    {
-      ...analyticsParameters(Number(days), "daily"),
-      ...(key !== "all" ? { key_id: key } : {}),
-      ...(source !== "all" ? { source } : {}),
-      ...(state !== "all" ? { status: state } : {}),
-    },
-  );
-  const rows: Row[] = !snapshot.demo
-    ? (analytics.data?.data ?? []).map((row) => ({
-        id: String(row.requestId),
-        time: analyticsTimestamp(row.timestamp),
-        agentName: String(row.agentId ?? ""),
-        keyId: String(row.keyId),
-        keyName:
-          snapshot.keys.find((key) => key.id === row.keyId)?.name ??
-          String(row.keyId),
-        type: `${row.source} · ${row.tier}`,
-        status: String(row.status),
-        items: measurement(row, "items") ?? 0,
-        credits: (measurement(row, "retailCostUsd") ?? 0) * 100_000,
-        costAvailable: measurement(row, "retailCostUsd") !== null,
-        inputTokens: measurement(row, "inputTokens"),
-        outputTokens: measurement(row, "outputTokens"),
-      }))
-    : snapshot.usage.filter(
-        (row) =>
-          (key === "all" || row.keyId === key) &&
-          (source === "all" || row.type === source) &&
-          (state === "all" || row.status === state) &&
-          new Date(row.time).getTime() >= Date.now() - Number(days) * 86400000,
-      );
+  const analytics = useAnalytics(snapshot.account.id, true, "activity", {
+    ...analyticsParameters(Number(days), "daily"),
+    ...(key !== "all" ? { key_id: key } : {}),
+    ...(source !== "all" ? { source } : {}),
+    ...(state !== "all" ? { status: state } : {}),
+  });
+  const rows: Row[] = (analytics.data?.data ?? []).map((row) => ({
+    id: String(row.requestId),
+    time: analyticsTimestamp(row.timestamp),
+    agentName: String(row.agentId ?? ""),
+    keyId: String(row.keyId),
+    keyName:
+      snapshot.keys.find((key) => key.id === row.keyId)?.name ??
+      String(row.keyId),
+    type: `${row.source} · ${row.tier}`,
+    status: String(row.status),
+    items: measurement(row, "items") ?? 0,
+    credits: (measurement(row, "retailCostUsd") ?? 0) * 100_000,
+    costAvailable: measurement(row, "retailCostUsd") !== null,
+    inputTokens: measurement(row, "inputTokens"),
+    outputTokens: measurement(row, "outputTokens"),
+  }));
   const current = Math.min(page, Math.max(0, Math.ceil(rows.length / 10) - 1));
   function exportCsv() {
     const fields = [
@@ -280,7 +267,7 @@ export function Activity({ snapshot }: { snapshot: AppSnapshot }) {
         description="Requests made by your apps and agents."
         action={
           <Button variant="outline" disabled={!rows.length} onClick={exportCsv}>
-            Export {snapshot.demo ? "CSV" : "sample CSV"}
+            Export sample CSV
           </Button>
         }
       />
@@ -300,15 +287,8 @@ export function Activity({ snapshot }: { snapshot: AppSnapshot }) {
           onChange={setSource}
           options={[
             { value: "all", label: "All sources" },
-            ...(!snapshot.demo
-              ? [
-                  { value: "api", label: "API" },
-                  { value: "mcp", label: "MCP" },
-                ]
-              : Array.from(
-                  new Set(snapshot.usage.map((row) => row.type)),
-                  (value) => ({ value, label: value }),
-                )),
+            { value: "api", label: "API" },
+            { value: "mcp", label: "MCP" },
           ]}
         />
         <Filter
@@ -317,10 +297,7 @@ export function Activity({ snapshot }: { snapshot: AppSnapshot }) {
           onChange={setState}
           options={[
             { value: "all", label: "All statuses" },
-            ...(snapshot.demo
-              ? ["completed", "pending", "refunded"]
-              : ["success", "error"]
-            ).map((value) => ({
+            ...["success", "error"].map((value) => ({
               value,
               label: status(value),
             })),
@@ -336,12 +313,10 @@ export function Activity({ snapshot }: { snapshot: AppSnapshot }) {
           }))}
         />
       </div>
-      {!snapshot.demo && (
-        <p className="text-sm text-muted-foreground">
-          Sampled activity · retained for 3 months. This is not a complete
-          request log.
-        </p>
-      )}
+      <p className="text-sm text-muted-foreground">
+        Sampled activity · retained for 3 months. This is not a complete request
+        log.
+      </p>
       {analytics.error ? (
         <div role="alert">
           <p>{analytics.error}</p>
@@ -354,18 +329,15 @@ export function Activity({ snapshot }: { snapshot: AppSnapshot }) {
       ) : (
         <ActivityTable
           rows={rows.slice(current * 10, current * 10 + 10)}
-          filtered={snapshot.usage.length > 0}
+          filtered={key !== "all" || source !== "all" || state !== "all"}
         />
       )}
       {!analytics.loading && !analytics.error && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             {rows.length} matching {rows.length === 1 ? "request" : "requests"}.
-            Activity is limited to the latest 100{" "}
-            {snapshot.demo
-              ? "requests"
-              : "sampled records matching these filters"}
-            .
+            Activity is limited to the latest 100 sampled records matching these
+            filters.
           </p>
           {rows.length > 10 && (
             <div className="flex items-center gap-3">

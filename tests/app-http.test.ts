@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { database } from "./support/postgres";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
 import { getSnapshot } from "../src/server/accounts";
 import { accountClassification } from "../src/http/classification";
@@ -23,8 +23,8 @@ const request = (body: unknown) =>
     body: JSON.stringify(body),
   });
 beforeEach(async () => {
-  env = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters", TYPESAFE_API_KEY: "provider-fixture", STATS: { get: async () => null, put: async () => {} } as unknown as KVNamespace };
-  await demoLogin(
+  env = { APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters", TYPESAFE_API_KEY: "provider-fixture", STATS: { get: async () => null, put: async () => {} } as unknown as KVNamespace };
+  await provisionTestAccount(
     new Request("http://localhost/auth/demo", {
       headers: { Origin: "http://localhost" },
     }),
@@ -62,7 +62,7 @@ test("application namespaces do not capture legacy API, docs, or classification 
     "/app",
     "/app/agents",
     "/_server/function",
-    "/auth/callback",
+    "/api/auth/callback",
     "/login",
   ])
     expect(isAppRequest(new Request(`http://localhost${path}`))).toBe(true);
@@ -107,11 +107,17 @@ test("classification adapter uses provider credential, meters actual tokens, and
   expect(response?.status).toBe(200);
   const snapshot = await getSnapshot("local-demo", env);
   expect(snapshot.credits.balance).toBe(499999);
-  expect(snapshot.usage[0].items).toBe(1);
-  expect(snapshot.usage[0].credits).toBe(1);
-  expect(snapshot.usage[0].type).toBe("API · Dimensions");
-  expect(snapshot.usage[0].inputTokens).toBe(41);
-  expect(snapshot.usage[0].outputTokens).toBeNull();
+  expect(
+    await env.APP_DB.prepare(
+      "SELECT items,credits,usage_type,input_tokens,output_tokens FROM app_usage WHERE account_id='local-demo' LIMIT 1",
+    ).first(),
+  ).toEqual({
+    items: 1,
+    credits: 1,
+    usage_type: "API · Dimensions",
+    input_tokens: 41,
+    output_tokens: null,
+  });
   await performAction("local-demo", { type: "revoke", agentId }, env);
   await expect(
     accountClassification(
@@ -127,9 +133,11 @@ test.each(["input", "inputs"])("account billing accepts the public API's scalar 
   const response = await accountClassification(request({ [field]: "Help with my invoice", labels: ["billing", "sales"] }), env);
   expect(response?.status).toBe(200);
   expect(response?.headers.get("x-billing-status")).toBe("settled");
-  const snapshot = await getSnapshot("local-demo", env);
-  expect(snapshot.usage[0].items).toBe(1);
-  expect(snapshot.usage[0].inputTokens).toBe(41);
+  expect(
+    await env.APP_DB.prepare(
+      "SELECT items,input_tokens FROM app_usage WHERE account_id='local-demo' LIMIT 1",
+    ).first(),
+  ).toEqual({ items: 1, input_tokens: 41 });
 });
 
 test("settlement failure returns the held request ID for reconciliation", async () => {
@@ -167,10 +175,14 @@ test("invalid inputs do not reserve; upstream errors return reserved credits", a
   const snapshot = await getSnapshot("local-demo", env);
   expect(snapshot.credits.balance).toBe(500000);
   expect(snapshot.onboarding.completed).toBe(false);
-  expect(snapshot.usage[0].status).toBe("refunded");
+  expect(
+    await env.APP_DB.prepare(
+      "SELECT status FROM app_usage WHERE account_id='local-demo' LIMIT 1",
+    ).first(),
+  ).toEqual({ status: "refunded" });
 });
 
-test("local account tokens are never forwarded from a production hostname", async () => {
+test("account credentials follow the same classification path on every hostname", async () => {
   globalThis.fetch = (async () => {
     throw new Error("Must not run");
   }) as typeof fetch;
@@ -179,7 +191,7 @@ test("local account tokens are never forwarded from a production hostname", asyn
     headers: { authorization: `Bearer ${token}` },
     body: "{}",
   });
-  await expect(accountClassification(req, env)).rejects.toThrow("not enabled");
+  await expect(accountClassification(req, env)).rejects.toThrow("Provide a nonempty list");
 });
 
 test("MCP tool call uses the same credential and usage accounting as REST", async () => {
@@ -210,10 +222,15 @@ test("MCP tool call uses the same credential and usage accounting as REST", asyn
   expect(payload.error).toBeUndefined();
   expect(payload.result).toBeDefined();
   expect(payload.result?.isError).not.toBe(true);
-  const snapshot = await getSnapshot("local-demo", env);
-  expect(snapshot.usageTotals.credits).toBe(1);
-  expect(snapshot.usage[0].type).toBe("MCP · Single-label");
-  expect(snapshot.usage[0].inputTokens).toBe(100);
+  expect(
+    await env.APP_DB.prepare(
+      "SELECT credits,usage_type,input_tokens FROM app_usage WHERE account_id='local-demo' LIMIT 1",
+    ).first(),
+  ).toEqual({
+    credits: 1,
+    usage_type: "MCP · Single-label",
+    input_tokens: 100,
+  });
 });
 
 test("missing provider usage keeps a bounded hold for review rather than charging zero", async () => {

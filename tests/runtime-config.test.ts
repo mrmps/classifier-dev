@@ -23,7 +23,7 @@ function render(env: Record<string, string | undefined>) {
 
 const values = { CLOUDFLARE_ACCOUNT_ID: "cloudflare-account", STATS_KV_ID: "stats-namespace", REPORT_TO: "reports@example.test" };
 
-test("production rendering uses PostgreSQL secrets and preserves closed account access", () => {
+test("production rendering uses PostgreSQL secrets and activates verified account access", () => {
   const databaseUrl = "postgresql://fake:test-secret@example.neon.tech/app";
   const result = render({ ...values, DATABASE_URL: databaseUrl });
   expect(result.status).toBe(0);
@@ -32,9 +32,10 @@ test("production rendering uses PostgreSQL secrets and preserves closed account 
   const config = Bun.TOML.parse(result.toml!) as any;
   expect(config.main).toBe("src/server.ts");
   expect(config.d1_databases).toBeUndefined();
-  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("false");
+  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("true");
   expect(config.vars.DATABASE_URL).toBeUndefined();
   expect(config.secrets.required).toContain("DATABASE_URL");
+  expect(config.secrets.required).not.toContain("DATABASE_URL_UNPOOLED");
   expect(config.placement).toEqual({ region: "aws:us-west-2" });
   const schema = JSON.parse(readFileSync(new URL("node_modules/wrangler/config-schema.json", root), "utf8"));
   const validate = new Ajv({ strict: false }).compile(schema.definitions.RawConfig.properties.placement);
@@ -53,7 +54,15 @@ test("local dev uses the same SQL runtime without a fake D1 database", () => {
   const config = Bun.TOML.parse(readFileSync(new URL("wrangler.local.toml", root), "utf8")) as any;
   expect(config.main).toBe("src/server.ts");
   expect(config.d1_databases).toBeUndefined();
-  expect(config.vars.APP_DEMO).toBe("true");
-  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("false");
+  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("true");
+  expect(config.vars.APP_DEMO).toBeUndefined();
   expect(config.vars.DATABASE_URL).toBeUndefined();
+});
+
+test("deployment migrates directly and gives the Worker only the pooled URL", () => {
+  const workflow = readFileSync(new URL(".github/workflows/deploy.yml", root), "utf8");
+  expect(workflow).toContain("DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}");
+  expect(workflow).toContain("DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}\n        run: npm run db:migrate");
+  expect(workflow).toContain("JSON.stringify({ DATABASE_URL: process.env.DATABASE_URL })");
+  expect(workflow).not.toContain("JSON.stringify({ DATABASE_URL_UNPOOLED:");
 });

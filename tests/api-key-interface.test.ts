@@ -5,14 +5,14 @@ import { Keys } from "../src/features/keys/keys";
 import { AgentCatalog } from "../src/features/agents/agent-catalog";
 import { ApiKeyCreator } from "../src/features/keys/api-key-creator";
 import { getSnapshot } from "../src/server/accounts";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
 import type { AppEnv } from "../src/server/db";
 import { database } from "./support/postgres";
 let env: AppEnv;
 beforeEach(async () => {
-  env = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(
+  env = { APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
+  await provisionTestAccount(
     new Request("http://localhost/login", {
       headers: { Origin: "http://localhost" },
     }),

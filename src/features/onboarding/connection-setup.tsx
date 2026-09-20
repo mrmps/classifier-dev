@@ -89,7 +89,7 @@ export function ApiSetup({
   }, [key?.id, agent?.status, act]);
   const sample = onboardingSamples["Group feedback"];
   const code = `curl '${origin}/v1/classify' \\\n  -H "Authorization: Bearer $CLASSIFIER_API_KEY" \\\n  -H 'Content-Type: application/json' \\\n  --data-binary @- <<'JSON'\n${JSON.stringify(sample, null, 2)}\nJSON`;
-  const snippets: Record<string,string> = {
+  const snippets: Record<string, string> = {
     curl: code,
     javascript: `const response = await fetch("${origin}/v1/classify", {
   method: "POST",
@@ -97,7 +97,7 @@ export function ApiSetup({
     Authorization: \`Bearer \${process.env.CLASSIFIER_API_KEY}\`,
     "Content-Type": "application/json"
   },
-  body: JSON.stringify(${JSON.stringify(sample,null,2)})
+  body: JSON.stringify(${JSON.stringify(sample, null, 2)})
 });
 if (!response.ok) throw new Error(await response.text());
 console.log(await response.json());`,
@@ -107,7 +107,7 @@ import urllib.request
 
 request = urllib.request.Request(
     "${origin}/v1/classify",
-    data=json.dumps(${JSON.stringify(sample,null,2)}).encode(),
+    data=json.dumps(${JSON.stringify(sample, null, 2)}).encode(),
     headers={
         "Authorization": "Bearer " + os.environ["CLASSIFIER_API_KEY"],
         "Content-Type": "application/json",
@@ -149,7 +149,18 @@ with urllib.request.urlopen(request) as response:
                   ? "Give this prompt to your coding agent. Your key is not included."
                   : "Set CLASSIFIER_API_KEY in your terminal before running this request."}
               </p>
-              {value === "manual" && <Tabs value={language} onValueChange={value => setLanguage(String(value))}><TabsList aria-label="Request language"><TabsTrigger value="curl">cURL</TabsTrigger><TabsTrigger value="javascript">JavaScript</TabsTrigger><TabsTrigger value="python">Python</TabsTrigger></TabsList></Tabs>}
+              {value === "manual" && (
+                <Tabs
+                  value={language}
+                  onValueChange={(value) => setLanguage(String(value))}
+                >
+                  <TabsList aria-label="Request language">
+                    <TabsTrigger value="curl">cURL</TabsTrigger>
+                    <TabsTrigger value="javascript">JavaScript</TabsTrigger>
+                    <TabsTrigger value="python">Python</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              )}
               <pre
                 tabIndex={0}
                 className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all text-xs leading-6"
@@ -168,12 +179,6 @@ with urllib.request.urlopen(request) as response:
           </TabsContent>
         ))}
       </Tabs>
-      {snapshot.demo && (
-        <p className="text-xs text-muted-foreground">
-          Keep this local server running. The endpoint is reachable from this
-          computer.
-        </p>
-      )}
       {key && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p role="status" className="text-sm text-muted-foreground">

@@ -124,7 +124,7 @@ export function WorkspaceSwitcher({
             ))}
             <DropdownMenuItem
               className="mt-2"
-              disabled={context.mode !== "demo"}
+              disabled
               onClick={() => {
                 setError("");
                 setCreating(true);

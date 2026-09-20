@@ -17,6 +17,7 @@ export type AutumnCustomer = {
   subscriptions: Array<{
     id: string; plan_id: string; status: string; past_due: boolean;
     current_period_start: number | null; current_period_end: number | null;
+    canceled_at: number | null;
   }>;
 };
 const unavailable = () => new AppError(503, "Billing is temporarily unavailable.");
@@ -44,11 +45,12 @@ export async function getAutumnCustomer(env: AutumnEnv, customerId: string): Pro
   for (const subscription of data.subscriptions) {
     if (!subscription || typeof subscription !== "object" || typeof subscription.id !== "string" ||
       typeof subscription.plan_id !== "string" || typeof subscription.status !== "string" || typeof subscription.past_due !== "boolean" ||
-      ![subscription.current_period_start, subscription.current_period_end].every((value) => value === null || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0))) throw unavailable();
+      ![subscription.current_period_start, subscription.current_period_end, subscription.canceled_at ?? null].every((value) => value === null || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0))) throw unavailable();
   }
   return { id: customerId, subscriptions: data.subscriptions.map((subscription) => ({
     id: subscription.id, plan_id: subscription.plan_id, status: subscription.status, past_due: subscription.past_due,
     current_period_start: subscription.current_period_start, current_period_end: subscription.current_period_end,
+    canceled_at: subscription.canceled_at ?? null,
   })) };
 }
 
@@ -56,11 +58,10 @@ async function customerForWorkspace(env: AutumnEnv, accountId: string) {
   const account = await env.APP_DB.prepare("SELECT a.name,a.email FROM app_accounts a JOIN app_workspaces w ON w.account_id=a.id WHERE a.id=? AND w.mode='hosted'")
     .bind(accountId).first<{ name: string; email: string }>();
   if (!account) throw new AppError(404, "Workspace not found.");
-  // Existing customer migration can insert its explicit mapping before checkout.
-  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES(?,?) ON CONFLICT(account_id) DO NOTHING")
-    .bind(accountId, `workspace_${accountId}`).run();
+  // Verified sign-in resolves the billing identity before any checkout or portal
+  // operation. Never invent a second customer for an existing subscriber.
   const mapping = await env.APP_DB.prepare("SELECT customer_id FROM app_autumn_customers WHERE account_id=?").bind(accountId).first<{ customer_id: string }>();
-  if (!mapping) throw unavailable();
+  if (!mapping) throw new AppError(409, "Sign in again to link your existing billing account before continuing.");
   const customer = await autumnRequest(env, "customers.get_or_create", { customer_id: mapping.customer_id, name: account.name, email: account.email });
   if (customer.id !== mapping.customer_id) throw unavailable();
   return mapping.customer_id;
@@ -78,6 +79,14 @@ function billingUrl(value: unknown) {
 export async function createAutumnCheckout(env: AutumnEnv, accountId: string, returnUrl: string) {
   if (!env.AUTUMN_PRO_PLAN_ID) throw unavailable();
   const customerId = await customerForWorkspace(env, accountId);
+  const customer = await getAutumnCustomer(env, customerId);
+  if (customer.subscriptions.some((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID &&
+    !["expired", "canceled"].includes(subscription.status))) {
+    // Includes scheduled, past-due and cancel-at-period-end subscriptions.
+    // Terminal history permits a new purchase; all other states stay in the
+    // existing portal, including unknown states, rather than risk a duplicate.
+    return createAutumnPortal(env, accountId, returnUrl);
+  }
   const result = await autumnRequest(env, "billing.attach", {
     customer_id: customerId, plan_id: env.AUTUMN_PRO_PLAN_ID,
     redirect_mode: "always", success_url: returnUrl, enable_plan_immediately: false,

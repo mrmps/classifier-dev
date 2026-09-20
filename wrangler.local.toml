@@ -31,8 +31,7 @@ binding = "ACCOUNT_AE"
 dataset = "classifier_account_events"
 
 [vars]
-APP_DEMO = "true"
-APP_ACCOUNTS_ENABLED = "false"
+APP_ACCOUNTS_ENABLED = "true"
 # Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.
 AI_GATEWAY_DISABLED = "true"
 CLOUDFLARE_ACCOUNT_ID = "YOUR_CLOUDFLARE_ACCOUNT_ID"

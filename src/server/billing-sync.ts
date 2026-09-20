@@ -12,8 +12,10 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
   const customer = await getAutumnCustomer(env, customerId);
   await env.APP_DB.prepare("UPDATE app_autumn_customers SET snapshot=?::jsonb,synced_at=?,reconciliation_required=TRUE WHERE customer_id=? AND revision=?")
     .bind(JSON.stringify(customer), new Date().toISOString(), customerId, mapping.revision).run();
-  const active = customer.subscriptions.filter((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID && subscription.status === "active" && !subscription.past_due &&
-    subscription.current_period_end !== null && subscription.current_period_end > Date.now());
+  const paid = customer.subscriptions.filter((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID && subscription.status === "active" && !subscription.past_due);
+  if (paid.some((subscription) => subscription.current_period_start === null || subscription.current_period_end === null))
+    throw new AppError(503, "The current billing period is not available yet.");
+  const active = paid.filter((subscription) => subscription.current_period_end! > Date.now());
   if (active.length > 1) throw new AppError(503, "Multiple subscriptions need reconciliation.");
   if (!active.length) {
     // Do not erase the one-time signup balance on accounts that never subscribed.
@@ -27,11 +29,14 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
       env.APP_DB.prepare("SELECT billing_plan FROM app_accounts WHERE id=?").bind(mapping.account_id),
     ]);
     if (results[2].results[0]?.billing_plan === "pro") throw new AppError(503, "Subscription reconciliation is awaiting pending usage or a newer sync.");
+    await env.APP_DB.prepare("UPDATE app_autumn_customers SET reconciliation_required=FALSE WHERE customer_id=? AND revision=?")
+      .bind(customerId, mapping.revision).run();
     return true;
   }
   const subscription = active[0];
   const start = subscription.current_period_start, end = subscription.current_period_end;
-  if (start === null || end === null || start > Date.now() || end <= Date.now() || end <= start) return true;
+  if (start === null || end === null || start > Date.now() || end <= Date.now() || end <= start)
+    throw new AppError(503, "The current billing period is not available yet.");
   // Paid status alone is insufficient: match the actual recurring base-plan
   // line and period. Unsupported discounts/prorations stay for reconciliation.
   const invoices = await autumnRequest(env, "invoices.list", { customer_id: customerId, status: ["paid"], limit: 100 });
@@ -75,6 +80,13 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
       SELECT ?,?,?,'subscription',2000,2000000,?,'pro' WHERE EXISTS(SELECT 1 FROM app_autumn_grants WHERE operation_id=?)`)
       .bind(crypto.randomUUID(), mapping.account_id, `autumn:${invoice.stripe_id}`, timestamp, operation),
     env.APP_DB.prepare("SELECT invoice_id FROM app_autumn_grants WHERE account_id=? AND period_start=?").bind(mapping.account_id, start),
+    // Schedule changes can occur after this period's allowance was granted.
+    // Update only the schedule; never refill a spent balance on cancel/resume.
+    env.APP_DB.prepare(`UPDATE app_accounts SET cancel_at_period_end=?,scheduled_plan=? WHERE id=? AND billing_plan='pro'
+      AND EXISTS(SELECT 1 FROM app_autumn_customers WHERE customer_id=? AND revision=?)
+      AND EXISTS(SELECT 1 FROM app_autumn_grants WHERE account_id=? AND period_start=? AND revoked_at IS NULL)`)
+      .bind(subscription.canceled_at !== null ? 1 : 0, subscription.canceled_at !== null ? "free" : null,
+        mapping.account_id, customerId, mapping.revision, mapping.account_id, start),
   ]);
   if (!results[4].results.length) throw new AppError(503, "Subscription reconciliation is awaiting pending usage or a newer sync.");
   await env.APP_DB.prepare("UPDATE app_autumn_customers SET reconciliation_required=FALSE WHERE customer_id=? AND revision=?").bind(customerId, mapping.revision).run();

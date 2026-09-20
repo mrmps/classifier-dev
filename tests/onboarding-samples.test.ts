@@ -78,10 +78,10 @@ describe("paste-ready onboarding tasks", () => {
     (name) => {
       const sample = onboardingSamples[name];
       const fence = String.fromCharCode(96).repeat(3);
-      const prompt = getConnectionTask(sample, true);
+      const prompt = getConnectionTask(sample);
       const payload = prompt.split(fence + "json\n")[1].split("\n" + fence)[0];
       expect(JSON.parse(payload)).toEqual(sample);
-      expect(prompt).toContain("classifier-local");
+      expect(prompt).toContain("Use classifier's classify_texts");
       expect(prompt).toContain("compact table");
       expect(prompt).toContain("zero-count labels");
       expect(prompt).toContain("never invent a score");
@@ -90,9 +90,6 @@ describe("paste-ready onboarding tasks", () => {
         "If the tool is unavailable or the request fails",
       );
       expect(prompt).not.toContain("classifier_agent_");
-      expect(getConnectionTask(sample, false)).toContain(
-        "Use classifier's classify_texts",
-      );
     },
   );
 });

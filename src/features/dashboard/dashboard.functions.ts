@@ -58,17 +58,3 @@ export const dashboardAction = createServerFn({ method: "POST" })
       bindings,
     );
   });
-
-export const getLoginInfo = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const { env } = await import("cloudflare:workers");
-    const { getRequest } = await import("@tanstack/react-start/server");
-    const { isLocalDemo } = await import("../../server/auth");
-    return {
-      demo: isLocalDemo(
-        getRequest(),
-        env as unknown as import("../../server/db").AppEnv,
-      ),
-    };
-  },
-);

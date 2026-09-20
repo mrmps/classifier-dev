@@ -29,10 +29,7 @@ export function OrganizationSettings({
     setMessage("");
     setError("");
   }, [context.active.id]);
-  const canEdit =
-    context.mode === "demo" &&
-    context.active.kind === "organization" &&
-    context.active.role !== "member";
+  const canEdit = false;
   return (
     <div className="flex flex-col gap-8">
       <PageHeader

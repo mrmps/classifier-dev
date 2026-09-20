@@ -157,6 +157,7 @@ export const app_autumn_customers = pgTable("app_autumn_customers", {
 	revision: bigint({ mode: "number" }).default(0).notNull(),
 	snapshot: jsonb(),
 	synced_at: text(),
+	identity_verified_at: text(),
 	reconciliation_required: boolean().default(true).notNull(),
 }, (table) => [
 	foreignKey({

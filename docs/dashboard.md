@@ -1,8 +1,8 @@
 # Account dashboard
 
 The dashboard runs in the same Cloudflare Worker as the public API. Start the
-local application with `npm install` and `npm run demo` after configuring a Neon
-development branch and key-encryption secret in `.dev.vars`; see
+local application with `npm install`, `npm run db:local`, and `npm run dev` after
+configuring development credentials in `.dev.vars`; see
 [PostgreSQL setup](postgres-setup.md). Open http://127.0.0.1:3000/login.
 
 ## Product flow
@@ -26,16 +26,16 @@ development branch and key-encryption secret in `.dev.vars`; see
 
 ## Local verification
 
-Choose **Try the local demo**, then use the Default key with a small REST or MCP
-request from the client guide. Inference uses the configured upstream model
-providers; inputs leave the machine. The account and its balance persist in the
-Neon development branch. The demo is enabled only with APP_DEMO on loopback,
-never through a public or tunneled origin. Demo billing does not charge a card.
+Sign in through the configured WorkOS development environment, then use the
+Default key with a small REST or MCP request from the client guide. Local and
+hosted deployments run the same account, billing, and analytics paths against
+their respective development or production credentials. Inference uses the
+configured upstream model providers; inputs leave the machine.
 
 Use API keys to verify modal creation, rename, pause/resume and rotation. Check
 Usage and Activity for the actual request, switch between Pure Light and Black,
-and verify navigation at desktop and mobile sizes. Demo team management is a
-local preview; hosted invitations and membership management are not implemented.
+and verify navigation at desktop and mobile sizes. Invitations and membership
+management remain unavailable until their hosted implementation is complete.
 
 Run `npm run typecheck`, `npm test`, `cd cli && node --test`, and `npm run build`.
 Native database/provider tests require explicit test configuration. Never point
@@ -58,15 +58,14 @@ explicit deployment configuration. Account read endpoints are documented in
 
 ## Production activation
 
-The draft is reviewable with account access disabled. Starting the demo or
-opening the PR does not deploy or enable the new account offering.
+Opening the draft does not deploy or enable the new account offering.
 
 Before enabling APP_ACCOUNTS_ENABLED:
 
 1. Configure and migrate the production Neon database. Set the stable dedicated
    API_KEY_ENCRYPTION_KEY secret and back it up; losing it prevents key reveal.
 2. Configure WorkOS API/client credentials, cookie secret and the allowlisted
-   `/auth/callback` redirect. Verify hosted sign-in, sign-out and identity isolation.
+   `/api/auth/callback` redirect. Verify hosted sign-in, sign-out and identity isolation.
 3. Configure Autumn products, credentials and signed webhook delivery. Verify a
    sandbox subscription, renewal, cancellation, refund and duplicate/out-of-order
    event reconciliation against the ledger.
@@ -75,8 +74,8 @@ Before enabling APP_ACCOUNTS_ENABLED:
    preview. Confirm conservative reservation amounts are acceptable.
 5. Configure the account Analytics Engine binding and a scoped read token. Verify
    workspace isolation, hourly charts and activity against an actual hosted event.
-6. Reconcile existing customer subscriptions/credentials before changing their
-   production path. Keep APP_DEMO disabled on hosted deployments.
+6. Reconcile existing customer subscriptions and credentials before changing
+   their production path.
 
 Hosted team management and workspace OAuth clients remain separate unfinished
 features, not capabilities unlocked by setting a secret. Production activation

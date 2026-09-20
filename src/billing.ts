@@ -1,4 +1,5 @@
 import { callerId, type PrivacyEnv } from "./privacy";
+import { billingCustomerId } from "./billing-identity";
 import type { ErrorCode } from "./openapi";
 
 export interface BillingEnv extends PrivacyEnv {
@@ -77,8 +78,7 @@ function safeUrl(value: unknown): string {
 }
 async function accountId(email: string, env: BillingEnv) {
   if (!env.BILLING_SIGNING_KEY) throw unavailable();
-  const key = await crypto.subtle.importKey("raw", encoder.encode(env.BILLING_SIGNING_KEY), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
-  return hex(await crypto.subtle.sign("HMAC", key, encoder.encode(email)));
+  return billingCustomerId(email, env.BILLING_SIGNING_KEY);
 }
 async function accountCall(env: BillingEnv, id: string, action: string, data: Record<string, unknown>) {
   if (!env.BILLING) throw unavailable();

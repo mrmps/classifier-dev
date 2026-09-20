@@ -3,6 +3,9 @@ import { SQL } from "bun";
 import { readFileSync, readdirSync } from "node:fs";
 import { postgresDatabase, type AppDatabase } from "../src/server/db";
 import { reconcileAutumnCustomer } from "../src/server/billing-sync";
+import { provisionHostedAccount } from "../src/server/auth";
+import { linkPersonalBilling } from "../src/server/billing-identity";
+import { billingCustomerId } from "../src/billing-identity";
 
 const url = process.env.POSTGRES_TEST_URL;
 describe.skipIf(!url)("native PostgreSQL subscription contention", () => {
@@ -29,7 +32,7 @@ describe.skipIf(!url)("native PostgreSQL subscription contention", () => {
     }));
     await db.prepare("INSERT INTO app_accounts(id,email,name,balance,reset_at,created_at) VALUES('a','a@example.test','Test',500000,'2026-01-01','2026-01-01')").run();
     await db.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
-  });
+  }, 30_000);
   afterAll(async () => {
     globalThis.fetch = originalFetch;
     if (sql) { await sql.unsafe(`DROP SCHEMA ${schema} CASCADE`); await sql.close(); }
@@ -47,5 +50,21 @@ describe.skipIf(!url)("native PostgreSQL subscription contention", () => {
     expect(await db.prepare("SELECT balance::integer AS balance FROM app_accounts WHERE id='a'").first()).toEqual({ balance: 2000000 });
     expect(await db.prepare("SELECT COUNT(*)::integer AS count FROM app_autumn_grants").first()).toEqual({ count: 1 });
     expect(await db.prepare("SELECT COUNT(*)::integer AS count FROM app_transactions").first()).toEqual({ count: 1 });
-  });
+  }, 30_000);
+  test("concurrent first logins claim the original customer once and cannot duplicate its paid allowance", async () => {
+    const user = { id: "native-migration", email: "migration@example.test", emailVerified: true };
+    const env = { APP_DB: db, APP_ACCOUNTS_ENABLED: "true", BILLING_SIGNING_KEY: "test-identity", AUTUMN_SECRET_KEY: "test", AUTUMN_PRO_PLAN_ID: "pro" };
+    const customerId = await billingCustomerId(user.email, env.BILLING_SIGNING_KEY);
+    const accountId = await provisionHostedAccount(user, env);
+    const start = Date.now() - 60_000, end = Date.now() + 86400_000;
+    globalThis.fetch = (async (input) => Response.json(String(input).endsWith("invoices.list")
+      ? { list: [{ customer_id: customerId, entity_id: null, status: "paid", currency: "usd", amount_paid: 20, total: 20, refunded_amount: 0,
+        stripe_id: "migration-invoice", items: [{ plan_id: "pro", feature_id: null, amount: 20, period_start: start, period_end: end }] }], next_cursor: null }
+      : { id: customerId, subscriptions: [{ id: "migration-sub", plan_id: "pro", status: "active", past_due: false, current_period_start: start, current_period_end: end }] })) as typeof fetch;
+    await Promise.allSettled(Array.from({ length: 20 }, () => linkPersonalBilling(user, env)));
+    await linkPersonalBilling(user, env);
+    expect(await db.prepare("SELECT balance::integer AS balance,billing_plan FROM app_accounts WHERE id=?").bind(accountId).first()).toEqual({ balance: 2000000, billing_plan: "pro" });
+    expect((await db.prepare("SELECT COUNT(*)::integer AS count FROM app_autumn_customers WHERE customer_id=?").bind(customerId).first())?.count).toBe(1);
+    expect((await db.prepare("SELECT COUNT(*)::integer AS count FROM app_autumn_grants WHERE account_id=?").bind(accountId).first())?.count).toBe(1);
+  }, 30_000);
 });

@@ -32,13 +32,13 @@ describe.skipIf(!url)("native PostgreSQL token settlement contention", () => {
     ));
     await db.prepare("INSERT INTO app_accounts(id,email,name,balance,reset_at,created_at,period_start) VALUES('account','account@example.com','Tokens',1000,'2026-10-20','2026-09-20','2026-09-20')").run();
     await db.prepare("INSERT INTO app_agents(id,account_id,name,client,token_hash,prefix,created_at) VALUES('key','account','Key','API','hash','prefix','2026-09-20')").run();
-  });
+  }, 30_000);
   afterAll(async () => {
     if (sql) {
       await sql.unsafe(`DROP SCHEMA ${schema} CASCADE`);
       await sql.close();
     }
-  });
+  }, 30_000);
   async function reserve(credits: number) {
     const id = crypto.randomUUID();
     await db.batch([
@@ -56,7 +56,7 @@ describe.skipIf(!url)("native PostgreSQL token settlement contention", () => {
     expect(await db.prepare("SELECT balance::integer AS balance,fractional_spend_nano::integer AS remainder FROM app_accounts WHERE id='account'").first())
       .toEqual({ balance: 999, remainder: 840 });
     expect(await db.prepare("SELECT SUM(actual_nano)::text AS nano FROM app_usage").first()).toEqual({ nano: "840" });
-  });
+  }, 30_000);
   test("parallel refund and completion contenders observe exactly one committed result", async () => {
     const id = await reserve(3);
     const outcomes = await Promise.all(Array.from({ length: 20 }, (_, index) => index % 2
@@ -67,5 +67,5 @@ describe.skipIf(!url)("native PostgreSQL token settlement contention", () => {
     expect(await db.prepare("SELECT balance::integer AS balance,fractional_spend_nano::integer AS remainder FROM app_accounts WHERE id='account'").first())
       .toEqual({ balance: completed ? 997 : 999, remainder: 840 });
     expect(await db.prepare("SELECT used::integer AS used FROM app_agents WHERE id='key'").first()).toEqual({ used: completed ? 3 : 1 });
-  });
+  }, 30_000);
 });

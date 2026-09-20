@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,7 @@ import {
   creditsToDollars,
   type BillingPlanId,
 } from "@/lib/billing";
-import type { ActionResult, AppAction, AppSnapshot } from "@/server/contracts";
+import type { AppSnapshot } from "@/server/contracts";
 import retailRates from "../../retail-rates.json";
 
 const date = (value: string) =>
@@ -38,11 +38,9 @@ const price = (value: number) =>
 
 export function Plans({
   snapshot,
-  act,
   navigate,
 }: {
   snapshot: AppSnapshot;
-  act: (action: AppAction) => Promise<ActionResult>;
   navigate: (path: string) => void;
 }) {
   const { billing } = snapshot;
@@ -50,23 +48,15 @@ export function Plans({
   const [selection, setSelection] = useState<BillingPlanId | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const attempt = useRef("");
   const selected = selection ? BILLING_PLANS[selection] : null;
   const keeping = selected?.id === current.id;
   const downgrading =
     selected !== null && selected.priceCents < current.priceCents;
-  const amountDue =
-    selected && !keeping && !downgrading
-      ? selected.priceCents - current.priceCents
-      : 0;
   const canManageBilling = snapshot.organizations?.active.role === "owner";
   const enabled = billing.mode !== "unconfigured" && canManageBilling;
 
   function choose(plan: BillingPlanId) {
-    attempt.current = crypto.randomUUID();
     setError("");
-    setMessage("");
     setSelection(plan);
   }
 
@@ -75,30 +65,14 @@ export function Plans({
     setBusy(true);
     setError("");
     try {
-      if (billing.mode === "autumn") {
-        const { billingRedirect } = await import("./checkout");
-        window.location.assign(
-          await billingRedirect(
-            selected.id === "free" || current.id === "pro"
-              ? "portal"
-              : "checkout",
-          ),
-        );
-        return;
-      }
-      await act({
-        type: "billing-subscribe",
-        plan: selected.id,
-        idempotencyKey: attempt.current,
-      });
-      setMessage(
-        keeping
-          ? `Scheduled change canceled. Your ${selected.name} plan will continue.`
-          : downgrading
-            ? `Your workspace will move to ${selected.name} on ${date(snapshot.credits.resetAt)}.`
-            : `${selected.name} is now active for this workspace.`,
+      const { billingRedirect } = await import("./checkout");
+      window.location.assign(
+        await billingRedirect(
+          selected.id === "free" || current.id === "pro"
+            ? "portal"
+            : "checkout",
+        ),
       );
-      setSelection(null);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -132,11 +106,9 @@ export function Plans({
         description="Compare monthly usage allowances and team seats."
         action={
           <Badge variant="secondary">
-            {billing.mode === "demo"
-              ? "Demo pricing"
-              : billing.mode === "autumn"
-                ? "Token-based pricing"
-                : "Checkout unavailable"}
+            {billing.mode === "autumn"
+              ? "Token-based pricing"
+              : "Checkout unavailable"}
           </Badge>
         }
       />
@@ -151,15 +123,6 @@ export function Plans({
           <AlertTitle>Your workspace owner manages the plan</AlertTitle>
           <AlertDescription>
             Compare the options below, then ask your owner to make a change.
-          </AlertDescription>
-        </Alert>
-      )}
-      {message && (
-        <Alert role="status">
-          <Check />
-          <AlertTitle>{message}</AlertTitle>
-          <AlertDescription>
-            This is a local demo. No real payment was made.
           </AlertDescription>
         </Alert>
       )}
@@ -360,8 +323,6 @@ export function Plans({
       <p className="text-xs leading-relaxed text-muted-foreground">
         Paid-plan usage refreshes each period; unused allowance does not roll
         over. Free signup credit is granted once and does not replenish.
-        {billing.mode === "demo" &&
-          " Demo periods last 30 days. No real charges are made."}
       </p>
 
       <Dialog
@@ -404,32 +365,13 @@ export function Plans({
                       : `${formatCreditsUsd(selected.includedCredits)} / month`}
                   </dd>
                 </div>
-                {billing.mode === "demo" && !keeping && (
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">
-                      Simulated charge today
-                    </dt>
-                    <dd className="font-medium">{formatCents(amountDue)}</dd>
-                  </div>
-                )}
               </dl>
               <p className="text-sm text-muted-foreground">
-                {billing.mode === "autumn"
-                  ? "Continue to secure payment management to review and confirm this change. Your balance updates only after payment is confirmed."
-                  : keeping
-                    ? "Your current allowance and renewal date stay the same."
-                    : downgrading
-                      ? selected.id === "free"
-                        ? "Returning to Free does not grant new signup credit. Your current plan remains available until the renewal date."
-                        : `The new allowance starts on ${date(snapshot.credits.resetAt)}. Your current plan remains available until then.`
-                      : current.id === "free"
-                        ? "Your new included allowance starts now and refreshes after 30 days. It replaces your remaining free allowance."
-                        : `This demo charges the full price difference, without proration, and adds ${formatCreditsUsd(selected.includedCredits - current.includedCredits)} to your current allowance. Your renewal date stays the same.`}
+                Continue to secure payment management to review and confirm this
+                change. Your balance updates only after payment is confirmed.
               </p>
               <p className="text-xs text-muted-foreground">
-                {billing.mode === "demo"
-                  ? "No real payment will be made."
-                  : "You can review the final amount before confirming."}
+                You can review the final amount before confirming.
               </p>
               {billing.scheduledPlan && !keeping && (
                 <p className="text-xs text-muted-foreground">
@@ -454,15 +396,7 @@ export function Plans({
                   disabled={busy || !enabled}
                   onClick={() => void confirm()}
                 >
-                  {busy
-                    ? "Saving…"
-                    : billing.mode === "autumn"
-                      ? "Continue to payment management"
-                      : keeping
-                        ? "Cancel scheduled change"
-                        : downgrading
-                          ? `Schedule downgrade to ${selected.name}`
-                          : `Upgrade to ${selected.name} in demo`}
+                  {busy ? "Opening…" : "Continue to payment management"}
                 </Button>
               </DialogFooter>
             </>

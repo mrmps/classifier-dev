@@ -1,7 +1,4 @@
-import { isDemoWorkspaceRecord } from "./organizations";
-import { maintainDemoCredits } from "./credit-period";
 import { AppError, hashToken, now, type AppEnv } from "./db";
-import { isLocalDemo } from "./auth";
 export interface Reservation {
   id: string;
   accountId: string;
@@ -19,15 +16,24 @@ export async function authorizeAndReserve(
   const token =
     request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   if (!token.startsWith("classifier_agent_")) return null;
-  if (!isLocalDemo(request, env) && env.APP_ACCOUNTS_ENABLED !== "true")
+  if (env.APP_ACCOUNTS_ENABLED !== "true")
     throw new AppError(
       503,
       "Account credentials are not enabled for this deployment.",
     );
   const meteringMode = metadata?.meteringMode ?? "credits";
-  if (!Number.isSafeInteger(cost) || cost < (meteringMode === "tokens" ? 0 : 1) || (meteringMode === "credits" && cost > 10000))
+  if (
+    !Number.isSafeInteger(cost) ||
+    cost < (meteringMode === "tokens" ? 0 : 1) ||
+    (meteringMode === "credits" && cost > 10000)
+  )
     throw new AppError(400, "Invalid reservation amount.");
-  if (!Number.isSafeInteger(itemCount) || itemCount < 1 || itemCount > 10000 || (meteringMode === "credits" && itemCount > cost))
+  if (
+    !Number.isSafeInteger(itemCount) ||
+    itemCount < 1 ||
+    itemCount > 10000 ||
+    (meteringMode === "credits" && itemCount > cost)
+  )
     throw new AppError(400, "Invalid classification item count.");
   const agent = await env.APP_DB.prepare(
     "SELECT id,account_id FROM app_agents WHERE token_hash=?",
@@ -35,15 +41,6 @@ export async function authorizeAndReserve(
     .bind(await hashToken(token))
     .first<{ id: string; account_id: string }>();
   if (!agent) throw new AppError(401, "Invalid agent credential.");
-  if (
-    (await isDemoWorkspaceRecord(agent.account_id, env)) &&
-    !isLocalDemo(request, env)
-  )
-    throw new AppError(
-      401,
-      "Local credentials cannot authorize deployed requests.",
-    );
-  await maintainDemoCredits(agent.account_id, env);
   const id = crypto.randomUUID();
   const results = await env.APP_DB.batch([
     env.APP_DB.prepare(

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import worker, { type Env } from "../src/index";
 import { newMeter } from "../src/cost";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
 import { getSnapshot } from "../src/server/accounts";
 import { authorizeAndReserve } from "../src/server/usage";
@@ -18,8 +18,8 @@ const originalFetch = globalThis.fetch;
 let env: AppEnv;
 let token: string;
 beforeEach(async () => {
-  env = { APP_DB: database(), APP_DEMO: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
-  await demoLogin(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  env = { APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" };
+  await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
   token = (await performAction("local-demo", { type: "create-key", name: "Token fixture" }, env)).secret!;
 });
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -59,9 +59,12 @@ test("authenticated reserve → inference meter → token price → settlement �
   await Promise.all(pending);
   const snapshot = await getSnapshot("local-demo", env);
   expect(snapshot.credits.balance).toBe(500000 - 22);
-  expect(snapshot.usageTotals.requests).toBe(2);
-  expect(snapshot.usageTotals.credits).toBe(22);
-  expect(snapshot.usage.map(row => row.inputTokens).sort((a, b) => a! - b!)).toEqual([100, 5000]);
+  const { results } = await env.APP_DB.prepare(
+    "SELECT credits,input_tokens FROM app_usage WHERE account_id='local-demo' ORDER BY input_tokens",
+  ).all<{ credits: number; input_tokens: number }>();
+  expect(results).toHaveLength(2);
+  expect(results.reduce((total, row) => total + row.credits, 0)).toBe(22);
+  expect(results.map((row) => row.input_tokens)).toEqual([100, 5000]);
 });
 
 test("unknown token charge survives legacy stale cleanup and can be explicitly refunded once", async () => {

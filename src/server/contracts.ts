@@ -8,14 +8,14 @@ export interface BillingSnapshot {
   plan: BillingPlanId;
   scheduledPlan: BillingPlanId | null;
   cancelAtPeriodEnd: boolean;
-  mode: "demo" | "autumn" | "unconfigured";
+  mode: "autumn" | "unconfigured";
   transactions: Array<{
     id: string;
     createdAt: string;
     kind: "top_up" | "subscription" | "auto_top_up";
     amountCents: number;
     credits: number;
-    status: "simulated" | "confirmed";
+    status: "confirmed";
   }>;
 }
 export interface UsageAggregate {
@@ -83,18 +83,12 @@ export interface AppSnapshot {
     client: string | null;
     completed: boolean;
   };
-  demo: boolean;
 }
 export type AppAction =
   | { type: "refresh" }
   | { type: "reveal-key"; keyId: string }
   | { type: "rotate-key"; keyId: string; prefix: string }
   | { type: "rename-key"; keyId: string; name: string }
-  | {
-      type: "billing-subscribe";
-      plan: BillingPlanId;
-      idempotencyKey: string;
-    }
   | { type: "enroll"; client: string; name?: string }
   | { type: "create-key"; name: string }
   | { type: "revoke-key"; keyId: string }

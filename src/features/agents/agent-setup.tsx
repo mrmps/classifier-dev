@@ -56,13 +56,12 @@ export function AgentSetup({
     client,
     secret: "YOUR_API_KEY",
     origin,
-    demo: snapshot.demo,
   });
   const needsEnvironment = client === "Cursor" || client === "Other";
   const sample =
     onboardingSamples[task] || onboardingSamples["Filter research"];
 
-  const taskPrompt = getConnectionTask(sample, snapshot.demo);
+  const taskPrompt = getConnectionTask(sample);
   const presentation = onboardingSamplePresentation[task];
 
   return (
@@ -126,10 +125,10 @@ export function AgentSetup({
                   ChatGPT workspace connection requires hosted OAuth
                 </h3>
                 <p className="max-w-lg text-sm leading-6 text-muted-foreground">
-                  Connecting ChatGPT to this workspace is not available yet.
-                  Use Claude Code, Codex, Cursor, or another compatible MCP
-                  client to track usage here. The public MCP server can be used
-                  in ChatGPT without workspace attribution.
+                  Connecting ChatGPT to this workspace is not available yet. Use
+                  Claude Code, Codex, Cursor, or another compatible MCP client
+                  to track usage here. The public MCP server can be used in
+                  ChatGPT without workspace attribution.
                 </p>
                 <a
                   className="self-start text-sm underline underline-offset-4"
@@ -203,11 +202,7 @@ export function AgentSetup({
                           >
                             <code>
                               {method === "prompt"
-                                ? getAgentSetupPrompt(
-                                    client,
-                                    origin,
-                                    snapshot.demo,
-                                  )
+                                ? getAgentSetupPrompt(client, origin)
                                 : instructions.setup}
                             </code>
                           </pre>
@@ -215,11 +210,7 @@ export function AgentSetup({
                             <CopyButton
                               value={
                                 method === "prompt"
-                                  ? getAgentSetupPrompt(
-                                      client,
-                                      origin,
-                                      snapshot.demo,
-                                    )
+                                  ? getAgentSetupPrompt(client, origin)
                                   : instructions.setup
                               }
                               label={
@@ -241,9 +232,7 @@ export function AgentSetup({
                     <p className="max-w-md">
                       {connection && needsEnvironment
                         ? "Set CLASSIFIER_API_KEY in the environment your client inherits."
-                        : snapshot.demo
-                          ? "Keep this local server running while your agent uses it."
-                          : "Your credential is private. Keep it out of source control."}
+                        : "Your credential is private. Keep it out of source control."}
                     </p>
                   </div>
                 </div>

@@ -151,11 +151,7 @@ export function DashboardView({
             clientSlug={pathname.split("/")[3]}
           />
         ) : pathname.startsWith("/app/examples") ? (
-          <ExamplePage
-            slug={pathname.split("/")[3]}
-            demo={snapshot.demo}
-            navigate={navigate}
-          />
+          <ExamplePage slug={pathname.split("/")[3]} navigate={navigate} />
         ) : pathname === "/app/activity" ? (
           <Activity snapshot={snapshot} />
         ) : pathname === "/app/usage" ? (
@@ -163,7 +159,7 @@ export function DashboardView({
         ) : pathname === "/app/credits" ? (
           <Credits snapshot={snapshot} navigate={navigate} />
         ) : pathname === "/app/plans" ? (
-          <Plans snapshot={snapshot} act={act} navigate={navigate} />
+          <Plans snapshot={snapshot} navigate={navigate} />
         ) : pathname === "/app/team" && snapshot.organizations ? (
           <Team
             context={snapshot.organizations}
@@ -222,7 +218,7 @@ function Settings({
         <NativeSettingsSection title="Account">
           <SettingRow title="Signed in" description={identity.email}>
             <span className="text-[13px] text-muted-foreground">
-              {snapshot.demo ? "Local account" : "Personal account"}
+              Personal account
             </span>
           </SettingRow>
           <NativeSettingsRow
@@ -337,16 +333,6 @@ function Settings({
               Data and privacy
             </a>
           </NativeSettingsRow>
-          {snapshot.demo && (
-            <NativeSettingsRow
-              title="Local storage"
-              description="This demo saves account data in the configured development database."
-            >
-              <span className="text-[13px] text-muted-foreground">
-                Development database
-              </span>
-            </NativeSettingsRow>
-          )}
         </NativeSettingsSection>
       </div>
     </div>

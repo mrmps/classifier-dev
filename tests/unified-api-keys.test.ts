@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { database } from "./support/postgres";
-import { demoLogin } from "../src/server/auth";
+import { provisionTestAccount } from "./support/account";
 import { ensureDefaultKey } from "../src/server/api-keys";
 import { performAction } from "../src/server/agents";
 import { performWorkspaceAction } from "../src/server/workspace-actions";
@@ -11,10 +11,10 @@ let env: AppEnv;
 beforeEach(async () => {
   env = {
     APP_DB: database(),
-    APP_DEMO: "true",
+    APP_ACCOUNTS_ENABLED: "true",
     API_KEY_ENCRYPTION_KEY: "test-only-encryption-secret-with-32-characters",
   };
-  await demoLogin(
+  await provisionTestAccount(
     new Request("http://localhost/auth/demo", {
       headers: { Origin: "http://localhost" },
     }),
@@ -81,7 +81,11 @@ test("rotation invalidates the old token, retains usage, and rejects stale rotat
     (await authorizeAndReserve(request(rotated.secret!), env, 1))?.agentId,
   ).toBe(key.agentId!);
   expect(rotated.snapshot.agents[0].used).toBe(3);
-  expect(rotated.snapshot.usage[0].keyId).toBe(key.agentId!);
+  expect(
+    await env.APP_DB.prepare(
+      "SELECT agent_id FROM app_usage WHERE account_id='local-demo' LIMIT 1",
+    ).first(),
+  ).toEqual({ agent_id: key.agentId! });
   await expect(
     performAction(
       "local-demo",
@@ -100,9 +104,11 @@ test("rotation invalidates the old token, retains usage, and rejects stale rotat
     { type: "rename-key", keyId: key.agentId!, name: "Production" },
     env,
   );
-  expect((await getSnapshot("local-demo", env)).usage[0].keyName).toBe(
-    "Production",
-  );
+  expect(
+    await env.APP_DB.prepare(
+      "SELECT a.name FROM app_usage u JOIN app_agents a ON a.id=u.agent_id WHERE u.account_id='local-demo' LIMIT 1",
+    ).first(),
+  ).toEqual({ name: "Production" });
 });
 test("key reveal and mutations require membership and management permissions", async () => {
   const key = await performWorkspaceAction(
