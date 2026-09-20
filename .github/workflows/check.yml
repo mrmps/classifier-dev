@@ -21,3 +21,11 @@ jobs:
       - run: npm test
       - run: node --test
         working-directory: cli
+      - name: Render secret-free build configuration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: "00000000000000000000000000000000"
+          STATS_KV_ID: "00000000000000000000000000000000"
+          REPORT_TO: "ci@example.invalid"
+        run: node .github/render-wrangler.mjs
+      - name: Build application
+        run: npm run build

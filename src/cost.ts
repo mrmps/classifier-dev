@@ -17,10 +17,65 @@
 /** TypeSafe bills Jev per input token: $0.042 per million. */
 export const JEV_USD_PER_MTOK = 0.042;
 
-/** Per-request spend accumulator. One per request — never a module global. */
-export type Meter = { usd: number };
+export type TokenCounts = {
+  /** Includes cached input; subtract cachedInputTokens only when both are known. */
+  inputTokens: number | null;
+  /** Includes reasoning tokens when the provider includes them in its completion count. */
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+};
 
-export const newMeter = (): Meter => ({ usd: 0 });
+export type ModelTokenUsage = TokenCounts & {
+  provider: "typesafe" | "vercel" | "openrouter";
+  model: string;
+  calls: number;
+};
+
+/** Per-request accumulator. Token counts are upstream usage, not a retail price. */
+export type Meter = {
+  usd: number;
+  tokens: ModelTokenUsage[];
+  /** Trusted account billing hook. Called before every provider attempt, never HTTP supplied. */
+  beforeCall?: (provider: ModelTokenUsage["provider"], model: string, maxOutputTokens: number) => Promise<void>;
+};
+
+export const newMeter = (): Meter => ({ usd: 0, tokens: [] });
+
+/** Missing, coerced, or invalid provider counts must never look like measured zeroes. */
+function tokenCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function sumTokens(a: number | null, b: number | null): number | null {
+  return a === null || b === null ? null : tokenCount(a + b);
+}
+
+/**
+ * Add one answered upstream call. Unknown counts propagate through a model's
+ * total so billing cannot mistake a partial measurement for complete usage.
+ * Cache reads are a subset of input tokens and must not be added a second time.
+ */
+export function addTokens(
+  meter: Meter | undefined,
+  provider: ModelTokenUsage["provider"],
+  model: string,
+  usage: { inputTokens?: unknown; outputTokens?: unknown; cachedInputTokens?: unknown },
+) {
+  if (!meter) return;
+  const inputTokens = tokenCount(usage.inputTokens);
+  const outputTokens = tokenCount(usage.outputTokens);
+  let cachedInputTokens = tokenCount(usage.cachedInputTokens);
+  if (inputTokens !== null && cachedInputTokens !== null && cachedInputTokens > inputTokens) cachedInputTokens = null;
+  const existing = meter.tokens.find((row) => row.provider === provider && row.model === model);
+  if (existing) {
+    existing.calls++;
+    existing.inputTokens = sumTokens(existing.inputTokens, inputTokens);
+    existing.outputTokens = sumTokens(existing.outputTokens, outputTokens);
+    existing.cachedInputTokens = sumTokens(existing.cachedInputTokens, cachedInputTokens);
+  } else {
+    meter.tokens.push({ provider, model, calls: 1, inputTokens, outputTokens, cachedInputTokens });
+  }
+}
 
 /** Jev is priced off the input-token count it reports back. */
 export function addJevCost(meter: Meter | undefined, inputTokens: unknown) {

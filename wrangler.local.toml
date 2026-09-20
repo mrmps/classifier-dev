@@ -1,0 +1,65 @@
+# Tracked local Vite runtime. Real development credentials belong in .dev.vars.
+name = "classifier-local"
+main = "src/server.ts"
+compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2026-08-01"
+
+# Local execution stays on this machine. DATABASE_URL in .dev.vars must point
+# to a Neon development branch with its HTTP query endpoint, not localhost PG.
+
+
+# Three digests a day at 08:00, 14:00 and 20:00 Pacific, and an alert check
+# every fifteen minutes that stays silent unless something is wrong.
+[triggers]
+crons = ["0 15 * * *", "0 21 * * *", "0 3 * * *", "*/15 * * * *"]
+
+[[kv_namespaces]]
+binding = "STATS"
+id = "local-stats"
+
+[[analytics_engine_datasets]]
+binding = "AE"
+dataset = "classifier_events"
+
+
+[[analytics_engine_datasets]]
+binding = "JEV_AE"
+dataset = "classifier_jev_attempts"
+
+[[analytics_engine_datasets]]
+binding = "ACCOUNT_AE"
+dataset = "classifier_account_events"
+
+[vars]
+APP_DEMO = "true"
+APP_ACCOUNTS_ENABLED = "false"
+# Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.
+AI_GATEWAY_DISABLED = "true"
+CLOUDFLARE_ACCOUNT_ID = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+REPORT_TO = "you@example.com"
+NEWSLETTER_FROM = "classifier.dev <updates@classifier.dev>"
+
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+# Keeps SKILL.md a real markdown file rather than an escaped string literal.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+# Without this the rule replaces wrangler's default text rule rather than
+# adding to it, and every deploy warns that .txt/.html/.sql will be ignored.
+fallthrough = true
+
+# Billing identities and credentials are isolated from classification analytics.
+[[durable_objects.bindings]]
+name = "BILLING"
+class_name = "BillingAccount"
+
+[[migrations]]
+tag = "v2-billing"
+new_sqlite_classes = ["BillingAccount"]

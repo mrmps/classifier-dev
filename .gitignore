@@ -18,3 +18,8 @@ skills-lock.json
 # Local billing credentials
 .env
 .env.local
+
+# TanStack Start build artifacts
+dist/
+.tanstack/
+.output/

@@ -20,7 +20,7 @@ import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
-import { newMeter, addUsd, type Meter } from "./cost";
+import { newMeter, addUsd, addTokens, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
 import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
@@ -538,9 +538,15 @@ type OpenRouterChoice = {
   logprobs?: { content?: { top_logprobs?: { token: string; logprob: number }[] }[] };
 };
 type OpenRouterPayload = {
+  model?: unknown;
   error?: unknown;
   choices?: OpenRouterChoice[];
-  usage?: { cost?: number };
+  usage?: {
+    cost?: number;
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    prompt_tokens_details?: { cached_tokens?: unknown };
+  };
 };
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -614,6 +620,7 @@ async function callModel(
   const started = Date.now();
   let last = "upstream failure";
   for (let attempt = 0; attempt < 3; attempt++) {
+    await meter?.beforeCall?.("openrouter", cfg.model, Number(body.max_tokens));
     let res: Response;
     try {
       res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -643,6 +650,11 @@ async function callModel(
       // Charged only for a call that answered; a failed attempt that falls
       // through to the next model in the chain is not billed here.
       addUsd(meter, payload.usage?.cost);
+      addTokens(meter, "openrouter", typeof payload.model === "string" && payload.model ? payload.model : cfg.model, {
+        inputTokens: payload.usage?.prompt_tokens,
+        outputTokens: payload.usage?.completion_tokens,
+        cachedInputTokens: payload.usage?.prompt_tokens_details?.cached_tokens,
+      });
       if (multi) {
         const picked = parseNumbers(content, labels.length, multi.max);
         if (!picked) {
@@ -832,16 +844,20 @@ async function llmClassifyMany(
   const asMulti = multi ?? (labels.length > MAX_LABELS_SINGLE ? { max: 1 } : undefined);
   const out: Result[] = new Array(inputs.length);
   let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(4, inputs.length) }, async () => {
+  const work = Array.from({ length: Math.min(4, inputs.length) }, async () => {
       while (next < inputs.length) {
         const i = next++;
         const r = await classifyOne(env, inputs[i], labels, tier, instructions, asMulti, meter);
         if (!multi && !r.label) throw new Error("upstream malformed_response");
         out[i] = multi ? r : { ...r, labels: undefined };
       }
-    }),
-  );
+    });
+  if (meter?.beforeCall) {
+    // Do not settle/refund while a sibling provider call is still running.
+    const completed = await Promise.allSettled(work);
+    const failure = completed.find((entry) => entry.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  } else await Promise.all(work);
   return out;
 }
 
@@ -1113,17 +1129,27 @@ async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplie
   }
 }
 
+/** Trusted in-process context supplied only after account authorization/reservation. */
+export type ClassificationExecution = {
+  meter?: Meter;
+  account?: { id: string; multiplier: number };
+};
+
 const worker = {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext, execution?: ClassificationExecution): Promise<Response> {
+    const account = execution?.account;
+    if (account && (!account.id.trim() || !Number.isSafeInteger(account.multiplier) || account.multiplier < 1)) {
+      throw new Error("Invalid internal classification account context");
+    }
     const url = new URL(req.url);
     const ip = req.headers.get("cf-connecting-ip") ?? "anon";
     const country = (req as { cf?: { country?: string } }).cf?.country ?? "??";
-    const enterprise = await hasEnterpriseAccess(req, env);
+    const enterprise = account ? false : await hasEnterpriseAccess(req, env);
     const client = enterprise ? "enterprise" : "public";
     const agent = agentFamily(req.headers.get("user-agent") ?? "");
     // One meter per request, read once by record(). Never a module global:
     // the isolate serves concurrent requests.
-    const meter = newMeter();
+    const meter = execution?.meter ?? newMeter();
 
     // The pathname as the caller wrote it, and decoded for routing. A stray
     // "%" is not valid percent-encoding: decodeURIComponent throws on it, and
@@ -1143,7 +1169,7 @@ const worker = {
     }
     // HEAD is GET without the body; crawlers and link checkers lean on it.
     if (req.method === "HEAD") {
-      const r = await worker.fetch(new Request(req.url, { method: "GET", headers: req.headers }), env, ctx);
+      const r = await worker.fetch(new Request(req.url, { method: "GET", headers: req.headers }), env, ctx, execution);
       return new Response(null, { status: r.status, headers: r.headers });
     }
 
@@ -1182,7 +1208,7 @@ const worker = {
       };
       const auth = original.headers.get("authorization");
       if (auth) headers.authorization = auth;
-      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx);
+      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx, execution);
       const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
       return { status: r.status, body: parsed };
     };
@@ -1308,7 +1334,7 @@ const worker = {
     // A sandbox for tooling that insists on one: identical to production, which
     // stores nothing and costs nothing, so there is no data to protect.
     if (path === "v1/sandbox/classify" || path === "sandbox/classify") {
-      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, req), env, ctx);
+      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, req), env, ctx, execution);
       const h = new Headers(r.headers);
       h.set("x-sandbox", "true; identical to production, nothing is stored");
       return new Response(r.body, { status: r.status, headers: h });
@@ -1663,16 +1689,17 @@ const worker = {
     // MCP handler forwards Authorization here too. Never put billing identity
     // into classification analytics; only the quota bucket uses the account.
     let pro: { customerId: string; active: boolean } | null = null;
-    if (!enterprise) {
+    if (!enterprise && !account) {
       try { pro = await authenticatePro(req, env); }
       catch (error) {
         if (error instanceof BillingError) return json({ error: error.message, code: error.code }, error.status, { "cache-control": "no-store", "x-api-version": API_VERSION });
         return json({ error: "Unable to verify Pro access. Try again shortly.", code: "billing_unavailable" }, 503, { "cache-control": "no-store", "x-api-version": API_VERSION });
       }
     }
-    const multiplier = pro ? 10 : 1;
-    const quotaOwner = pro ? `pro:${pro.customerId}` : ip;
-    const quotaScope = pro ? "per Pro account" : "per IP";
+    const multiplier = account?.multiplier ?? (pro ? 10 : 1);
+    const quotaOwner = account ? `account:${account.id}` : pro ? `pro:${pro.customerId}` : ip;
+    const quotaScope = account ? "per account" : pro ? "per Pro account" : "per IP";
+    const paid = pro !== null || !!account && multiplier > 1;
 
     // ---- gather params from either shape -----------------------------------
     let inputs: string[] = [];
@@ -1816,7 +1843,7 @@ const worker = {
     const decisions = inputs.length * (dimensions?.length ?? 1);
     const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
-    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
+    if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const gate = enterprise
       ? { limited: false, remaining: -1 }
       : await limited(env, tier, quotaOwner, decisions, multiplier);
@@ -1826,7 +1853,7 @@ const worker = {
       // A free caller is told the plan that lifts this exact limit and gets its
       // URL as a field an agent can act on; a Pro caller is already on it and
       // is pointed at the arrangement above it instead.
-      const way = pro
+      const way = paid
         ? "For more, email contact@classifier.dev or see https://classifier.dev/pricing"
         : `Pro lifts this to ${(perDay ? TIERS[tier].daily : TIERS[tier].rpm) * 10} for $20/month: https://classifier.dev/pro`;
       return fail(
@@ -1841,7 +1868,7 @@ const worker = {
         },
         0,
         0,
-        pro ? {} : { upgrade: "https://classifier.dev/pro" },
+        paid ? {} : { upgrade: "https://classifier.dev/pro" },
       );
     }
 

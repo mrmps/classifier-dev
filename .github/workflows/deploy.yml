@@ -2,7 +2,8 @@
 #
 # Squash-merging a pull request pushes to main, so a merge deploys. Secrets set
 # with `wrangler secret put` are stored separately from the script and survive a
-# deploy, so nothing here needs to know them.
+# deploy. DATABASE_URL is also held in Actions for the PostgreSQL migration;
+# deploy supplies that same value as a Worker secret, never as a plaintext var.
 name: deploy
 
 on:
@@ -59,10 +60,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           STATS_KV_ID: ${{ secrets.STATS_KV_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REPORT_TO: ${{ secrets.REPORT_TO }}
         run: |
           missing=
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STATS_KV_ID REPORT_TO; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STATS_KV_ID DATABASE_URL REPORT_TO; do
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -85,10 +87,25 @@ jobs:
 
       # The repo's own pinned wrangler, so CI deploys with the version a
       # maintainer deploys with locally.
+      - name: Build application
+        run: npm run build
+
+      - name: Migrate account database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run db:migrate
+
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler deploy
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            writeFileSync(process.env.RUNNER_TEMP + "/classifier-secrets.json",
+              JSON.stringify({ DATABASE_URL: process.env.DATABASE_URL }), { mode: 0o600 });
+          '
+          npx wrangler deploy --secrets-file "$RUNNER_TEMP/classifier-secrets.json"
 
       # A deploy that uploads and then serves a broken Worker should fail here
       # rather than in somebody's terminal.
