@@ -118,6 +118,16 @@ describe("every discovery document", () => {
           ctx,
         );
         status = res.status === 400 ? 200 : res.status;
+      } else if (p === "/api/v1/feedback" || p === "/api/v1/observations") {
+        const body = p.endsWith("/feedback")
+          ? { signal: { category: "bug" }, content: { title: "Discovery link check" } }
+          : { category: "bug", summary: "Discovery link check" };
+        const res = await worker.fetch(
+          new Request(`${ORIGIN}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+          env,
+          ctx,
+        );
+        status = res.status === 202 ? 200 : res.status;
       } else {
         const res = await get(p);
         status = res.status;
@@ -207,6 +217,29 @@ describe("the catalogs", () => {
     expect(cards.map((e) => e.url)).toEqual([`${ORIGIN}/.well-known/mcp/server-card.json`, `${ORIGIN}/.well-known/mcp/docs-server-card.json`]);
     expect(cards[0].capabilities).toEqual((await liveTools("/mcp")).map((t) => t.name));
     expect(cards[1].capabilities).toEqual((await liveTools("/mcp/docs")).map((t) => t.name));
+    const feedback = a.entries.find((e) => e.url === `${ORIGIN}/.well-known/agent-feedback.json`);
+    expect(feedback?.capabilities).toEqual(["submit_feedback", "submit_observation", "add_attachments", "get_receipt"]);
+  });
+
+  test("the general API index keeps agent feedback discoverable", async () => {
+    const index = await getJson("/api");
+    expect(index.api.feedback).toEqual({
+      discovery: `${ORIGIN}/.well-known/agent-feedback.json`,
+      policy: `${ORIGIN}/api/v1/policy`,
+      submit: {
+        method: "POST",
+        url: `${ORIGIN}/api/v1/feedback`,
+        description: "Submit structured agent feedback with optional evidence. No authentication required.",
+      },
+      observe: {
+        method: "POST",
+        url: `${ORIGIN}/api/v1/observations`,
+        body: { category: "bug", summary: "What happened", surface: "/v1/classify" },
+        description: "Send one lightweight observation when a full report is unnecessary.",
+      },
+      receipt: `${ORIGIN}/api/v1/receipts/{id}`,
+    });
+    expect(index.discovery).toContain(`${ORIGIN}/.well-known/agent-feedback.json`);
   });
 
   test("the A2A card has every field the 0.3.0 AgentCard requires and one skill per live tool", async () => {

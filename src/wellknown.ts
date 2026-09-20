@@ -18,7 +18,7 @@ export const MCP_REGISTRY_AUTH = "v=MCPv1; k=ed25519; p=aWvcKpRNSyAPr+bh7ba+Hiiy
 export const MCP_REGISTRY_ENTRY = "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier";
 
 /** Bumped when any public page changes materially; feeds sitemap lastmod. */
-export const SITE_UPDATED = "2026-09-19";
+export const SITE_UPDATED = "2026-09-20";
 
 export const SITE = {
   name: "classifier.dev",
@@ -215,6 +215,11 @@ export function ardCatalog(origin: string, product: McpServer, docs: McpServer) 
       entry("api", "classify", `${SITE.name} API`, "application/vnd.oai.openapi+json;version=3.1", `${origin}/openapi.json`,
         "POST texts and labels, get labels and calibrated confidences back. Up to 1,000 per request, no key.", {
           tags: ["classification", "rest", "openapi"],
+        }),
+      entry("api", "feedback", `${SITE.name} agent feedback`, "application/json", `${origin}/.well-known/agent-feedback.json`,
+        "Agents report bugs, documentation mismatches, friction and feature gaps, then poll a receipt.", {
+          tags: ["feedback", "agents", "receipts"],
+          capabilities: ["submit_feedback", "submit_observation", "add_attachments", "get_receipt"],
         }),
       entry("skill", SKILL_NAME, `${SITE.name} agent skill`, "application/ai-skill+md", `${origin}/skill.md`, SKILL_DESCRIPTION, {
         tags: ["skill", "classification"],

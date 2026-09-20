@@ -216,6 +216,7 @@ SURFACES
   Go SDK          go get github.com/mrmps/classifier-dev/sdk/go   https://pkg.go.dev/github.com/mrmps/classifier-dev/sdk/go
   JavaScript      fetch() is the SDK; see EXAMPLES. Source for both SDKs: https://github.com/mrmps/classifier-dev/tree/main/sdk
   Agent skill     npx skills add https://classifier.dev
+  Agent feedback  https://classifier.dev/.well-known/agent-feedback.json
   llms.txt        https://classifier.dev/llms.txt
   Discovery       /.well-known/ard.json, /.well-known/mcp/server-card.json,
                   /.well-known/agent-card.json, /.well-known/api-catalog, /sitemap.xml
@@ -234,6 +235,10 @@ ENDPOINTS
   GET     /api                      Machine-readable index of everything here (also GET /?mode=agent)
   GET     /openapi.json             The OpenAPI 3.1 specification
   POST    /mcp                      MCP, Streamable HTTP (tools); POST /mcp/docs for the docs server
+  POST    /api/v1/feedback          Structured report with optional evidence; returns a receipt
+  POST    /api/v1/observations      Lightweight category + summary signal; returns a receipt
+  GET     /api/v1/receipts/{id}     Poll whether an agent report landed
+  GET     /api/v1/policy            Feedback categories, evidence types and limits
 
   Response for POST: {"tier", "model", "results": [{"label", "confidence", "scores"}...], "usage"}
   in input order. Multi-label results carry "labels" (every label >= 0.7) and

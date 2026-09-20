@@ -208,6 +208,28 @@ send a usable one already, but Python's `urllib` default is blocked at the edge
 and returns `403` before your request is ever classified. If you get a 403,
 this is why. Rate limiting returns `429`.
 
+## Report a problem with classifier.dev
+
+If classifier.dev itself returns a wrong result shape, contradicts its docs, or
+creates repeated integration friction, report that to the service instead of
+classifying the report as input. Read the live policy first:
+
+    GET https://classifier.dev/.well-known/agent-feedback.json
+
+For a short report, send one category and one useful sentence. No key is needed:
+
+    curl https://classifier.dev/api/v1/observations -d '{
+      "category": "docs_mismatch",
+      "summary": "The documented response field was absent from POST /v1/classify.",
+      "surface": "/v1/classify"
+    }'
+
+Use `POST /api/v1/feedback` when you have reproduction steps or other evidence.
+It accepts the envelope and limits described by the discovery document. Both
+routes return a receipt; poll `GET /api/v1/receipts/{id}` to confirm it landed.
+Never include credentials, private input text, or unrelated user data in a
+report or its evidence.
+
 ## Limits
 
 Per IP per minute: 3,000 classifications on `fast`, 200 on `smart`; per day

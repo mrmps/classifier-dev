@@ -296,6 +296,20 @@ const agentView = (origin: string) => ({
       },
       page: `${origin}/${skills.SKILLS_PATH}`,
     },
+    feedback: {
+      discovery: `${origin}/.well-known/agent-feedback.json`,
+      policy: `${origin}/api/v1/policy`,
+      submit: {
+        method: "POST", url: `${origin}/api/v1/feedback`,
+        description: "Submit structured agent feedback with optional evidence. No authentication required.",
+      },
+      observe: {
+        method: "POST", url: `${origin}/api/v1/observations`,
+        body: { category: "bug", summary: "What happened", surface: "/v1/classify" },
+        description: "Send one lightweight observation when a full report is unnecessary.",
+      },
+      receipt: `${origin}/api/v1/receipts/{id}`,
+    },
     openapi: `${origin}/openapi.json`,
   },
   mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
@@ -305,7 +319,7 @@ const agentView = (origin: string) => ({
   limits: { fast: "3,000 classifications/min, 20,000/day per IP", smart: "200/min, 2,000/day per IP", headers: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Policy", "Retry-After"] },
   pricing: { price: 0, currency: "USD", url: `${origin}/pricing` },
   docs: { llms: `${origin}/llms.txt`, developers: `${origin}/developers`, benchmark: `${origin}/benchmark`, privacy: `${origin}/privacy`, terms: `${origin}/terms`, contact: `${origin}/contact` },
-  discovery: [`${origin}/.well-known/ard.json`, `${origin}/.well-known/agent-card.json`, `${origin}/.well-known/api-catalog`, `${origin}/.well-known/agent-skills/index.json`, `${origin}/sitemap.xml`],
+  discovery: [`${origin}/.well-known/ard.json`, `${origin}/.well-known/agent-card.json`, `${origin}/.well-known/api-catalog`, `${origin}/.well-known/agent-feedback.json`, `${origin}/.well-known/agent-skills/index.json`, `${origin}/sitemap.xml`],
 });
 
 /** Everything that is not a route: a real 404 that says where to go, in the caller's format. */
