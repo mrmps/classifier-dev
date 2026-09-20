@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { sql } from "drizzle-orm";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -50,7 +50,8 @@ describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
   test("all real multi-statement migrations apply once, even with concurrent runners", async () => {
     await Promise.all([migratePostgres(url!, undefined, schema), migratePostgres(url!, undefined, schema)]);
     const result = await db.execute(sql`SELECT name FROM ${sql.identifier(schema)}.app_schema_migrations`);
-    expect(result.rows).toHaveLength(8);
+    const migrations = readdirSync(new URL("../migrations/postgres/", import.meta.url)).filter((name) => name.endsWith(".sql")).sort();
+    expect(result.rows.map((row) => row.name).sort()).toEqual(migrations);
     const functions = await db.execute(sql`SELECT proname FROM pg_proc WHERE pronamespace=${schema}::regnamespace`);
     expect(functions.rows.map((row) => row.proname)).toContain("settle_token_reservation");
     await expect(checkNewsletterCutover(url!, schema)).rejects.toThrow("not verified");

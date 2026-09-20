@@ -15,6 +15,13 @@
       "when": 1789908717986,
       "tag": "0001_free_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789910202661,
+      "tag": "0002_unified_newsletter",
+      "breakpoints": true
     }
   ]
 }
