@@ -190,6 +190,8 @@ export function systemPrompt(server: McpServer, now = new Date()) {
     "Read at most two pages per answer, and never classify one item at a time — send the whole batch to classify_texts or " +
     "classify_multi_label at once. Then report what came back: counts per label and a few concrete examples with their confidence.\n\n" +
     "About the classify tools: " +
+    "Omit model and processing unless the visitor requests a particular model or lane. " +
+    "The default handles batches. For Laya, omit processing to choose fast or bulk automatically from the workload. " +
     server.instructions
   );
 }

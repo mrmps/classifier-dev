@@ -1744,6 +1744,7 @@ const worker = {
     let tier: Tier = "fast";
     let selectedModel: "jev" | "laya" = "jev";
     let processing: Processing = "fast";
+    let automaticProcessing = true;
     let layaPlan: LayaPlan | undefined;
     let layaRemaining = -1;
     let layaTiming: LayaRequestTiming | undefined;
@@ -1812,10 +1813,11 @@ const worker = {
       }
       const b = body as Record<string, unknown>;
       if (b.model !== undefined && b.model !== "jev" && b.model !== "laya") return fail('model must be "jev" or "laya"', 400, "bad_model");
-      selectedModel = b.model === "laya" ? "laya" : "jev";
+      selectedModel = b.model === "laya" || (b.model === undefined && b.processing !== undefined) ? "laya" : "jev";
       if (b.processing !== undefined && (selectedModel !== "laya" || (b.processing !== "fast" && b.processing !== "bulk")))
-        return fail('processing must be "fast" or "bulk" and requires model: "laya"', 400, "bad_processing");
+        return fail('processing must be "fast" or "bulk"; omit model or use model: "laya"', 400, "bad_processing");
       processing = b.processing === "bulk" ? "bulk" : "fast";
+      automaticProcessing = b.processing === undefined;
       if (Object.hasOwn(b, "dimensions")) mode = "dimensions";
       if (mode === "dimensions" && ["items", "inputs", "input"].filter((k) => Object.hasOwn(b, k)).length > 1) return fail("Use only one of items, inputs or input", 400, "bad_dimensions");
       if (mode === "dimensions" && Object.hasOwn(b, "items")) {
@@ -1894,6 +1896,9 @@ const worker = {
       catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
     } else mode = multi ? "multi" : "single";
     const decisions = inputs.length * (dimensions?.length ?? 1);
+    if (selectedModel === "laya" && automaticProcessing) {
+      processing = decisions > 1 || (!!multi && labels.length > LAYA_LIMITS.fast.questions) ? "bulk" : "fast";
+    }
     if (selectedModel === "laya") {
       if (!account && !req.headers.has("authorization")) layaTiming = {};
       if (env.LAYA_ENABLED !== "true") return fail("Laya trial is currently unavailable", 503, "laya_unavailable");
