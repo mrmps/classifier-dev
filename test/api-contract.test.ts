@@ -230,7 +230,7 @@ describe("the rate-limit headers", () => {
     expect(body.code).toBe("rate_limit_minute");
     expect(res.headers.get("retry-after")).toBe("17");
     expect(res.headers.get("ratelimit-remaining")).toBe("0");
-    expect(res.headers.get("x-ratelimit-remaining")).toBe("0");
+    expect(res.headers.has("x-ratelimit-remaining")).toBe(false);
     expect(res.headers.get("ratelimit-limit")).toBe("3000");
     expect(res.headers.get("ratelimit-policy")).toBe("3000;w=60, 20000;w=86400");
     // Out of room is the moment to say where more is: the plan that lifts this

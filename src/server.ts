@@ -2,7 +2,7 @@ import {
   createStartHandler,
   defaultStreamHandler,
 } from "@tanstack/react-start/server";
-import legacy, { type Env } from "./index";
+import worker, { type Env } from "./index";
 import { AppError, type AppEnv } from "./server/db";
 import { accountApi } from "./http/account-api";
 import { isAppRequest } from "./http/dispatch";
@@ -13,7 +13,7 @@ import {
   mayRenderPublicHtml,
   publicNavigationAuth,
 } from "./server/public-navigation-auth";
-export { RateLimiter, BillingAccount } from "./index";
+export { RateLimiter } from "./index";
 
 const start = createStartHandler(defaultStreamHandler);
 export default {
@@ -50,7 +50,7 @@ export default {
     const auth = mayRenderPublicHtml(request)
       ? await publicNavigationAuth(request, env)
       : { signedIn: false, setCookies: [] };
-    const response = await legacy.fetch(request, env, ctx, {
+    const response = await worker.fetch(request, env, ctx, {
       viewer: { signedIn: auth.signedIn },
     });
     if (!auth.signedIn && auth.setCookies.length === 0) return response;
@@ -77,6 +77,6 @@ export default {
     const env = appEnvironment(bindings);
     if (env.APP_ACCOUNTS_ENABLED === "true")
       ctx.waitUntil(syncAutumnAccounts(env));
-    return legacy.scheduled(controller, env, ctx);
+    return worker.scheduled(controller, env, ctx);
   },
 };

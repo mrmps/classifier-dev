@@ -75,10 +75,10 @@ test("desktop navigation uses one compact control row and a wide-gamut purple ac
   expect(BASE_CSS).toContain("--accent:color(display-p3 .63 .40 1)");
 });
 
-test("pricing renders current shared plan values and keeps legacy keys documented", () => {
+test("pricing renders workspace plans and Pro rate limits", () => {
   const html = pricingHtml();
   expect(html).toContain("simple plans with upfront usage");
-  expect(html).toContain("more included usage + a shared workspace");
+  expect(html).toContain("10× rate limits");
   expect(html).toContain('class="plan-grid"');
   expect(html).toContain('class="plan-action" href="/auth/sign-up"');
   expect(html).toContain(`$${BILLING_PLANS.pro.priceCents / 100}`);
@@ -86,7 +86,9 @@ test("pricing renders current shared plan values and keeps legacy keys documente
   expect(html).toContain("laya-0.3.4-routed-fast");
   expect(html).toContain("laya-0.3.4-routed-bulk");
   expect(html).toContain('href="/auth/sign-up?returnTo=/app/plans"');
-  expect(html).toContain("classifier_pro_");
+  expect(html).not.toContain("classifier_pro_");
+  expect(html).toContain("30,000/min · 200,000/day");
+  expect(html).toContain("shared across workspace keys and agents");
   expect(html).not.toContain("/pricing/manage");
   expect(PRICING).toContain(formatCreditsUsd(BILLING_PLANS.free.includedCredits));
   expect(PRICING).toContain(formatCreditsUsd(BILLING_PLANS.pro.includedCredits));

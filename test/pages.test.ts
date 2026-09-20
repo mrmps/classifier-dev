@@ -18,14 +18,16 @@ const hrefs = (page: string) => [...page.matchAll(/href="([^"]*)"/g)].map((m) =>
 const htmlHeadings = (page: string) => [...page.matchAll(/<h2>(?:<span class="syn">## <\/span>)?([^<]+)<\/h2>/g)].map((m) => m[1]);
 const mdHeadings = (doc: string) => [...doc.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
 
-test("the retired Pro page redirects to account billing without inheriting legacy tokens", async () => {
-  const response = await worker.fetch(
-    new Request("https://classifier.dev/pro", { headers: { accept: "text/html" } }),
-    env,
-    ctx,
-  );
-  expect(response.status).toBe(308);
-  expect(response.headers.get("location")).toBe("https://classifier.dev/app/plans#");
+test("removed billing routes return not found", async () => {
+  for (const path of ["/pro", "/v1/billing/login", "/v1/billing/key", "/v1/billing/account"]) {
+    const response = await worker.fetch(
+      new Request(`https://classifier.dev${path}`, { headers: { accept: "text/html" } }),
+      env,
+      ctx,
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get("location")).toBeNull();
+  }
 });
 
 /**

@@ -2,9 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import worker, { type Env, type ClassificationExecution } from "../src/index";
 import { newMeter } from "../src/cost";
 
-const customer = "a".repeat(64);
-const key = `classifier_pro_${customer}.${"b".repeat(64)}`;
-const rotatedKey = `classifier_pro_${customer}.${"c".repeat(64)}`;
+const key = "classifier_agent_test";
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
 const realFetch = globalThis.fetch;
 let upstreamCalls = 0;
@@ -23,25 +21,46 @@ beforeEach(() => {
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 
-function fixture(options: { billingStatus?: number; billingThrows?: boolean; quotaScope?: "minute" | "day" } = {}) {
-  const authCalls: { customerId: string; secret: string }[] = [];
+test.each(["classifier_pro_invalid", `classifier_pro_${"a".repeat(64)}.${"b".repeat(64)}`, "unknown-key"])("unsupported credential %s cannot fall through to free inference", async token => {
+  const f = fixture();
+  const response = await classify(f.env, { token });
+  expect(response.status).toBe(401);
+  expect((await response.json()).code).toBe("invalid_api_key");
+  expect(f.quotaCalls).toHaveLength(0);
+  expect(upstreamCalls).toBe(0);
+});
+
+test.each([["fast", 3000, 20000], ["smart", 200, 2000]] as const)("anonymous %s allowance stays per IP", async (tier, limit, daily) => {
+  const f = fixture();
+  expect((await classify(f.env, { tier })).status).toBe(200);
+  expect(f.quotaCalls[0]).toEqual({ owner: `${tier}:192.0.2.1`, limit, daily, cost: 1 });
+});
+
+test.each(["enterprise-test", "operator-test"])("%s has arranged access", async token => {
+  const f = fixture();
+  const response = await classify(f.env, { token });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("ratelimit-policy")).toBe("unlimited");
+  expect(f.quotaCalls).toHaveLength(0);
+});
+
+test("MCP reports an unsupported credential without running inference", async () => {
+  const f = fixture();
+  const response = await worker.fetch(new Request("https://classifier.dev/mcp", {
+    method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: "Bearer classifier_pro_invalid" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "classify_texts", arguments: { inputs: ["positive example"], labels: ["positive", "negative"] } } }),
+  }), f.env, ctx);
+  expect((await response.json()).result.isError).toBe(true);
+  expect(f.quotaCalls).toHaveLength(0);
+  expect(upstreamCalls).toBe(0);
+});
+
+function fixture(options: { quotaScope?: "minute" | "day" } = {}) {
   const quotaCalls: { owner: string; limit: number; daily: number; cost: number }[] = [];
   const spent = new Map<string, number>();
   const env = {
     TYPESAFE_API_KEY: "test", ENTERPRISE_API_KEY: "enterprise-test", AGENT_API_KEY: "operator-test",
     STATS: { get: async () => null, put: async () => {} },
-    BILLING: {
-      idFromName: (name: string) => name,
-      get: (id: string) => ({ fetch: async (request: Request) => {
-        expect(request.url).toBe("https://billing/authenticate");
-        const body = await request.json() as { customerId: string; secret: string };
-        expect(body.customerId).toBe(id);
-        authCalls.push(body);
-        if (options.billingThrows) throw new Error("unavailable");
-        const status = options.billingStatus ?? 200;
-        return Response.json(status === 200 ? { active: true } : { error: "Access refused" }, { status });
-      } }),
-    },
     LIMITER: {
       idFromName: (name: string) => name,
       get: (owner: string) => ({ fetch: async (request: string) => {
@@ -55,7 +74,7 @@ function fixture(options: { billingStatus?: number; billingThrows?: boolean; quo
       } }),
     },
   } as unknown as Env;
-  return { env, authCalls, quotaCalls };
+  return { env, quotaCalls };
 }
 function classify(env: Env, { token, tier = "fast", count = 1, ip = "192.0.2.1" }: { token?: string; tier?: string; count?: number; ip?: string } = {}, execution?: ClassificationExecution) {
   return worker.fetch(new Request("https://classifier.dev/v1/classify", {
@@ -67,13 +86,13 @@ function classify(env: Env, { token, tier = "fast", count = 1, ip = "192.0.2.1" 
 describe("trusted account classification context", () => {
   test.each([["fast", 10, 30000, 200000], ["smart", 10, 2000, 20000], ["smart", 1, 200, 2000]] as const)(
     "%s account multiplier %s determines quota and headers", async (tier, multiplier, limit, daily) => {
-      const f = fixture({ billingThrows: true });
+      const f = fixture();
       const meter = newMeter();
       const response = await classify(f.env, { token: key, tier }, { account: { id: "org-a", multiplier }, meter });
       expect(response.status).toBe(200);
-      expect(f.authCalls).toHaveLength(0);
       expect(f.quotaCalls).toEqual([{ owner: `${tier}:account:org-a`, limit, daily, cost: 1 }]);
       expect(response.headers.get("ratelimit-policy")).toBe(`${limit};w=60, ${daily};w=86400`);
+      expect(response.headers.has("x-ratelimit-limit")).toBe(false);
       expect(meter.tokens).toEqual([{ provider: "typesafe", model: "jev-test", calls: 1, inputTokens: 10, outputTokens: null, cachedInputTokens: null }]);
       const body = await response.json();
       expect(JSON.stringify(body)).not.toContain("org-a");
@@ -89,7 +108,6 @@ describe("trusted account classification context", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("ratelimit-remaining")).toBe(remaining);
     }
-    expect(f.authCalls).toHaveLength(0);
     expect(f.quotaCalls.map(call => call.owner)).toEqual(["fast:account:org-a", "fast:account:org-a", "fast:account:org-b"]);
   });
 
@@ -114,7 +132,6 @@ describe("trusted account classification context", () => {
     expect(response.status).toBe(200);
     expect(f.quotaCalls).toEqual([{ owner: "smart:192.0.2.1", limit: 200, daily: 2000, cost: 1 }]);
     expect(response.headers.get("ratelimit-limit")).toBe("200");
-    expect(f.authCalls).toHaveLength(0);
   });
 
   test("account quota rejection reports account scope and stops inference", async () => {
@@ -140,7 +157,7 @@ describe("trusted account classification context", () => {
   });
 
   test("MCP preserves internal context without authenticating its forwarded credential", async () => {
-    const f = fixture({ billingThrows: true });
+    const f = fixture();
     const meter = newMeter();
     const response = await worker.fetch(new Request("https://classifier.dev/mcp", {
       method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${key}` },
@@ -148,7 +165,6 @@ describe("trusted account classification context", () => {
     }), f.env, ctx, { account: { id: "org-a", multiplier: 10 }, meter });
     expect(response.status).toBe(200);
     expect((await response.json()).result.isError).not.toBe(true);
-    expect(f.authCalls).toHaveLength(0);
     expect(f.quotaCalls[0].owner).toBe("fast:account:org-a");
     expect(meter.tokens[0].inputTokens).toBe(10);
   });
@@ -158,136 +174,5 @@ describe("trusted account classification context", () => {
     await expect(classify(f.env, {}, { account: { id: "org-a", multiplier } })).rejects.toThrow("Invalid internal classification account context");
     expect(upstreamCalls).toBe(0);
     expect(f.quotaCalls).toHaveLength(0);
-  });
-});
-
-describe("Pro classification access", () => {
-  test.each([
-    ["fast", 30000, 200000], ["smart", 2000, 20000],
-  ] as const)("%s uses 10x quotas in enforcement and response headers", async (tier, limit, daily) => {
-    const f = fixture();
-    const response = await classify(f.env, { token: key, tier, count: 3 });
-    expect(response.status).toBe(200);
-    expect(f.quotaCalls).toEqual([{ owner: `${tier}:pro:${customer}`, limit, daily, cost: 3 }]);
-    expect(response.headers.get("ratelimit-limit")).toBe(String(limit));
-    expect(response.headers.get("ratelimit-policy")).toBe(`${limit};w=60, ${daily};w=86400`);
-    expect(response.headers.get("ratelimit-remaining")).toBe(String(limit - 3));
-    expect(response.headers.get("x-ratelimit-limit")).toBe(`${limit}/min`);
-  });
-  test.each(["minute", "day"] as const)("exhausted Pro %s quota returns correct ceilings", async scope => {
-    const f = fixture({ quotaScope: scope });
-    const response = await classify(f.env, { token: key });
-    expect(response.status).toBe(429);
-    expect(response.headers.get("retry-after")).toBe("30");
-    expect(response.headers.get("ratelimit-remaining")).toBe("0");
-    expect(response.headers.get("ratelimit-policy")).toBe("30000;w=60, 200000;w=86400");
-    expect(response.headers.get("x-ratelimit-limit")).toBe(scope === "day" ? "200000/day" : "30000/min");
-    expect((await response.json()).code).toBe(`rate_limit_${scope}`);
-    expect(upstreamCalls).toBe(0);
-  });
-  test("smart Pro accepts 1,000 inputs while free rejects 201 before spending quota", async () => {
-    const f = fixture();
-    const paid = await classify(f.env, { token: key, tier: "smart", count: 1000 });
-    expect(paid.status).toBe(200);
-    expect((await paid.json()).results).toHaveLength(1000);
-    expect(f.quotaCalls[0].cost).toBe(1000);
-    const free = await classify(f.env, { tier: "smart", count: 201 });
-    expect(free.status).toBe(400);
-    expect((await free.json()).code).toBe("too_many_inputs");
-    expect(f.quotaCalls).toHaveLength(1);
-  });
-  test.each([["fast", 3000, 20000], ["smart", 200, 2000]] as const)("free %s allowance stays per IP", async (tier, limit, daily) => {
-    const f = fixture();
-    const response = await classify(f.env, { tier });
-    expect(response.status).toBe(200);
-    expect(response.headers.get("ratelimit-policy")).toBe(`${limit};w=60, ${daily};w=86400`);
-    expect(f.quotaCalls[0]).toEqual({ owner: `${tier}:192.0.2.1`, limit, daily, cost: 1 });
-    expect(f.authCalls).toHaveLength(0);
-  });
-  test.each(["enterprise-test", "operator-test"])("%s retains unmetered access", async token => {
-    const f = fixture();
-    const response = await classify(f.env, { token });
-    expect(response.status).toBe(200);
-    expect(response.headers.get("ratelimit-policy")).toBe("unlimited");
-    expect(f.authCalls).toHaveLength(0);
-    expect(f.quotaCalls).toHaveLength(0);
-  });
-  test.each([[401, "invalid_pro_key"], [403, "pro_inactive"], [503, "billing_unavailable"]] as const)("billing refusal %s stops classification", async (billingStatus, code) => {
-    const f = fixture({ billingStatus });
-    const response = await classify(f.env, { token: key });
-    expect(response.status).toBe(billingStatus);
-    expect((await response.json()).code).toBe(code);
-    expect(f.quotaCalls).toHaveLength(0);
-    expect(upstreamCalls).toBe(0);
-  });
-  test("malformed Pro key returns 401 without calling billing", async () => {
-    const f = fixture();
-    expect((await classify(f.env, { token: "classifier_pro_invalid" })).status).toBe(401);
-    expect(f.authCalls).toHaveLength(0);
-    expect(upstreamCalls).toBe(0);
-  });
-  test("billing transport failure returns 503 without a free fallback", async () => {
-    const f = fixture({ billingThrows: true });
-    expect((await classify(f.env, { token: key })).status).toBe(503);
-    expect(f.quotaCalls).toHaveLength(0);
-    expect(upstreamCalls).toBe(0);
-  });
-  test("different IPs and a rotated key spend the same account quota", async () => {
-    const f = fixture();
-    for (const [token, ip, remaining] of [[key, "192.0.2.1", "29999"], [key, "192.0.2.2", "29998"], [rotatedKey, "192.0.2.3", "29997"]]) {
-      const response = await classify(f.env, { token, ip });
-      expect(response.status).toBe(200);
-      expect(response.headers.get("ratelimit-remaining")).toBe(remaining);
-    }
-    expect(new Set(f.quotaCalls.map(call => call.owner))).toEqual(new Set([`fast:pro:${customer}`]));
-    expect(f.authCalls[2].secret).toBe("c".repeat(64));
-  });
-  test("dimensions spend item × dimension decisions with Pro quotas and unchanged free limits", async () => {
-    const f = fixture();
-    const matrix = (count: number, token?: string) => worker.fetch(new Request("https://classifier.dev/v1/classify", {
-      method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": "192.0.2.1", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ items: Array(count).fill("A positive billing example"), dimensions: { sentiment: ["positive", "negative"], team: ["billing", "support"] }, tier: "smart" }),
-    }), f.env, ctx);
-
-    const pro = await matrix(500, key);
-    expect(pro.status).toBe(200);
-    const result = await pro.json();
-    expect(result.results).toHaveLength(500);
-    expect(result.usage).toMatchObject({ items: 500, dimensions: 2, classifications: 1000 });
-    expect(result.results[0].dimensions).toHaveProperty("sentiment");
-    expect(result.results[0].dimensions).toHaveProperty("team");
-    expect(f.quotaCalls[0]).toEqual({ owner: `smart:pro:${customer}`, limit: 2000, daily: 20000, cost: 1000 });
-    expect(pro.headers.get("ratelimit-policy")).toBe("2000;w=60, 20000;w=86400");
-    expect(pro.headers.get("ratelimit-remaining")).toBe("1000");
-
-    const free = await matrix(100);
-    expect(free.status).toBe(200);
-    expect((await free.json()).usage).toMatchObject({ items: 100, dimensions: 2, classifications: 200 });
-    expect(f.quotaCalls[1]).toEqual({ owner: "smart:192.0.2.1", limit: 200, daily: 2000, cost: 200 });
-    expect(free.headers.get("ratelimit-policy")).toBe("200;w=60, 2000;w=86400");
-    expect(free.headers.get("ratelimit-remaining")).toBe("0");
-
-    const callsBeforeRejected = upstreamCalls;
-    const oversizedFree = await matrix(101);
-    expect(oversizedFree.status).toBe(400);
-    expect((await oversizedFree.json()).code).toBe("too_many_decisions");
-    const oversizedPro = await matrix(501, key);
-    expect(oversizedPro.status).toBe(400);
-    expect((await oversizedPro.json()).code).toBe("too_many_decisions");
-    expect(f.quotaCalls).toHaveLength(2);
-    expect(upstreamCalls).toBe(callsBeforeRejected);
-  });
-  test("MCP forwards the Pro credential to the shared classification handler", async () => {
-    const f = fixture();
-    const response = await worker.fetch(new Request("https://classifier.dev/mcp", {
-      method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${key}`, "cf-connecting-ip": "192.0.2.10" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "classify_texts", arguments: { inputs: ["positive example"], labels: ["positive", "negative"] } } }),
-    }), f.env, ctx);
-    expect(response.status).toBe(200);
-    const payload = await response.json();
-    expect(payload.error).toBeUndefined();
-    expect(payload.result.isError).not.toBe(true);
-    expect(f.authCalls).toEqual([{ customerId: customer, secret: "b".repeat(64) }]);
-    expect(f.quotaCalls[0]).toEqual({ owner: `fast:pro:${customer}`, limit: 30000, daily: 200000, cost: 1 });
   });
 });

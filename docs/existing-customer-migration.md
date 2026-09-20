@@ -10,9 +10,8 @@ temporary Autumn outages.
 Paid customers retain their Autumn customer and Stripe subscription. The current
 paid invoice grants the dashboard's $20 period allowance once. Non-paying
 customers remain Free and receive the existing $5 signup allowance once. Retry,
-refresh and repeated backfill do not replenish spent balances. Existing legacy
-Pro API keys and their 10× limits remain on the original billing path; they are
-not replaced or listed as newly issued dashboard keys.
+refresh and repeated backfill do not replenish spent balances. API access uses
+workspace keys from /app/keys. Pro workspaces share 10× limits across their keys.
 
 Existing subscribers opening checkout go to their existing billing portal,
 including scheduled or past-due subscriptions. This migration does not charge,
@@ -95,6 +94,10 @@ Snapshot before migration: `pre-existing-customer-link-2026-09-20`
 (`snap-lively-breeze-a6hnlig4`). Current deployment, including the updated #79
 prerequisite and billing follow-up: `fb91c92d-6ce8-4fdb-8e5c-030ab791e2ee`.
 
-No new purchase or cancellation was exercised against real customers. Legacy
-key compatibility was checked through the existing automated billing suite;
-customer secrets were not rotated or extracted for live testing.
+No new purchase or cancellation was exercised against real customers.
+Customer secrets were not rotated or extracted for live testing.
+
+The v3-workspace-billing Worker migration removes the separate BillingAccount
+Durable Object and its old credentials and sessions. It does not touch Neon
+customer mappings, balances or Stripe subscriptions. Only workspace API keys
+authorize metered classification; unsupported credentials return 401.

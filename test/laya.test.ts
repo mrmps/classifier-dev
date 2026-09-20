@@ -219,7 +219,7 @@ test("timing headers exclude authenticated requests, Jev and failures", async ()
   const response = await worker.fetch(new Request("https://classifier.dev/v1/classify", {
     method: "POST", headers: { authorization: "Bearer fixture" },
     body: JSON.stringify({ model: "laya", input: task.input, labels: task.labels }),
-  }), env, ctx);
+  }), { ...env, ENTERPRISE_API_KEY: "fixture" }, ctx);
   expect(response.status).toBe(200);
   expect(response.headers.has("server-timing")).toBe(false);
   const failure = await request({ input: task.input, labels: task.labels, processing: "invalid" });

@@ -362,23 +362,23 @@ LIMITS
   3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
   per day. A batch must fit the remaining quota in full. Public smart
   requests accept at most 200 inputs; larger batches return 400 so callers
-  can split them. Existing legacy Pro keys allow 30,000/minute and 200,000/day on
-  fast, 2,000/minute and 20,000/day on smart, per billing account across IPs.
-  Legacy Pro, operator and partner keys retain the 1,000-input ceiling.
-  New workspace keys use the workspace credit balance. See current plans at
-  https://classifier.dev/pricing. Existing legacy Pro keys remain valid and are
-  sent as Authorization: Bearer classifier_pro_... on REST or MCP requests.
+  can split them. Pro workspaces allow 30,000/minute and 200,000/day on
+  fast, 2,000/minute and 20,000/day on smart, shared across keys and agents.
+  Pro, operator and partner keys have a 1,000-input ceiling.
+  Workspace keys use the workspace credit balance and share workspace quotas.
+  Free workspaces have the same ceilings as public access. Current plans are at
+  https://classifier.dev/pricing. Send Authorization: Bearer classifier_agent_...
+  on REST or MCP requests.
 
   Every classification response carries RateLimit-Limit and RateLimit-Policy,
   plus RateLimit-Remaining once the limiter has been consulted (every 200 and
-  429; a 400 never reached it). The older X-RateLimit-Limit and
-  X-RateLimit-Remaining pair is sent too. Over the limit is a 429 with
+  429; a 400 never reached it). Over the limit is a 429 with
   Retry-After; nothing is slowed down or silently dropped.
 
 
 ERRORS
 
-  A POST that fails answers JSON with a message and a stable code:
+  POST errors are JSON. Classification errors include a stable code:
 
     {"error": "Provide at least 2 labels; got 1 (\"spam\").", "code": "too_few_labels"}
 
@@ -389,6 +389,11 @@ ERRORS
 
   400   bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels,
         empty_label, duplicate_labels, empty_input, input_too_long, bad_tier
+  401   invalid_api_key for unsupported credentials. Workspace authentication
+        also rejects invalid, paused or revoked keys with an error message;
+        workspace errors do not include a code.
+  402   insufficient workspace balance for inference
+  403   the key is inactive or the workspace cannot authorize usage
   404   not_found
   429   rate_limit_minute, rate_limit_day, with Retry-After; on the free
         tier the body also carries upgrade, the URL of the plan that lifts
