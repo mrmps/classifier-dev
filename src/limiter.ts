@@ -6,10 +6,42 @@
  * native ratelimit binding registered but never decremented in testing. A DO is
  * single-threaded and strongly consistent, which is exactly what a counter needs.
  */
+import type { Counter } from "./admission";
 export class RateLimiter implements DurableObject {
-  constructor(private state: DurableObjectState) {}
+  constructor(private state: DurableObjectState, private env?: {QUOTAS?: DurableObjectNamespace}) {}
 
   async fetch(req: Request): Promise<Response> {
+    // Do not hold the legacy input gate while forwarding: the destination may
+    // need to recover its snapshot from this object after an interrupted import.
+    const result = await this.state.blockConcurrencyWhile(() => this.local(req));
+    if (result instanceof Response) return result;
+    if (!this.env?.QUOTAS) throw new Error("Transferred quota is unavailable");
+    const url = new URL(req.url);
+    url.pathname = "/legacy";
+    url.searchParams.set("scope", result.scope);
+    url.searchParams.set("id", this.state.id.toString());
+    return this.env.QUOTAS.get(this.env.QUOTAS.idFromString(result.target)).fetch(url.toString());
+  }
+
+  private async local(req: Request): Promise<Response | {target:string;scope:string}> {
+    const requestUrl = new URL(req.url);
+    if (requestUrl.pathname === "/transfer") {
+      const target = await req.json() as {target:string;scope:string};
+      if (!this.env?.QUOTAS || !target || !/^[a-f0-9]{64}$/.test(target.target) || !["fast","smart","laya:fast","laya:bulk"].includes(target.scope))
+        return new Response("Invalid quota transfer", {status:400});
+      const existing = await this.state.storage.get<typeof target>("forward");
+      if (existing && (existing.target !== target.target || existing.scope !== target.scope))
+        return new Response("Quota already transferred", {status:409});
+      const now = Date.now();
+      const counter: Counter = {
+        b:await this.state.storage.get("b") ?? {m:Math.floor(now/60_000),n:0},
+        d:await this.state.storage.get("d") ?? {d:Math.floor(now/86_400_000),n:0},
+      };
+      await this.state.storage.put("forward", target);
+      return Response.json({transferred:true,counter});
+    }
+    const forward = await this.state.storage.get<{target:string;scope:string}>("forward");
+    if (forward) return forward;
     const handlerStarted = performance.now();
     let readMs = 0, writeMs = 0;
     const respond = (body: Record<string, unknown>) => {

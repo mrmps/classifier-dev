@@ -27,9 +27,13 @@ import { callerId, labelFingerprint } from "./privacy";
 import { adminResponse } from "./admin";
 import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } from "./query";
 export { RateLimiter } from "./limiter";
+export { QuotaCoordinator } from "./admission";
+import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
 
 export interface Env extends LayaEnv {
+  QUOTAS?: DurableObjectNamespace;
+  QUOTA_COORDINATOR_ENABLED?: string;
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
   /**
@@ -1132,7 +1136,10 @@ async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplie
   const rpm = TIERS[tier].rpm * multiplier;
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
-    const res = await env.LIMITER.get(id).fetch(
+    const res = env.QUOTA_COORDINATOR_ENABLED === "true" && env.QUOTAS
+      ? await admit({LIMITER:env.LIMITER, QUOTAS:env.QUOTAS}, ip,
+        [{scope:tier,cost,limit:rpm,daily:TIERS[tier].daily * multiplier}], !!timing)
+      : await env.LIMITER.get(id).fetch(
       `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}${timing ? "&timing=1" : ""}`,
     );
     readQuotaTiming(res, timing);
@@ -1912,7 +1919,25 @@ const worker = {
     // Waiting cannot make a batch larger than the entire window fit.
     if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const regularQuotaStarted = performance.now();
-    const gate = enterprise
+    const combinedQuota = !!layaPlan && env.QUOTA_COORDINATOR_ENABLED === "true" && !!env.QUOTAS;
+    let gate: AdmissionResult;
+    if (combinedQuota) {
+      const quotas: Omit<Quota,"id">[] = enterprise ? [] : [{scope:tier,cost:decisions,limit:rpm,daily:TIERS[tier].daily * multiplier}];
+      quotas.push({scope:`laya:${processing}`,cost:layaPlan!.cost,limit:LAYA_LIMITS[processing].rpm,daily:LAYA_LIMITS[processing].daily});
+      try {
+        const response = await admit({LIMITER:env.LIMITER,QUOTAS:env.QUOTAS!},quotaOwner,quotas,!!layaTiming);
+        readQuotaTiming(response, layaTiming ? regularQuotaTiming : undefined);
+        gate = await response.json() as AdmissionResult;
+        if (typeof gate?.limited !== "boolean" || !Number.isFinite(gate.remaining) ||
+          (gate.limited ? !["tier","lane"].includes(gate.limitedBy!) : !Number.isFinite(gate.laneRemaining)))
+          throw new Error("Invalid quota admission response");
+        if (gate.limited && gate.limitedBy === "lane") return fail("Laya trial limit reached; retry after the window resets",429,
+          gate.scope === "day" ? "rate_limit_day" : "laya_rate_limit", {"retry-after":String(gate.resetIn ?? 60)});
+        layaRemaining = gate.laneRemaining ?? -1;
+      } catch {
+        return fail("Laya admission control is temporarily unavailable",503,"laya_unavailable", {"retry-after":"1"});
+      }
+    } else gate = enterprise
       ? { limited: false, remaining: -1 }
       : await limited(env, tier, quotaOwner, decisions, multiplier, layaTiming ? regularQuotaTiming : undefined);
     regularQuotaMs = performance.now() - regularQuotaStarted;
@@ -1942,7 +1967,7 @@ const worker = {
 
     // Validate both request shapes and pass the normal tier gate before spending
     // the separate, deliberately small Laya allowance.
-    if (layaPlan) {
+    if (layaPlan && !combinedQuota) {
       const layaQuotaStarted = performance.now();
       try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost, layaTiming ? laneQuotaTiming : undefined); }
       catch (error) {

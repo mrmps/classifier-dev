@@ -1,14 +1,34 @@
 import asyncio
 import unittest
 import threading
+import contextlib
+import types
+from unittest.mock import patch
 import httpx
-from runtime import make_api, Admission
+from runtime import make_api, Admission, start_server
 from adapter import predict_routed_batch
 
 ROW = {"state": "refund please", "questions": {"q": {"type": "choice", "instructions": "Choose", "criteria": {"billing": None, "tech": None}}}}
 
 
 class Tests(unittest.IsolatedAsyncioTestCase):
+    def test_checkpoints_are_warmed_before_server_readiness(self):
+        events = []
+        def predict(router, rows):
+            events.append([row["state"] for row in rows])
+            return []
+        server = types.SimpleNamespace(run=lambda: None)
+        thread = types.SimpleNamespace(start=lambda: events.append("listening"))
+        with patch("runtime.load_router", return_value=object()), \
+             patch("adapter.predict_routed_batch", side_effect=predict), \
+             patch("threading.Thread", return_value=thread), \
+             patch.dict("sys.modules", {
+                 "torch": types.SimpleNamespace(inference_mode=contextlib.nullcontext),
+                 "uvicorn": types.SimpleNamespace(Config=lambda *a, **k: None, Server=lambda config: server),
+             }):
+            self.assertIs(start_server("fast"), server)
+        self.assertEqual(events, [["warmup", "तैयार"], "listening"])
+
     async def test_validation(self):
         calls = []
         def predict(rows):

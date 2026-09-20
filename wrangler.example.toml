@@ -43,6 +43,8 @@ binding = "ACCOUNT_AE"
 dataset = "classifier_account_events"
 
 [vars]
+# Deploy transfer-aware legacy objects before enabling combined admission.
+QUOTA_COORDINATOR_ENABLED = "false"
 LAYA_ENABLED = "true"
 LAYA_FAST_URL = "https://miryaboy--classifier-laya-router-trial-fast.us-east.modal.direct"
 LAYA_BULK_URL = "https://miryaboy--classifier-laya-router-trial-bulk.us-east.modal.direct"
@@ -58,6 +60,10 @@ NEWSLETTER_FROM = "classifier.dev <updates@classifier.dev>"
 [[durable_objects.bindings]]
 name = "LIMITER"
 class_name = "RateLimiter"
+
+[[durable_objects.bindings]]
+name = "QUOTAS"
+class_name = "QuotaCoordinator"
 
 [[migrations]]
 tag = "v1"
@@ -78,3 +84,7 @@ new_sqlite_classes = ["BillingAccount"]
 [[migrations]]
 tag = "v3-workspace-billing"
 deleted_classes = ["BillingAccount"]
+
+[[migrations]]
+tag = "v4-combined-quotas"
+new_sqlite_classes = ["QuotaCoordinator"]

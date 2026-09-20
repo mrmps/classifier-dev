@@ -120,6 +120,16 @@ def start_server(lane):
         with torch.inference_mode():
             return predict_routed_batch(router, rows)
 
+    # Force tokenizer, CUDA kernels, and allocator setup before Modal marks the
+    # container ready. Otherwise the first real fast-lane request pays seconds
+    # of one-time GPU initialization despite the container being "warm".
+    warmup_question = {"q": {"type": "choice", "instructions": "Choose one.",
+                               "criteria": {"yes": None, "no": None}}}
+    predict([
+        {"state": "warmup", "questions": warmup_question},
+        {"state": "तैयार", "questions": warmup_question},
+    ])
+
     server = uvicorn.Server(uvicorn.Config(make_api(lane, predict), host="0.0.0.0", port=8000,
                                          log_level="critical", access_log=False))
     threading.Thread(target=server.run, daemon=True).start()

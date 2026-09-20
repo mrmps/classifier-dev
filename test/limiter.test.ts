@@ -12,7 +12,7 @@ function limiter() {
       else for (const [k, v] of Object.entries(key)) data.set(k, structuredClone(v));
     },
   };
-  const instance = new RateLimiter({ storage } as unknown as DurableObjectState);
+  const instance = new RateLimiter({ storage, blockConcurrencyWhile: (fn: () => Promise<unknown>) => fn() } as unknown as DurableObjectState);
   return async (cost: number, limit = 10, daily = 15) => (await instance.fetch(
     new Request(`https://limiter/?cost=${cost}&limit=${limit}&daily=${daily}`),
   )).json() as Promise<{ limited: boolean; scope?: string; remaining: number; dailyRemaining?: number; resetIn?: number }>;

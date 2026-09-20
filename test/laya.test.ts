@@ -32,6 +32,47 @@ function mockLaya() {
   return calls;
 }
 
+function combinedEnv(result: unknown = {limited:false,remaining:2900,laneRemaining:56}) {
+  const admissions: any[] = [];
+  let legacyCalls = 0;
+  const bindings = {...env, QUOTA_COORDINATOR_ENABLED:"true", LIMITER:{
+    idFromName:(s: string) => s, get:() => ({fetch:async () => {legacyCalls++; throw new Error("unexpected legacy call");}}),
+  }, QUOTAS:{idFromName:(s: string) => s,get:() => ({fetch:async (_url: string, init: RequestInit) => {
+    admissions.push(JSON.parse(String(init.body)));
+    if (result instanceof Error) throw result;
+    return Response.json(result);
+  }})}} as unknown as Env;
+  return {bindings,admissions,legacyCalls:() => legacyCalls};
+}
+
+test("combined admission makes one RPC with separate decision and multi-label question costs", async () => {
+  mockLaya();
+  const f = combinedEnv();
+  const response = await request({...task,multi:true},f.bindings);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("ratelimit-remaining")).toBe("56");
+  expect(f.admissions).toHaveLength(1);
+  expect(f.admissions[0].quotas).toMatchObject([
+    {scope:"fast",cost:1,limit:3000,daily:20000},
+    {scope:"laya:fast",cost:2,limit:60,daily:2000},
+  ]);
+  expect(f.legacyCalls()).toBe(0);
+});
+
+test.each([
+  [{limited:true,remaining:0,limitedBy:"tier",scope:"minute",resetIn:19},429,"rate_limit_minute"],
+  [{limited:true,remaining:0,limitedBy:"lane",scope:"minute",resetIn:19},429,"laya_rate_limit"],
+  [{limited:true,remaining:0,limitedBy:"lane",scope:"day",resetIn:19},429,"rate_limit_day"],
+  [new Error("storage failed"),503,"laya_unavailable"],
+  [{},503,"laya_unavailable"],
+] as const)("combined admission refuses inference on denial or unavailable storage: %j", async (result,status,code) => {
+  const calls=mockLaya(), f=combinedEnv(result);
+  const response=await request(task,f.bindings);
+  expect(response.status).toBe(status);
+  expect(await response.json()).toMatchObject({code});
+  expect(calls).toHaveLength(0);
+});
+
 test("bulk chunks by question count, retains order and meters the selected lane", async () => {
   const calls = mockLaya(), meter = newMeter();
   const tasks = Array.from({ length: 1000 }, (_, i) => ({ ...task, input: String(i) }));

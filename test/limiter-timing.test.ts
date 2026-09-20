@@ -13,7 +13,7 @@ function fixture(delay = 0, failWrite = false) {
       for (const [key, value] of Object.entries(values)) saved.set(key, structuredClone(value));
     },
   };
-  return { limiter: new RateLimiter({ storage } as unknown as DurableObjectState), saved, writes: () => writes };
+  return { limiter: new RateLimiter({ storage, blockConcurrencyWhile: (fn: () => Promise<unknown>) => fn() } as unknown as DurableObjectState), saved, writes: () => writes };
 }
 
 function timing(response: Response) {
@@ -54,7 +54,7 @@ test("instrumentation does not suppress storage write failure", async () => {
 
 test("timing=1 includes pending durability in write time; ordinary requests do not explicitly sync", async () => {
   let syncs = 0, committed = false;
-  const limiter = new RateLimiter({ storage: {
+  const limiter = new RateLimiter({ blockConcurrencyWhile: (fn: () => Promise<unknown>) => fn(), storage: {
     get: async () => undefined,
     put: async () => { committed = false; },
     sync: async () => {
@@ -77,7 +77,7 @@ test("timing=1 includes pending durability in write time; ordinary requests do n
 
 test("timing=1 does not sync rejected work or suppress durability errors", async () => {
   let syncs = 0;
-  const limiter = new RateLimiter({ storage: {
+  const limiter = new RateLimiter({ blockConcurrencyWhile: (fn: () => Promise<unknown>) => fn(), storage: {
     get: async () => undefined,
     put: async () => {},
     sync: async () => { syncs++; throw new Error("commit failed"); },

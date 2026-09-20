@@ -61,6 +61,16 @@ Existing Jev remains available. Redeploy `deploy.py` and re-enable the Worker fl
 
 Watch model labels `laya-0.3.4-<checkpoint>-<lane>` in existing classifier analytics for successes and latency; rejected calls use `laya-0.3.4-routed-<lane>`. Account token usage aggregates under the routed lane model at the explicit zero trial rate. Compare with Modal allocation/invocation metrics. Measure client round-trip separately from the response's server processing time. Never add caller text or raw IP to diagnostic logs.
 
+## Quota admission rollout
+
+`QuotaCoordinator` keeps each caller's existing fast/smart tier counters and fast/bulk Laya counters in one object. A warm Laya request checks and writes both quotas in one durable operation. Jev still shares its tier allowance with Laya, and a Laya lane still shares its allowance across tiers. Decision and question costs remain separate. A tier refusal spends nothing; a lane refusal retains the tier debit. Combined Laya admission fails closed if either counter is unavailable; Jev retains its existing fail-open behavior.
+
+Deploy the transfer-aware `RateLimiter`, coordinator binding and migration with `QUOTA_COORDINATOR_ENABLED = "false"` first. After that deployment completes, enable the flag in a second deployment. On first use, each old object freezes its counters and forwards later requests. The coordinator imports the frozen snapshot without resetting the minute or day allowance. Interrupted imports retry the same snapshot. Only opaque Durable Object IDs, scope names and counters are stored. Migration adds latency on the first call, not every call.
+
+Rollback by disabling `QUOTA_COORDINATOR_ENABLED` while retaining the new classes, bindings and forwarding code. **Do not roll back to code predating the transfer protocol:** its old counters are frozen and no longer authoritative. The disabled path continues to follow transferred counters. Neither successful admission nor forwarding uses unconfirmed storage writes.
+
+Run `node inference/laya/latency.mjs <output.json>` before and after deployment from the same client. It records 20 sequential synthetic requests, separates the first call, and reports end-to-end, Worker, quota, Modal and backend timings. Do not equate backend compute time or the Worker-to-Modal span with client latency. The main Worker is in Oregon for account database access; the Modal ingress is in Virginia. Moving every request east would also move database-dependent account traffic, so placement must be evaluated per path.
+
 ## Evidence
 
 `live-checks.json` records synthetic direct-backend checks: both lanes accepted valid input, rejected invalid/oversized context, rejected unauthenticated requests, shed a 24-request concurrent flash with 429 rather than 5xx, and recovered. This is a bounded smoke test, not a sustained throughput or global latency guarantee.
