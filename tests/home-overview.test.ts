@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Home } from "../src/features/dashboard/home";
 import { getSnapshot } from "../src/server/accounts";
 import { demoLogin } from "../src/server/auth";
@@ -20,11 +21,15 @@ beforeEach(async () => {
 });
 async function render(skipSetup = false) {
   return renderToStaticMarkup(
-    createElement(Home, {
-      snapshot: await getSnapshot("local-demo", env),
-      act: (action) => performAction("local-demo", action, env),
-      navigate: () => {},
-    }),
+    createElement(
+      QueryClientProvider,
+      { client: new QueryClient() },
+      createElement(Home, {
+        snapshot: await getSnapshot("local-demo", env),
+        act: (action) => performAction("local-demo", action, env),
+        navigate: () => {},
+      }),
+    ),
   );
 }
 test("a new or unused-key workspace starts with both setup paths, not empty charts", async () => {

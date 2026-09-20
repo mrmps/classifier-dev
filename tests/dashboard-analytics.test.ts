@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   analyticsParameters,
   analyticsTimestamp,
@@ -63,11 +64,18 @@ test("hosted dashboard never scans the usage ledger and renders loading rather t
   });
   expect(queries.some((sql) => sql.includes("app_usage"))).toBe(false);
   expect(snapshot.demo).toBe(false);
-  const usage = renderToStaticMarkup(createElement(Usage, { snapshot }));
+  const queryClient = new QueryClient();
+  const withQueries = (component: ReturnType<typeof createElement>) =>
+    createElement(QueryClientProvider, { client: queryClient }, component);
+  const usage = renderToStaticMarkup(
+    withQueries(createElement(Usage, { snapshot })),
+  );
   expect(usage).toContain("Loading usage");
   expect(usage).toContain("Estimated analytics");
   expect(usage).not.toContain("No usage in this range");
-  const activity = renderToStaticMarkup(createElement(Activity, { snapshot }));
+  const activity = renderToStaticMarkup(
+    withQueries(createElement(Activity, { snapshot })),
+  );
   expect(activity).toContain("Loading activity");
   expect(activity).toContain("not a complete request log");
   const billing = renderToStaticMarkup(
