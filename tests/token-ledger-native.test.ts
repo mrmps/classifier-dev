@@ -3,6 +3,7 @@ import { SQL } from "bun";
 import { readFileSync, readdirSync } from "node:fs";
 import { postgresDatabase, type AppDatabase } from "../src/server/db";
 import { refundTokenReservation, settleTokenReservation } from "../src/server/token-ledger";
+import { extendTokenReservation } from "../src/server/token-reservation";
 
 const url = process.env.POSTGRES_TEST_URL;
 describe.skipIf(!url)("native PostgreSQL token settlement contention", () => {
@@ -67,5 +68,18 @@ describe.skipIf(!url)("native PostgreSQL token settlement contention", () => {
     expect(await db.prepare("SELECT balance::integer AS balance,fractional_spend_nano::integer AS remainder FROM app_accounts WHERE id='account'").first())
       .toEqual({ balance: completed ? 997 : 999, remainder: 840 });
     expect(await db.prepare("SELECT used::integer AS used FROM app_agents WHERE id='key'").first()).toEqual({ used: completed ? 3 : 1 });
+  }, 30_000);
+  test("concurrent extensions cannot reserve more than the available paid and included balance", async () => {
+    await db.prepare("INSERT INTO app_accounts(id,email,name,balance,paid_balance,reset_at,created_at) VALUES('extensions','extensions@example.com','Extensions',1000,700,'2026-10-20','2026-09-20')").run();
+    await db.prepare("INSERT INTO app_agents(id,account_id,name,client,token_hash,prefix,created_at) VALUES('extension-key','extensions','Key','API','extension-hash','prefix','2026-09-20')").run();
+    await db.prepare("INSERT INTO app_usage(id,account_id,agent_id,items,credits,status,created_at,metering_mode) VALUES('extension-request','extensions','extension-key',1,0,'pending','2026-09-20','tokens')").run();
+    const outcomes = await Promise.allSettled(Array.from({ length: 20 }, () => extendTokenReservation(db, "extension-request", 276)));
+    expect(outcomes.filter(outcome => outcome.status === "fulfilled")).toHaveLength(3);
+    expect(await db.prepare("SELECT balance::integer AS balance,paid_balance::integer AS paid_balance FROM app_accounts WHERE id='extensions'").first())
+      .toEqual({ balance: 172, paid_balance: 172 });
+    await refundTokenReservation(db, "extension-request");
+    expect(await db.prepare("SELECT balance::integer AS balance,paid_balance::integer AS paid_balance FROM app_accounts WHERE id='extensions'").first())
+      .toEqual({ balance: 1000, paid_balance: 700 });
+    expect(await db.prepare("SELECT used::integer AS used FROM app_agents WHERE id='extension-key'").first()).toEqual({ used: 0 });
   }, 30_000);
 });

@@ -509,7 +509,7 @@ function scoresFrom(top: { token: string; logprob: number }[] | undefined, n: nu
     const token = (t as { token?: unknown }).token;
     const logprob = (t as { logprob?: unknown }).logprob;
     if (typeof token !== "string" || typeof logprob !== "number" || !Number.isFinite(logprob) || logprob > 0) continue;
-    const c = token.trim().toUpperCase()[0];
+    const c = token.trim().toUpperCase();
     if (valid.includes(c)) {
       const e = Math.exp(logprob);
       p[c] += e;
@@ -687,7 +687,7 @@ async function callModel(
       return {
         label,
         labels: undefined as string[] | undefined,
-        confidence: scores ? Number(Math.max(...Object.values(scores)).toFixed(4)) : null,
+        confidence: scores ? scores[label] : null,
         scores,
         unscored: undefined as string | undefined,
         ms: Date.now() - started,
@@ -758,9 +758,15 @@ async function classifyOne(
 
   const started = Date.now();
   // No per-chunk cap: a chunk cannot know what the others found.
-  const parts = await Promise.all(
+  // Every chunk shares the request's meter. Wait for all admitted calls before
+  // propagating a failure so settlement cannot run ahead of sibling usage.
+  const completed = await Promise.allSettled(
     chunks.map((chunk) => runChain(env, input, chunk, "fast", instructions, {}, meter)),
   );
+  const parts = completed.map((part) => {
+    if (part.status === "rejected") throw part.reason;
+    return part.value;
+  });
 
   const hit = new Set<string>();
   for (const part of parts) for (const l of part.labels ?? []) hit.add(l);
