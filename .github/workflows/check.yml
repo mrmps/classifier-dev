@@ -1,7 +1,7 @@
 name: checks
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "codex/**"]
 permissions:
   contents: read
 jobs:

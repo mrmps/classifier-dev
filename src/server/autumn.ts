@@ -17,6 +17,7 @@ export type AutumnCustomer = {
   subscriptions: Array<{
     id: string; plan_id: string; status: string; past_due: boolean;
     current_period_start: number | null; current_period_end: number | null;
+    canceled_at: number | null;
   }>;
 };
 const unavailable = () => new AppError(503, "Billing is temporarily unavailable.");
@@ -44,11 +45,12 @@ export async function getAutumnCustomer(env: AutumnEnv, customerId: string): Pro
   for (const subscription of data.subscriptions) {
     if (!subscription || typeof subscription !== "object" || typeof subscription.id !== "string" ||
       typeof subscription.plan_id !== "string" || typeof subscription.status !== "string" || typeof subscription.past_due !== "boolean" ||
-      ![subscription.current_period_start, subscription.current_period_end].every((value) => value === null || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0))) throw unavailable();
+      ![subscription.current_period_start, subscription.current_period_end, subscription.canceled_at ?? null].every((value) => value === null || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0))) throw unavailable();
   }
   return { id: customerId, subscriptions: data.subscriptions.map((subscription) => ({
     id: subscription.id, plan_id: subscription.plan_id, status: subscription.status, past_due: subscription.past_due,
     current_period_start: subscription.current_period_start, current_period_end: subscription.current_period_end,
+    canceled_at: subscription.canceled_at ?? null,
   })) };
 }
 

@@ -6,6 +6,7 @@
   "scripts": {
     "test": "bun test",
     "test:e2e": "node --experimental-strip-types --test --test-concurrency=1 e2e/dimensions.live.mts",
+    "test:e2e:accounts": "node --experimental-strip-types --test --test-concurrency=1 e2e/account.live.mts",
     "typecheck": "tsc --noEmit && tsc -p e2e/tsconfig.json",
     "eval": "cd eval && python3 run.py",
     "bench": "cd eval && python3 bench.py",

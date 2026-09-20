@@ -32,11 +32,23 @@ and reconcile their current paid invoices. Restore the previous CLI profile
 afterwards. Remaining legacy customers link automatically when they next visit
 the dashboard with their verified billing email.
 
+The deployed Autumn runtime credential needs customer and billing read/write
+scopes. The `atmn` 2.0.8 OAuth credential does not include billing scopes and
+cannot open the payment portal or create checkout sessions. Do not replace a
+working runtime credential with that CLI credential. Use a restricted dashboard
+key and install it as the Worker's `AUTUMN_SECRET_KEY`.
+
 `scripts/verify-customer-migration.ts` requires `POSTGRES_TEST_URL` and
 `AUTUMN_PROD_SECRET_KEY`. It reads actual provider records into an isolated,
 temporary PostgreSQL schema, checks paid/free entitlements and repeat-sync
 balance preservation, then removes only that temporary schema. It never writes
 to Autumn or Stripe.
+
+`npm run test:e2e:accounts` accepts `CLASSIFIER_ACCOUNT_API_KEY` and optionally
+`CLASSIFIER_BASE_URL` (defaults to production). Run it separately with a paid and
+a free account's disposable key. It makes small, billable Fast/Smart/MCP requests,
+checks settlement, invalid-request refunds, usage reads and authentication.
+Revoke disposable keys afterwards; never substitute a real customer's secret.
 
 ## Production verification — 2026-09-20
 

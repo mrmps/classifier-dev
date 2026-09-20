@@ -114,6 +114,38 @@ test("billing return origin is server-configured and rejects unsafe origins", ()
   }
 });
 
+test("canceling and resuming an existing paid period updates its schedule without refilling credits", async () => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  const start = Date.now() - 60_000, end = Date.now() + 86400_000;
+  let canceledAt: number | null = null;
+  provider((path) => path.endsWith("customers.get") ? { id: "workspace_a", subscriptions: [{
+    id: "sub_1", plan_id: "pro", status: "active", past_due: false, canceled_at: canceledAt,
+    current_period_start: start, current_period_end: end,
+  }] } : { list: [{ customer_id: "workspace_a", entity_id: null, status: "paid", currency: "usd", amount_paid: 20, total: 20,
+    refunded_amount: 0, stripe_id: "invoice_1", items: [{ plan_id: "pro", feature_id: null, amount: 20, period_start: start, period_end: end }],
+  }] });
+  await reconcileAutumnCustomer(env, "workspace_a");
+  await env.APP_DB.prepare("UPDATE app_accounts SET balance=balance-42 WHERE id='a'").run();
+  canceledAt = Date.now();
+  await reconcileAutumnCustomer(env, "workspace_a");
+  expect(await env.APP_DB.prepare("SELECT billing_plan,balance,cancel_at_period_end,scheduled_plan FROM app_accounts WHERE id='a'").first())
+    .toEqual({ billing_plan: "pro", balance: 1999958, cancel_at_period_end: 1, scheduled_plan: "free" });
+  canceledAt = null;
+  await reconcileAutumnCustomer(env, "workspace_a");
+  expect(await env.APP_DB.prepare("SELECT balance,cancel_at_period_end,scheduled_plan FROM app_accounts WHERE id='a'").first())
+    .toEqual({ balance: 1999958, cancel_at_period_end: 0, scheduled_plan: null });
+  expect((await env.APP_DB.prepare("SELECT COUNT(*) AS count FROM app_autumn_grants").first())?.count).toBe(1);
+});
+
+test.each(["current_period_start", "current_period_end"])("a missing %s stays retryable instead of completing identity reconciliation", async (missing) => {
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  provider(() => ({ id: "workspace_a", subscriptions: [{
+    id: "sub_1", plan_id: "pro", status: "active", past_due: false,
+    current_period_start: Date.now() - 60_000, current_period_end: Date.now() + 86400_000, [missing]: null,
+  }] }));
+  await expect(reconcileAutumnCustomer(env, "workspace_a")).rejects.toThrow("billing period");
+});
+
 test("cancellation removes only expired plan allowance, never signup or purchased funds", async () => {
   await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
   provider(() => ({ id: "workspace_a", subscriptions: [] }));
