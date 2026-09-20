@@ -19,7 +19,7 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
-import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, type LayaEnv, type LayaPlan, type Processing } from "./laya";
+import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, addTokens, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -901,6 +901,8 @@ async function escalate(env: Env, inputs: string[], labels: string[], instructio
  * reasoning model, so the response can say so instead of quietly returning
  * fast-tier answers under a smart-tier label.
  */
+type LayaRequestTiming = LayaTiming & { runMs?: number };
+
 async function classifyMany(
   env: Env,
   inputs: string[],
@@ -910,13 +912,18 @@ async function classifyMany(
   multi?: MultiOpts,
   meter?: Meter,
   layaPlan?: LayaPlan,
+  layaTiming?: LayaRequestTiming,
 ): Promise<{ results: Result[]; escalationFailed: number }> {
   const keys = jevKeys(env);
   if (keys || layaPlan) {
     const started = Date.now();
     let jev: Awaited<ReturnType<typeof jevClassify>> | null = null;
     try {
-      jev = layaPlan ? await runLaya(env, layaPlan, meter) : await jevClassify(keys!, inputs, labels, instructions, !!multi, meter);
+      if (layaPlan) {
+        const runStarted = performance.now();
+        jev = await runLaya(env, layaPlan, meter, layaTiming);
+        if (layaTiming) layaTiming.runMs = performance.now() - runStarted;
+      } else jev = await jevClassify(keys!, inputs, labels, instructions, !!multi, meter);
     } catch (e) {
       if (layaPlan) throw e;
       console.warn(`jev failed, falling back: ${(e as Error).message}`);
@@ -960,12 +967,14 @@ async function classifyMany(
 }
 
 /** Keep each field independent, including smart escalation and the bounded LLM fallback. */
-async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter, layaPlan?: LayaPlan) {
+async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter, layaPlan?: LayaPlan, layaTiming?: LayaRequestTiming) {
   const started = Date.now();
   let jev: Awaited<ReturnType<typeof classifyDimensions>> | undefined;
   const keys = jevKeys(env);
   if (layaPlan) {
-    const flat = await runLaya(env, layaPlan, meter);
+    const runStarted = performance.now();
+    const flat = await runLaya(env, layaPlan, meter, layaTiming);
+    if (layaTiming) layaTiming.runMs = performance.now() - runStarted;
     jev = inputs.map((_, i) => flat.slice(i * dimensions.length, (i + 1) * dimensions.length));
   } else if (keys) {
     try { jev = await classifyDimensions(keys, batches, meter); }
@@ -1139,6 +1148,7 @@ export type ClassificationExecution = {
 
 const worker = {
   async fetch(req: Request, env: Env, ctx: ExecutionContext, execution?: ClassificationExecution): Promise<Response> {
+    const workerStarted = performance.now();
     const account = execution?.account;
     if (account && (!account.id.trim() || !Number.isSafeInteger(account.multiplier) || account.multiplier < 1)) {
       throw new Error("Invalid internal classification account context");
@@ -1736,6 +1746,8 @@ const worker = {
     let processing: Processing = "fast";
     let layaPlan: LayaPlan | undefined;
     let layaRemaining = -1;
+    let layaTiming: LayaRequestTiming | undefined;
+    let regularQuotaMs = 0, layaQuotaMs = 0;
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
     let dimensions: Dimension[] | undefined;
@@ -1883,6 +1895,7 @@ const worker = {
     } else mode = multi ? "multi" : "single";
     const decisions = inputs.length * (dimensions?.length ?? 1);
     if (selectedModel === "laya") {
+      if (!account && !req.headers.has("authorization")) layaTiming = {};
       if (env.LAYA_ENABLED !== "true") return fail("Laya trial is currently unavailable", 503, "laya_unavailable");
       try {
         layaPlan = planLaya(dimensions
@@ -1898,9 +1911,11 @@ const worker = {
     const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
     if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
+    const regularQuotaStarted = performance.now();
     const gate = enterprise
       ? { limited: false, remaining: -1 }
       : await limited(env, tier, quotaOwner, decisions, multiplier);
+    regularQuotaMs = performance.now() - regularQuotaStarted;
     if (gate.limited) {
       const perDay = gate.scope === "day";
       // The moment someone runs out of room is the moment to say where more is.
@@ -1929,6 +1944,7 @@ const worker = {
     // Validate both request shapes and pass the normal tier gate before spending
     // the separate, deliberately small Laya allowance.
     if (layaPlan) {
+      const layaQuotaStarted = performance.now();
       try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost); }
       catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
@@ -1936,6 +1952,7 @@ const worker = {
           { "retry-after": String(error.retryAfter) });
         throw error;
       }
+      layaQuotaMs = performance.now() - layaQuotaStarted;
     }
 
     const started = Date.now();
@@ -1945,12 +1962,12 @@ const worker = {
     let escalationFailed = 0;
     try {
       if (dimensions) {
-        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan);
+        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan, layaTiming);
         matrix = r.results;
         results = matrix.flat();
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
-      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan));
+      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming));
     } catch (e) {
       if (e instanceof LayaError) return fail(e.message, e.status,
         e.status === 400 ? "laya_input" : e.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -1972,6 +1989,19 @@ const worker = {
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
     // fabricated remaining count. The limit is also documented at GET /.
     const headers = apiHeaders(gate.remaining);
+    if (layaTiming) {
+      // Durations only: no request contents or identity. worker_total starts at
+      // this handler, excluding outer dispatch and final response serialization.
+      const durations: Record<string, number | undefined> = {
+        worker_total: performance.now() - workerStarted,
+        quota_regular: regularQuotaMs, quota_laya: layaQuotaMs,
+        laya_run: layaTiming.runMs, modal_fetch: layaTiming.fetchMs,
+        modal_headers: layaTiming.headersMs, backend: layaTiming.backendMs,
+      };
+      headers["server-timing"] = Object.entries(durations)
+        .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0)
+        .map(([name, duration]) => `${name};dur=${duration.toFixed(2)}`).join(", ");
+    }
 
     if (dimensions && matrix) {
       return json({

@@ -72,29 +72,40 @@ export async function limitLaya(env: LayaEnv, lane: Processing, owner: string, c
 
 const probability = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
 
-export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter): Promise<JevResult[]> {
+export type LayaTiming = { fetchMs?: number; headersMs?: number; backendMs?: number };
+
+export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter, timing?: LayaTiming): Promise<JevResult[]> {
   const url = plan.processing === "fast" ? env.LAYA_FAST_URL : env.LAYA_BULK_URL;
   if (env.LAYA_ENABLED !== "true" || !url || !env.LAYA_MODAL_KEY || !env.LAYA_MODAL_SECRET)
     throw new LayaError("Laya trial is currently unavailable", 503);
   const model = layaModel(plan.processing);
   const output: JevResult[] = [];
+  let completeBackendTiming = true;
   const deadline = Date.now() + 90_000;
   for (const batch of plan.batches) {
     if (Date.now() >= deadline) throw new LayaError("Laya request deadline exceeded; use smaller batches", 503);
     await meter?.beforeCall?.("modal", model, 0);
     let response: Response;
+    const started = performance.now();
     try {
       response = await fetch(url + "/predict", { method: "POST",
         headers: { "content-type": "application/json", "Modal-Key": env.LAYA_MODAL_KEY, "Modal-Secret": env.LAYA_MODAL_SECRET },
         body: JSON.stringify({ batch }), signal: AbortSignal.timeout(Math.min(15_000, deadline - Date.now())) });
     } catch { throw new LayaError("Laya timed out or could not be reached", 503, 5); }
+    if (timing) timing.headersMs = (timing.headersMs ?? 0) + performance.now() - started;
     if (response.status === 429 || response.status === 503)
       throw new LayaError("Laya is busy or starting; retry with backoff", response.status, response.status === 503 ? 10 : 1);
     if (response.status === 400 || response.status === 413)
       throw new LayaError("Laya rejected the input: shorten text, instructions, or labels to fit the selected checkpoint's context", 400);
     if (!response.ok) throw new LayaError("Laya inference failed", 502);
-    let body: { results?: Array<{ routing?: { model?: string }; answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>; usage?: { input_tokens?: number } }> };
+    let body: { inference_ms?: unknown; results?: Array<{ routing?: { model?: string }; answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>; usage?: { input_tokens?: number } }> };
     try { body = await response.json(); } catch { throw new LayaError("Invalid Laya response", 502); }
+    if (timing) {
+      timing.fetchMs = (timing.fetchMs ?? 0) + performance.now() - started;
+      if (typeof body?.inference_ms === "number" && Number.isFinite(body.inference_ms) && body.inference_ms >= 0)
+        timing.backendMs = (timing.backendMs ?? 0) + body.inference_ms;
+      else completeBackendTiming = false;
+    }
     if (!Array.isArray(body?.results) || body.results.length !== batch.length) throw new LayaError("Incomplete Laya response", 502);
     for (const row of body.results) {
       if (!row || typeof row !== "object") throw new LayaError("Invalid Laya response", 502);
@@ -126,5 +137,6 @@ export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter): Prom
     addTokens(meter, "modal", model, { inputTokens: counts.every(n => Number.isSafeInteger(n) && n! >= 0) ? counts.reduce<number>((sum, n) => sum + n!, 0) : undefined,
       outputTokens: 0, cachedInputTokens: 0 });
   }
+  if (timing && !completeBackendTiming) delete timing.backendMs;
   return output;
 }

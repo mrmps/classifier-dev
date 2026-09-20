@@ -125,6 +125,55 @@ test("processing requires a literal lane string", async () => {
   expect(calls).toHaveLength(0);
 });
 
+test("anonymous Laya success reports only numeric critical-path timings", async () => {
+  mockLaya();
+  const predict = globalThis.fetch;
+  globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+    await new Promise(resolve => setTimeout(resolve, 15));
+    const body = await (await predict(...args)).json();
+    return Response.json({ ...body, inference_ms: 7.25 });
+  }) as typeof fetch;
+  const bindings = { ...env, LIMITER: {
+    idFromName: (name: string) => name,
+    get: () => ({ fetch: async () => {
+      await new Promise(resolve => setTimeout(resolve, 15));
+      return Response.json({ limited: false, remaining: 59 });
+    } }),
+  } } as unknown as Env;
+  const response = await request({ input: task.input, labels: task.labels }, bindings);
+  expect(response.status).toBe(200);
+  const header = response.headers.get("server-timing")!;
+  const rows = header.split(", ");
+  expect(rows.every(row => /^[a-z_]+;dur=\d+\.\d{2}$/.test(row))).toBe(true);
+  const timing = Object.fromEntries(rows.map(row => { const [name, duration] = row.split(";dur="); return [name, Number(duration)]; }));
+  expect(timing.backend).toBe(7.25);
+  expect(timing.quota_regular).toBeGreaterThanOrEqual(10);
+  expect(timing.quota_laya).toBeGreaterThanOrEqual(10);
+  expect(timing.modal_fetch).toBeGreaterThanOrEqual(10);
+  expect(timing.laya_run).toBeGreaterThanOrEqual(timing.modal_fetch);
+  expect(timing.worker_total).toBeGreaterThanOrEqual(timing.quota_regular + timing.quota_laya + timing.laya_run - .1);
+  expect(header).not.toContain(task.input);
+});
+
+test("timing headers exclude authenticated requests, Jev and failures", async () => {
+  mockLaya();
+  const response = await worker.fetch(new Request("https://classifier.dev/v1/classify", {
+    method: "POST", headers: { authorization: "Bearer fixture" },
+    body: JSON.stringify({ model: "laya", input: task.input, labels: task.labels }),
+  }), env, ctx);
+  expect(response.status).toBe(200);
+  expect(response.headers.has("server-timing")).toBe(false);
+  const failure = await request({ input: task.input, labels: task.labels, processing: "invalid" });
+  expect(failure.status).toBe(400);
+  expect(failure.headers.has("server-timing")).toBe(false);
+  globalThis.fetch = (async () => Response.json({ model: "jev-test", answers: {
+    i0: { choice: "billing", confidence: .9, probabilities: { billing: .9, tech: .1 } },
+  } })) as typeof fetch;
+  const jev = await request({ model: "jev", input: task.input, labels: task.labels }, { ...env, TYPESAFE_API_KEY: "fixture" });
+  expect(jev.status).toBe(200);
+  expect(jev.headers.has("server-timing")).toBe(false);
+});
+
 test("lane limiter fails closed and respects quota refusal", async () => {
   await expect(limitLaya({ ...env, LIMITER: undefined! }, "fast", "anon", 1)).rejects.toMatchObject({ status: 503 });
   const denied = { ...env, LIMITER: { idFromName: () => "id", get: () => ({ fetch: async () => Response.json({ limited: true, remaining: 0, resetIn: 37 }) }) } } as unknown as Env;
