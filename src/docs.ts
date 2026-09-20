@@ -16,8 +16,10 @@ and a short index at https://classifier.dev/llms.txt
 LAYA TRIAL
 
   Existing calls still use Jev. To try Laya, send a POST with model: "laya"
-  and processing: "fast" or "bulk". Both lanes use the same English model;
-  processing changes batching and capacity, not intelligence.
+  and processing: "fast" or "bulk". Both lanes use the same preloaded Router:
+  English text uses the English checkpoint; other languages use multilingual.
+  Processing changes batching and capacity, not checkpoint selection.
+  Each result's model identifies the checkpoint and lane that answered.
 
     {"model":"laya","processing":"fast","input":"Please refund this charge",
      "labels":["billing","technical"]}
@@ -31,11 +33,16 @@ LAYA TRIAL
   still apply. Shared GPU capacity can return 429 even with quota remaining.
   Quotas count attempted questions, including failed inference and retries.
 
-  Laya accepts short English text: at most 2,000 characters, 2–16 labels of
+  Laya accepts short text: at most 2,000 characters, 2–16 labels of
   at most 100 characters each, and instructions up to 400 characters. The
-  text, question and labels must also fit the model's 512-token context;
+  text, question and labels must also fit the selected checkpoint's context
+  (512 tokens for English, 1,024 for multilingual);
   oversized content is rejected, not silently shortened. Jev's published
   accuracy and calibration measurements do not describe Laya.
+  The upstream model card warns that shipped confidence can be overconfident.
+  We have not fitted temperatures on classifier.dev traffic: treat scores and
+  Smart's confidence-triggered reviews as experimental, not a quality guarantee.
+  Language routing is a heuristic, not a guarantee of language or task accuracy.
 
   Fast stays warm. Bulk starts on demand and can return 503 while starting.
   On 429 or 503, respect Retry-After and use bounded retries with backoff.

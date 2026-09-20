@@ -1,3 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# Adapted from Laya 0.3.4 (https://github.com/NandhaKishorM/laya).
+# Modified for multi-state batching, checkpoint grouping and strict context rejection.
+# See LICENSE.upstream for the upstream license.
+
+def predict_routed_batch(router, requests: list[dict], predict=None) -> list[dict]:
+    """Use the SDK route decision, batch by resident checkpoint, restore caller order."""
+    predict = predict or predict_batch
+    groups = {}
+    for index, request in enumerate(requests):
+        decision = dict(router.route(request["state"], request["questions"]))
+        name = decision["model"]
+        if name not in router.loaded:
+            raise RuntimeError("Required Laya checkpoint was not preloaded")
+        groups.setdefault(name, []).append((index, request, decision))
+    results = [None] * len(requests)
+    for name, rows in groups.items():
+        answers = predict(router.load(name), [row[1] for row in rows])
+        if len(answers) != len(rows):
+            raise RuntimeError("Incomplete checkpoint batch")
+        for (index, _, decision), answer in zip(rows, answers):
+            answer["routing"] = decision
+            answer["model"] = "laya-0.3.4/" + name
+            results[index] = answer
+    return results
+
+
 def predict_batch(agent, requests: list[dict]) -> list[dict]:
     """Flatten independent requests into one encoder batch, then split their answers."""
     import numpy as np
@@ -24,13 +51,15 @@ def predict_batch(agent, requests: list[dict]) -> list[dict]:
             internal = agent._to_internal(question)
             # Reject instead of silently truncating caller text or label definitions.
             opts = render_options(internal)
-            option_ids = [agent.tok(" " + o, add_special_tokens=False)["input_ids"] for o in opts]
-            head_ids = agent.tok("%s question: %s" % (internal["t"], internal["ins"]), add_special_tokens=False)["input_ids"]
+            # Match the SDK's special-mask sanitization before checking budgets.
+            mask = agent.tok.mask_token
+            option_ids = [agent.tok(" " + o.replace(mask, " "), add_special_tokens=False)["input_ids"] for o in opts]
+            head_ids = agent.tok("%s question: %s" % (internal["t"], internal["ins"].replace(mask, " ")), add_special_tokens=False)["input_ids"]
             if any(len(o) > 48 for o in option_ids) or sum(len(o) + 1 for o in option_ids) + max(16, len(head_ids)) > head_max_len:
                 raise ValueError("question or labels exceed Laya's context budget")
             sequence, markers = build_sequence(agent.tok, state, internal, 100_000, head_max_len)
             if len(sequence) > max_len:
-                raise ValueError("text and question exceed Laya's 512-token context")
+                raise ValueError(f"text and question exceed Laya's {max_len}-token context")
             if len(markers) != len(render_options(internal)):
                 raise ValueError(f"question {question_id!r} exceeds head_max_len={head_max_len}")
             items.append({"ids": sequence, "markers": markers, "qtype": QTYPES[internal["t"]]})

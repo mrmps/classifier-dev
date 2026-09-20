@@ -93,17 +93,32 @@ def make_api(lane, predict):
     return api
 
 
+def load_router():
+    """Preload all pinned checkpoints offline, retaining the SDK's public route IDs."""
+    import laya
+    import os
+    from huggingface_hub import snapshot_download
+    checkpoint = snapshot_download("convaiinnovations/laya", revision=os.environ["LAYA_REVISION"], local_files_only=True)
+    router = laya.Router(device="cuda", max_loaded=3)
+    for name, subfolder in (("english", None), ("multilingual", "multilingual"), ("typed-decisions", "typed-decisions")):
+        agent = laya.load(checkpoint, subfolder=subfolder, device="cuda")
+        if agent.device.type != "cuda":
+            raise RuntimeError("Laya GPU initialization failed; refusing CPU fallback")
+        router.attach(name, agent)
+    router.preload()  # Already attached: no downloads, rebuilding, or eviction.
+    return router
+
+
 def start_server(lane):
     import threading
-    import laya
     import torch
     import uvicorn
-    from adapter import predict_batch
-    agent = laya.load("convaiinnovations/laya", device="cuda")
+    from adapter import predict_routed_batch
+    router = load_router()
 
     def predict(rows):
         with torch.inference_mode():
-            return predict_batch(agent, rows)
+            return predict_routed_batch(router, rows)
 
     server = uvicorn.Server(uvicorn.Config(make_api(lane, predict), host="0.0.0.0", port=8000,
                                          log_level="critical", access_log=False))

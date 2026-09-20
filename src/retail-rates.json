@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-20-laya-trial-v1",
+  "version": "2026-09-20-laya-router-trial-v1",
   "models": [
     {
       "provider": "typesafe",
@@ -16,6 +16,8 @@
       "cachedInputUsdPerMillion": "0.090"
     },
     { "provider": "modal", "model": "laya-0.3.4-english-fast", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" },
-    { "provider": "modal", "model": "laya-0.3.4-english-bulk", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" }
+    { "provider": "modal", "model": "laya-0.3.4-english-bulk", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" },
+    { "provider": "modal", "model": "laya-0.3.4-routed-fast", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" },
+    { "provider": "modal", "model": "laya-0.3.4-routed-bulk", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" }
   ]
 }

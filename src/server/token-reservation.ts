@@ -5,7 +5,7 @@ import type { TokenRateCard } from "./token-pricing";
 /** Provider context limits, not token estimates. Unknown models cannot spend. */
 export function providerCallBound(card: TokenRateCard, provider: ModelTokenUsage["provider"], model: string, maxOutput: number): number {
   const inputLimit = provider === "typesafe" && model === "jev-1.13.0" ? 65_536
-    : provider === "modal" && ["laya-0.3.4-english-fast", "laya-0.3.4-english-bulk"].includes(model) ? 64 * 512
+    : provider === "modal" && ["laya-0.3.4-routed-fast", "laya-0.3.4-routed-bulk", "laya-0.3.4-english-fast", "laya-0.3.4-english-bulk"].includes(model) ? 64 * 1024
     : provider === "openrouter" && model === "google/gemini-3.8-flash" ? 1_048_576 : null;
   const rate = card.models.find((row) => row.provider === provider && row.model === model);
   if (inputLimit === null || !rate || !Number.isSafeInteger(maxOutput) || maxOutput < 0 || maxOutput > 65_536)

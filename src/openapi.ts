@@ -847,7 +847,7 @@ export const OPENAPI = {
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
-          model: { type: "string", enum: ["jev", "laya"], default: "jev", description: "Opt into the experimental English Laya model; existing Jev behavior is unchanged. Laya has a 512-token combined context, 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Jev calibration claims do not apply to Laya." },
+          model: { type: "string", enum: ["jev", "laya"], default: "jev", description: "Opt into experimental Laya with automatic English/multilingual routing; existing Jev behavior is unchanged. Context is 512 tokens for English or 1,024 for multilingual, with 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Results identify the actual checkpoint and lane. Jev calibration claims do not apply to Laya." },
           processing: { type: "string", enum: ["fast", "bulk"], default: "fast", description: "Laya only. Fast accepts one decision, up to 4 yes/no questions, 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
           dimensions: DIMENSIONS_SCHEMA,
           items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 32000 }, description: "Alias for inputs in dimensions mode. Do not combine with input or inputs." },

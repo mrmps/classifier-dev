@@ -1863,7 +1863,6 @@ const worker = {
         layaPlan = planLaya(dimensions
           ? inputs.flatMap(input => dimensions!.map(d => ({ input, labels: d.labels, instructions: dimensionInstructions(d, instructions) })))
           : inputs.map(input => ({ input, labels, instructions, multi: !!multi })), processing);
-        layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost);
       } catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
           error.status === 400 ? "laya_input" : error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -1900,6 +1899,18 @@ const worker = {
         0,
         paid ? {} : { upgrade: "https://classifier.dev/pro" },
       );
+    }
+
+    // Validate both request shapes and pass the normal tier gate before spending
+    // the separate, deliberately small Laya allowance.
+    if (layaPlan) {
+      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost); }
+      catch (error) {
+        if (error instanceof LayaError) return fail(error.message, error.status,
+          error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
+          { "retry-after": String(error.retryAfter) });
+        throw error;
+      }
     }
 
     const started = Date.now();

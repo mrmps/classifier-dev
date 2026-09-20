@@ -14,7 +14,7 @@ export const LAYA_LIMITS = {
   fast: { rpm: 60, daily: 2000, questions: 4 },
   bulk: { rpm: 1000, daily: 20_000, questions: 64 },
 } as const;
-export const layaModel = (lane: Processing) => `laya-0.3.4-english-${lane}`;
+export const layaModel = (lane: Processing, checkpoint = "routed") => `laya-0.3.4-${checkpoint}-${lane}`;
 export class LayaError extends Error {
   constructor(message: string, readonly status: 400 | 429 | 502 | 503, readonly retryAfter = 1, readonly scope?: "day") { super(message); }
 }
@@ -31,7 +31,7 @@ export function planLaya(tasks: LayaTask[], processing: Processing): LayaPlan {
   for (const task of tasks) {
     if (task.labels.length < 2 || task.labels.length > 16 || task.labels.some(l => l.length > 100) ||
         task.input.length > 2000 || (task.instructions?.length ?? 0) > 400) {
-      throw new LayaError("Laya trial accepts short text (≤2,000 characters), 2–16 short labels, and instructions ≤400 characters; the full question must also fit 512 tokens", 400);
+      throw new LayaError("Laya trial accepts short text (≤2,000 characters), 2–16 short labels, and instructions ≤400 characters; the full question must also fit the selected checkpoint's token budget", 400);
     }
     const questions: Record<string, unknown> = {};
     if (task.multi) task.labels.forEach((label, i) => {
@@ -91,13 +91,16 @@ export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter): Prom
     if (response.status === 429 || response.status === 503)
       throw new LayaError("Laya is busy or starting; retry with backoff", response.status, response.status === 503 ? 10 : 1);
     if (response.status === 400 || response.status === 413)
-      throw new LayaError("Laya rejected the input: shorten text, instructions, or labels to fit its 512-token context", 400);
+      throw new LayaError("Laya rejected the input: shorten text, instructions, or labels to fit the selected checkpoint's context", 400);
     if (!response.ok) throw new LayaError("Laya inference failed", 502);
-    let body: { results?: Array<{ answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>; usage?: { input_tokens?: number } }> };
+    let body: { results?: Array<{ routing?: { model?: string }; answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>; usage?: { input_tokens?: number } }> };
     try { body = await response.json(); } catch { throw new LayaError("Invalid Laya response", 502); }
     if (!Array.isArray(body?.results) || body.results.length !== batch.length) throw new LayaError("Incomplete Laya response", 502);
     for (const row of body.results) {
       if (!row || typeof row !== "object") throw new LayaError("Invalid Laya response", 502);
+      const checkpoint = row.routing?.model;
+      if (!checkpoint || !["english", "multilingual", "typed-decisions"].includes(checkpoint))
+        throw new LayaError("Invalid Laya routing metadata", 502);
       const task = plan.tasks[output.length];
       let scores: Record<string, number>, label: string, confidence: number;
       if (task.multi) {
@@ -117,7 +120,7 @@ export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter): Prom
         label = answer.choice!; confidence = answer.confidence;
         scores = Object.fromEntries(task.labels.map(l => [l, answer.probabilities![l]]));
       }
-      output.push({ label, confidence, scores, model });
+      output.push({ label, confidence, scores, model: layaModel(plan.processing, checkpoint) });
     }
     const counts = body.results.map(r => r.usage?.input_tokens);
     addTokens(meter, "modal", model, { inputTokens: counts.every(n => Number.isSafeInteger(n) && n! >= 0) ? counts.reduce<number>((sum, n) => sum + n!, 0) : undefined,

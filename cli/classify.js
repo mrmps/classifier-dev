@@ -41,7 +41,7 @@ OPTIONS
   -m, --multi                every label that applies (comma-joined), plus a score per label
   -k, --max <n>              at most n labels (implies --multi)
   -s, --smart                re-ask uncertain answers of a reasoning model (slower)
-      --model laya          opt into the English Laya trial (default: jev)
+      --model laya          opt into the automatically routed Laya trial (default: jev)
       --processing bulk     Laya bulk lane; default fast is one decision per call
   -i, --instructions <text>  extra criteria: "judge only the service, ignore the food"
   -r, --review <t>           print only inputs with confidence below t

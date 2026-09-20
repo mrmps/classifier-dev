@@ -3,6 +3,7 @@ import unittest
 import threading
 import httpx
 from runtime import make_api, Admission
+from adapter import predict_routed_batch
 
 ROW = {"state": "refund please", "questions": {"q": {"type": "choice", "instructions": "Choose", "criteria": {"billing": None, "tech": None}}}}
 
@@ -45,6 +46,34 @@ class Tests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(gate.enter("bulk", 1))
         gate.leave()
         self.assertTrue(gate.enter("bulk", 64))
+
+    def test_routed_batch_groups_checkpoints_and_restores_order(self):
+        class Router:
+            loaded = ["english", "multilingual", "typed-decisions"]
+            def route(self, state, questions):
+                return {"model": "multilingual" if state.startswith("ml") else "english", "reason": "fixture"}
+            def load(self, name):
+                return name
+        calls = []
+        def predict(agent, rows):
+            calls.append((agent, [row["state"] for row in rows]))
+            return [{"answers": {"state": row["state"]}, "usage": {"input_tokens": len(row["state"])}} for row in rows]
+        states = ["en-first", "ml-second", "en-third", "ml-fourth"]
+        actual = predict_routed_batch(Router(), [{**ROW, "state": state} for state in states], predict)
+        self.assertEqual(calls, [("english", ["en-first", "en-third"]), ("multilingual", ["ml-second", "ml-fourth"])])
+        self.assertEqual([row["answers"]["state"] for row in actual], states)
+        self.assertEqual([row["routing"]["model"] for row in actual], ["english", "multilingual", "english", "multilingual"])
+        self.assertEqual([row["usage"]["input_tokens"] for row in actual], list(map(len, states)))
+
+    def test_missing_resident_checkpoint_never_loads_on_request(self):
+        class Router:
+            loaded = ["english"]
+            def route(self, state, questions):
+                return {"model": "multilingual", "reason": "fixture"}
+            def load(self, name):
+                self.fail("must not load")
+        with self.assertRaisesRegex(RuntimeError, "not preloaded"):
+            predict_routed_batch(Router(), [ROW])
 
 
 if __name__ == "__main__":

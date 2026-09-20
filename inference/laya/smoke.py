@@ -17,7 +17,7 @@ async def main():
     report = {}
     async with httpx.AsyncClient(headers=headers, timeout=30) as client:
         for lane in ("fast", "bulk"):
-            url = f"https://miryaboy--classifier-laya-trial-{lane}.us-east.modal.direct"
+            url = f"https://miryaboy--classifier-laya-router-trial-{lane}.us-east.modal.direct"
             started = time.monotonic()
             while time.monotonic() - started < 240:
                 try:
@@ -35,6 +35,11 @@ async def main():
             assert response.status_code == 200, (lane, response.status_code, response.text[:80])
             rows = response.json()["results"]
             assert len(rows) == count and all(r["answers"]["q"]["choice"] == "billing" for r in rows)
+            assert all(r["routing"]["model"] == "english" for r in rows)
+            await asyncio.sleep(.3)
+            hindi = await client.post(url + "/predict", json={"batch": [{**ROW, "state": "मुझसे दो बार शुल्क लिया गया है। कृपया मेरा पैसा वापस कर दें।"}]})
+            assert hindi.status_code == 200
+            assert hindi.json()["results"][0]["routing"]["model"] == "multilingual"
             invalid = await client.post(url + "/predict", json={"batch": []})
             assert invalid.status_code == 400
             await asyncio.sleep(.3)
@@ -55,7 +60,7 @@ async def main():
             report[lane] = {"valid_rows": count, "invalid": invalid.status_code,
                             "oversized_context": long.status_code, "burst": statuses,
                             "burst_elapsed_seconds": round(elapsed, 2), "recovery": recovery.status_code,
-                            "unauthenticated": 401}
+                            "unauthenticated": 401, "english_and_hindi_routes": "passed"}
             print(json.dumps({lane: report[lane]}), flush=True)
     Path("inference/laya/live-checks.json").write_text(json.dumps(report, indent=2) + "\n")
 

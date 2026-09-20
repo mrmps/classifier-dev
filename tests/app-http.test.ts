@@ -295,7 +295,7 @@ test.each(["fast", "bulk"])("account Laya %s settles explicitly free tokens with
     return Response.json({ results: batch.map((row: { questions: Record<string, unknown> }) => ({
       answers: Object.fromEntries(Object.keys(row.questions).map(id => [id, {
         choice: "yes", confidence: .99, probabilities: { yes: .99, no: .01 },
-      }])), usage: { input_tokens: 41 },
+      }])), usage: { input_tokens: 41 }, routing: { model: "english" },
     })) });
   }) as typeof fetch;
   const response = await accountClassification(request({ input: "Hello", labels: ["yes", "no"], model: "laya", processing }), env);
@@ -320,7 +320,7 @@ test("account Laya Smart charges only the actual review tokens", async () => {
       return Response.json({ results: batch.map((row: { questions: Record<string, unknown> }) => ({
         answers: Object.fromEntries(Object.keys(row.questions).map(id => [id, {
           choice: "yes", confidence: .6, probabilities: { yes: .6, no: .4 },
-        }])), usage: { input_tokens: 41 },
+        }])), usage: { input_tokens: 41 }, routing: { model: "english" },
       })) });
     }
     expect(String(url)).toBe("https://openrouter.ai/api/v1/chat/completions");

@@ -26,7 +26,7 @@ function mockLaya() {
         const labels = Object.keys(q.criteria ?? {});
         return [id, q.type === "noul" ? { noul: .9 } : { choice: labels[0], confidence: .9,
           probabilities: Object.fromEntries(labels.map((label, i) => [label, i ? .1 / (labels.length - 1) : .9])) }];
-      })), usage: { input_tokens: 20 },
+      })), usage: { input_tokens: 20 }, routing: { model: "english" },
     })) });
   }) as typeof fetch;
   return calls;
@@ -40,7 +40,34 @@ test("bulk chunks by question count, retains order and meters the selected lane"
   expect(calls.every(c => c.url === "https://bulk.example/predict" && c.rows.length <= 64)).toBe(true);
   expect(calls.flatMap(c => c.rows.map(r => r.state))).toEqual(tasks.map(t => t.input));
   expect(result).toHaveLength(1000);
-  expect(meter.tokens[0]).toMatchObject({ provider: "modal", calls: 16, inputTokens: 20_000 });
+  expect(meter.tokens[0]).toMatchObject({ provider: "modal", model: "laya-0.3.4-routed-bulk", calls: 16, inputTokens: 20_000 });
+});
+
+test("mixed Router checkpoints preserve row order and meter one routed wrapper", async () => {
+  const checkpoints = ["english", "multilingual", "typed-decisions", "multilingual"];
+  const expected = ["billing", "tech", "billing", "tech"];
+  const meter = newMeter();
+  const bounds: string[] = [];
+  meter.beforeCall = async (_provider, model) => { bounds.push(model); };
+  globalThis.fetch = (async () => Response.json({ results: checkpoints.map((model, i) => ({
+    routing: { model }, usage: { input_tokens: 20 + i }, answers: { q: {
+      choice: expected[i], confidence: .9,
+      probabilities: { billing: expected[i] === "billing" ? .9 : .1, tech: expected[i] === "tech" ? .9 : .1 },
+    } },
+  })) })) as typeof fetch;
+  const results = await runLaya(env, planLaya(["refund", "无法登录", "invoice 123", "connexion impossible"].map(input => ({ ...task, input })), "bulk"), meter);
+  expect(results.map(result => result.label)).toEqual(expected);
+  expect(results.map(result => result.model)).toEqual(checkpoints.map(model => `laya-0.3.4-${model}-bulk`));
+  expect(bounds).toEqual(["laya-0.3.4-routed-bulk"]);
+  expect(meter.tokens).toEqual([{ provider: "modal", model: "laya-0.3.4-routed-bulk", calls: 1,
+    inputTokens: 86, outputTokens: 0, cachedInputTokens: 0 }]);
+});
+
+test.each([undefined, {}, { model: "unknown" }, { model: ["english"] }])("missing or unknown Router checkpoint fails closed: %j", async routing => {
+  globalThis.fetch = (async () => Response.json({ results: [{ routing, usage: { input_tokens: 20 }, answers: {
+    q: { choice: "billing", confidence: .9, probabilities: { billing: .9, tech: .1 } },
+  } }] })) as typeof fetch;
+  expect((await request({ input: task.input, labels: task.labels })).status).toBe(502);
 });
 
 test("fast refuses large work before fetching; multi counts each label", () => {
@@ -104,10 +131,30 @@ test("lane limiter fails closed and respects quota refusal", async () => {
   await expect(limitLaya(denied, "bulk", "anon", 1)).rejects.toMatchObject({ status: 429, retryAfter: 37 });
 });
 
+test("normal batch and tier rejection cannot debit Laya quota", async () => {
+  const calls = mockLaya();
+  const debits: string[] = [];
+  const bindings = { ...env, LIMITER: {
+    idFromName: (name: string) => name,
+    get: (name: string) => ({ fetch: async () => {
+      debits.push(name);
+      return Response.json({ limited: true, remaining: 0, resetIn: 60 });
+    } }),
+  } } as unknown as Env;
+  const oversized = await request({ inputs: Array(201).fill(task.input), labels: task.labels, tier: "smart", processing: "bulk" }, bindings);
+  expect(oversized.status).toBe(400);
+  expect(debits).toHaveLength(0);
+  const blocked = await request({ input: task.input, labels: task.labels, tier: "smart" }, bindings);
+  expect(blocked.status).toBe(429);
+  expect(debits.length).toBeGreaterThan(0);
+  expect(debits.every(name => !name.startsWith("laya:"))).toBe(true);
+  expect(calls).toHaveLength(0);
+});
+
 test("trial billing explicitly prices both Laya lanes at zero without making reviews free", () => {
   const card = parseTokenRateCard(JSON.stringify(rates))!;
   for (const lane of ["fast", "bulk"]) {
-    const model = `laya-0.3.4-english-${lane}`;
+    const model = `laya-0.3.4-routed-${lane}`;
     expect(providerCallBound(card, "modal", model, 0)).toBe(0);
     expect(priceTokens(card, [{ provider: "modal", model, calls: 1, inputTokens: 1000, outputTokens: 0, cachedInputTokens: 0 }])?.nanodollars).toBe(0n);
   }

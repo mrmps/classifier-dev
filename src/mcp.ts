@@ -136,7 +136,7 @@ export function productServer(classify: ClassifyFn): McpServer {
       inputSchema: {
         type: "object",
         properties: { inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA,
-          model: { type: "string", enum: ["jev", "laya"], description: "Optional English Laya trial; Jev remains the default." },
+          model: { type: "string", enum: ["jev", "laya"], description: "Optional Laya trial with automatic English/multilingual checkpoint routing; Jev remains the default." },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Laya only: fast accepts one decision; bulk handles batches. Shared capacity limits can return 429." } },
         required: ["inputs", "labels"],
         additionalProperties: false,
