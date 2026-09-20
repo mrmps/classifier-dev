@@ -80,9 +80,11 @@ export async function createAutumnCheckout(env: AutumnEnv, accountId: string, re
   if (!env.AUTUMN_PRO_PLAN_ID) throw unavailable();
   const customerId = await customerForWorkspace(env, accountId);
   const customer = await getAutumnCustomer(env, customerId);
-  if (customer.subscriptions.some((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID)) {
+  if (customer.subscriptions.some((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID &&
+    !["expired", "canceled"].includes(subscription.status))) {
     // Includes scheduled, past-due and cancel-at-period-end subscriptions.
-    // Let the existing subscription's portal resolve them rather than attach again.
+    // Terminal history permits a new purchase; all other states stay in the
+    // existing portal, including unknown states, rather than risk a duplicate.
     return createAutumnPortal(env, accountId, returnUrl);
   }
   const result = await autumnRequest(env, "billing.attach", {

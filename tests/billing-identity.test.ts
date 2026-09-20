@@ -136,3 +136,18 @@ test.each(["active", "scheduled", "past_due"])("%s Pro subscriptions go to the e
   }) as typeof fetch;
   expect((await createAutumnCheckout(env, id, "https://classifier.dev/app/plans")).url).toContain("billing.stripe.com");
 });
+
+test.each(["expired", "canceled"])("a terminal %s Pro subscription permits a new checkout without granting credit", async (status) => {
+  const { env, id } = await fixture();
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES(?,?)").bind(id, customerId).run();
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("customers.get_or_create")) return Response.json({ id: customerId });
+    if (path.endsWith("customers.get")) return Response.json({ id: customerId, subscriptions: [{ ...subscription, status, canceled_at: Date.now() - 60_000 }] });
+    expect(path).toEndWith("billing.attach");
+    expect(JSON.parse(String(init?.body)).enable_plan_immediately).toBe(false);
+    return Response.json({ customer_id: customerId, payment_url: "https://checkout.stripe.com/new-subscription" });
+  }) as typeof fetch;
+  expect((await createAutumnCheckout(env, id, "https://classifier.dev/app/plans")).url).toContain("checkout.stripe.com");
+  expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id=?").bind(id).first())?.balance).toBe(500000);
+});
