@@ -255,8 +255,9 @@ export function Plans({
           Token prices
         </h2>
         <p className="text-sm text-muted-foreground">
-          Prices per million tokens. Fast uses Jev at cost. Smart adds Gemini at
-          cost plus 20% only when it escalates.
+          Prices per million tokens. Default Fast uses Jev at cost. Smart adds Gemini at
+          cost plus 20% only when it escalates. Laya inference is free during the trial;
+          Smart reviews are still billed.
         </p>
         <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full min-w-[540px] text-left text-sm">
@@ -272,7 +273,7 @@ export function Plans({
               {retailRates.models.map((rate) => (
                 <tr key={rate.model} className="border-t border-border">
                   <th scope="row" className="p-4 font-medium">
-                    {rate.provider === "typesafe" ? "Jev" : "Gemini escalation"}
+                    {rate.provider === "typesafe" ? "Jev" : rate.provider === "openrouter" ? "Gemini escalation" : rate.model}
                   </th>
                   {[
                     rate.inputUsdPerMillion,
