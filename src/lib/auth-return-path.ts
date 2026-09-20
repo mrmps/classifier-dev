@@ -1,6 +1,6 @@
 /** Auth flows may return only to this application's protected workspace. */
 export function authReturnPath(requested: unknown): string {
-  if (typeof requested !== "string" || !requested.startsWith("/") || requested.includes("\\"))
+  if (typeof requested !== "string" || requested.length > 1024 || !requested.startsWith("/") || requested.includes("\\"))
     return "/app";
   try {
     const url = new URL(requested, "https://classifier.invalid");

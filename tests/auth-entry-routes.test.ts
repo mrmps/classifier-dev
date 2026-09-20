@@ -12,7 +12,7 @@ test("sign-in binds a safe destination and callback preserves AuthKit state", ()
       WORKOS_COOKIE_PASSWORD:"test-cookie-password-at-least-32-characters"
     } }));
     mock.module("@workos/authkit-tanstack-react-start", () => ({
-      getSignInUrl: async ({data}) => { destination=data.returnPathname; return "https://auth.example.test"; },
+      getSignInUrl: async ({data}) => { destination=data.returnPathname; return "https://auth.example.test?state=flow-test"; },
       handleCallbackRoute: (configuration) => { options=configuration; return async () => new Response(null, {
         status:302, headers:{Location:destination,"Set-Cookie":"wos-session=test; HttpOnly; Secure"}
       }); }
@@ -21,14 +21,15 @@ test("sign-in binds a safe destination and callback preserves AuthKit state", ()
     const {Route:callback} = await import("./src/routes/api.auth.callback.ts");
     const {Route:login} = await import("./src/routes/login.tsx");
     for (const [query, expected] of [["", "/app"], ["?returnTo=/app/plans", "/app/plans"], ["?returnPathname=/app/usage", "/app/usage"], ["?returnTo=//evil.test/app", "/app"], ["?returnTo=/app/../login", "/app"]]) {
-      await signIn.options.server.handlers.GET({request:new Request("https://example.test/api/auth/sign-in"+query)});
+      const signInResponse = await signIn.options.server.handlers.GET({request:new Request("https://example.test/api/auth/sign-in"+query)});
       assert.equal(destination,expected);
-      const response = await callback.options.server.handlers.GET({request:new Request("https://example.test/api/auth/callback")});
+      const response = await callback.options.server.handlers.GET({request:new Request("https://example.test/api/auth/callback?state=flow-test", {headers:{Cookie:signInResponse.headers.get("Set-Cookie").split(";")[0]}})});
       assert.equal(options.returnPathname,undefined);
-      assert.equal(options.errorRedirectUrl,"/login?error=auth_failed");
+      assert.equal(options.errorRedirectUrl,"/login?error=auth_failed&returnTo="+encodeURIComponent(expected));
       assert.equal(response.headers.get("Location"),expected);
       assert.match(response.headers.get("Set-Cookie"),/wos-session=/);
       assert.match(response.headers.get("Set-Cookie"),/classifier_workspace=;/);
+      assert.match(response.headers.get("Set-Cookie"),/classifier_auth_return_.*Max-Age=0/);
     }
     const search=login.options.validateSearch({error:"auth_failed",returnTo:"/app/plans"});
     assert.equal(login.options.beforeLoad({search}),undefined);
