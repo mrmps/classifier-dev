@@ -61,6 +61,7 @@ const navigationGroups = [
 export function Sidebar({
   name,
   email,
+  imageUrl,
   dark,
   setDark,
   pathname,
@@ -76,6 +77,7 @@ export function Sidebar({
   setDark: (value: boolean) => void;
   name: string;
   email: string;
+  imageUrl?: string | null;
   balance: number;
   planLabel: string;
   navigate: (path: string) => void;
@@ -271,6 +273,7 @@ export function Sidebar({
           name={name}
           planLabel={planLabel}
           email={email}
+          imageUrl={imageUrl}
           collapsed={collapsed}
           mobile={isMobile}
           dark={dark}

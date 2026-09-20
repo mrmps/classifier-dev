@@ -3,6 +3,8 @@ import { getSignInUrl } from "@workos/authkit-tanstack-react-start";
 import { env } from "cloudflare:workers";
 import { workosConfigured } from "../server/auth";
 import type { AppEnv } from "../server/db";
+import { authReturnPath } from "../lib/auth-return-path";
+import { authNavigationResponse } from "../server/auth-navigation";
 
 export const Route = createFileRoute("/api/auth/sign-in")({
   server: {
@@ -12,17 +14,9 @@ export const Route = createFileRoute("/api/auth/sign-in")({
           return new Response("WorkOS sign-in is not configured.", {
             status: 503,
           });
-        const returnPathname = new URL(request.url).searchParams.get(
-          "returnPathname",
-        );
-        return new Response(null, {
-          status: 307,
-          headers: {
-            Location: await getSignInUrl(
-              returnPathname ? { data: { returnPathname } } : undefined,
-            ),
-          },
-        });
+        const search = new URL(request.url).searchParams;
+        const returnPathname = authReturnPath(search.get("returnTo") ?? search.get("returnPathname"));
+        return authNavigationResponse(await getSignInUrl({ data: { returnPathname } }), returnPathname, request);
       },
     },
   },

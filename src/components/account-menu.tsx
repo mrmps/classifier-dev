@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   User,
   ChevronsUpDown,
@@ -9,7 +9,7 @@ import {
   ArrowUpRight,
   Headset,
 } from "./ui/icons";
-import { Avatar, AvatarFallback } from "./ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -31,6 +31,7 @@ export function AccountMenu({
   name,
   planLabel,
   email,
+  imageUrl,
   collapsed,
   mobile,
   dark,
@@ -40,6 +41,7 @@ export function AccountMenu({
   name: string;
   planLabel: string;
   email: string;
+  imageUrl?: string | null;
   collapsed: boolean;
   mobile: boolean;
   dark: boolean;
@@ -47,7 +49,7 @@ export function AccountMenu({
   navigate: (path: string) => void;
 }) {
   const [signingOut, setSigningOut] = useState(false);
-  const [error, setError] = useState("");
+  const signOutForm = useRef<HTMLFormElement>(null);
   const initials = (
     name
       .trim()
@@ -58,20 +60,9 @@ export function AccountMenu({
     email[0] ||
     "?"
   ).toUpperCase();
-  async function signOut() {
-    setSigningOut(true);
-    setError("");
-    try {
-      const response = await fetch("/auth/sign-out", { method: "POST" });
-      if (!response.ok) throw new Error("Unable to sign out");
-      window.location.href = "/login";
-    } catch {
-      setSigningOut(false);
-      setError("Could not sign out. Please try again.");
-    }
-  }
   return (
     <>
+      <form ref={signOutForm} action="/auth/sign-out" method="post" onSubmit={() => setSigningOut(true)} />
       <DropdownMenu>
         <AppSidebarIconTooltip
           collapsed={collapsed}
@@ -86,6 +77,7 @@ export function AccountMenu({
             )}
           >
             <Avatar className="size-9 shrink-0" aria-hidden="true">
+              {imageUrl && <AvatarImage src={imageUrl} alt="" referrerPolicy="no-referrer" />}
               <AvatarFallback className="bg-sidebar-accent text-xs font-medium text-sidebar-foreground">
                 {initials}
               </AvatarFallback>
@@ -113,6 +105,7 @@ export function AccountMenu({
         >
           <div className="mb-1 flex min-w-0 items-center gap-2.5 px-2 py-2">
             <Avatar className="size-8 shrink-0" aria-hidden="true">
+              {imageUrl && <AvatarImage src={imageUrl} alt="" referrerPolicy="no-referrer" />}
               <AvatarFallback className="bg-muted text-xs font-medium">
                 {initials}
               </AvatarFallback>
@@ -178,7 +171,7 @@ export function AccountMenu({
             <DropdownMenuItem
               className="mt-3 text-destructive [&_svg]:text-destructive"
               disabled={signingOut}
-              onClick={() => void signOut()}
+              onClick={() => signOutForm.current?.requestSubmit()}
             >
               <LogOut data-icon="inline-start" />
               {signingOut ? "Signing out…" : "Sign out"}
@@ -186,11 +179,6 @@ export function AccountMenu({
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      {error && (
-        <p role="alert" className="px-2 text-xs text-destructive">
-          {error}
-        </p>
-      )}
     </>
   );
 }

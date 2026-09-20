@@ -31,6 +31,8 @@ export interface UsageAggregate {
   outputTokens: number | null;
 }
 export interface AppSnapshot {
+  /** Signed-in viewer's provider photo, independent of the selected workspace. */
+  viewerImageUrl?: string | null;
   organizations?: import("./organization-contracts").OrganizationContext;
   billing: BillingSnapshot;
   usageAggregates: UsageAggregate[];

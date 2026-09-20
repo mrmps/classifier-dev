@@ -3,6 +3,7 @@ import { handleCallbackRoute } from "@workos/authkit-tanstack-react-start";
 import { env } from "cloudflare:workers";
 import { clearWorkspaceSelection, workosConfigured } from "../server/auth";
 import type { AppEnv } from "../server/db";
+import { callbackNavigation } from "../server/auth-navigation";
 
 export const Route = createFileRoute("/api/auth/callback")({
   server: {
@@ -12,10 +13,9 @@ export const Route = createFileRoute("/api/auth/callback")({
           return new Response("WorkOS sign-in is not configured.", {
             status: 503,
           });
-        const response = await handleCallbackRoute({
-          returnPathname: "/app",
-          errorRedirectUrl: "/login?error=auth_failed",
-        })(context);
+        const navigation = await callbackNavigation(context.request);
+        const response = await handleCallbackRoute({ errorRedirectUrl: navigation.errorRedirectUrl })(context);
+        if (navigation.clearCookie) response.headers.append("Set-Cookie", navigation.clearCookie);
         return clearWorkspaceSelection(response, context.request);
       },
     },

@@ -5,13 +5,13 @@ test("login enters the hosted sign-in flow without an intermediate page", async 
   expect(Route.options.beforeLoad).toBeDefined();
 
   try {
-    await Route.options.beforeLoad!({} as never);
+    await Route.options.beforeLoad!({ search: { returnTo: "/app" } } as never);
     throw new Error("Expected the login route to redirect");
   } catch (error) {
     expect(error).toBeInstanceOf(Response);
     expect((error as Response).status).toBe(307);
     expect((error as Response & { options?: unknown }).options).toMatchObject({
-      to: "/api/auth/sign-in",
+      href: "/api/auth/sign-in?returnTo=%2Fapp",
       reloadDocument: true,
     });
   }

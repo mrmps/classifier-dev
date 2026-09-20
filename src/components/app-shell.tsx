@@ -51,6 +51,7 @@ export function AppShell({
         }
       >
         <Sidebar
+          imageUrl={snapshot.viewerImageUrl}
           dark={dark}
           setDark={setDark}
           pathname={pathname}
