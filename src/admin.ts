@@ -20,7 +20,8 @@
 
 import type { Env } from "./index";
 import { sql } from "./report";
-import { esc, btn, BASE_CSS, COPY_ICON } from "./ui";
+import { reasonText } from "./features/admin/reasons";
+import { esc, BASE_CSS } from "./ui";
 import { secretEquals, deriveSigningKey, hmacHex } from "./secrets";
 
 const DATASET = "classifier_events";
@@ -52,11 +53,26 @@ const LOGIN_ATTEMPTS_PER_MIN = 10;
  */
 const LOGIN_ATTEMPTS_PER_MIN_TOTAL = 120;
 
-type RangeKey = "24h" | "7d" | "30d";
-const RANGES: Record<RangeKey, { hours: number; interval: string; label: string; tick: string }> = {
-  "24h": { hours: 24, interval: "1' HOUR", label: "last 24 hours", tick: "%H:%M" },
-  "7d": { hours: 24 * 7, interval: "6' HOUR", label: "last 7 days", tick: "%b %d" },
-  "30d": { hours: 24 * 30, interval: "1' DAY", label: "last 30 days", tick: "%b %d" },
+export type RangeKey = "24h" | "7d" | "30d";
+const RANGES: Record<
+  RangeKey,
+  { hours: number; interval: string; label: string }
+> = {
+  "24h": {
+    hours: 24,
+    interval: "1' HOUR",
+    label: "last 24 hours",
+  },
+  "7d": {
+    hours: 24 * 7,
+    interval: "6' HOUR",
+    label: "last 7 days",
+  },
+  "30d": {
+    hours: 24 * 30,
+    interval: "1' DAY",
+    label: "last 30 days",
+  },
 };
 
 // ---------------------------------------------------------------- auth
@@ -180,278 +196,240 @@ async function load(env: Env, range: RangeKey) {
   const r = RANGES[range];
   const since = `toDateTime(now()) - INTERVAL '${r.hours}' HOUR`;
   const errors: string[] = [];
+  const unavailable: string[] = [];
 
-  const q = async <T>(query: string, fallback: T, use: (rows: Row[]) => T): Promise<T> => {
+  const q = async <T>(
+    name: string,
+    query: string,
+    fallback: T,
+    use: (rows: Row[]) => T,
+  ): Promise<T> => {
     try {
       return use(await sql(env, query));
     } catch (e) {
+      unavailable.push(name);
       const m = (e as Error).message;
       if (!errors.includes(m)) errors.push(m);
       return fallback;
     }
   };
 
-  const [totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets,
-         byReason, byAgent, failLabels, dimensionTraffic, dimensionCallers, dimensionSeries] =
-    await Promise.all([
-      q(
-        `SELECT sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
+  const [
+    totals,
+    series,
+    byTier,
+    byModel,
+    byCountry,
+    byStatus,
+    byClient,
+    topLabels,
+    visitors,
+    labelSets,
+    byReason,
+    byAgent,
+    failLabels,
+    dimensionTraffic,
+    dimensionCallers,
+    dimensionSeries,
+    previous,
+    performance,
+    outcomes,
+  ] = await Promise.all([
+    q(
+      "totals",
+      `SELECT sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
                 sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
          FROM ${DATASET} WHERE timestamp > ${since}`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "series",
+      `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
                 sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
          FROM ${DATASET} WHERE timestamp > ${since} GROUP BY t ORDER BY t`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob1 AS tier, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "byTier",
+      `SELECT blob1 AS tier, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
                 sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
          FROM ${DATASET} WHERE timestamp > ${since} GROUP BY tier ORDER BY requests DESC`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob6 AS model, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "byModel",
+      `SELECT blob6 AS model, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
                 sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
          FROM ${DATASET} WHERE timestamp > ${since} AND blob6 != ''
          GROUP BY model ORDER BY requests DESC LIMIT 10`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob3 AS country, sum(_sample_interval) AS requests FROM ${DATASET}
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "byCountry",
+      `SELECT blob3 AS country, sum(_sample_interval) AS requests FROM ${DATASET}
          WHERE timestamp > ${since} GROUP BY country ORDER BY requests DESC LIMIT 10`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob4 AS status, sum(_sample_interval) AS requests FROM ${DATASET}
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "byStatus",
+      `SELECT blob4 AS status, sum(_sample_interval) AS requests FROM ${DATASET}
          WHERE timestamp > ${since} GROUP BY status ORDER BY requests DESC`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob5 AS client, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "byClient",
+      `SELECT blob5 AS client, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
          FROM ${DATASET} WHERE timestamp > ${since} GROUP BY client ORDER BY requests DESC`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob2 AS labels, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "topLabels",
+      `SELECT blob2 AS labels, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications, sum(double3 * _sample_interval) AS usd
          FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != ''
          GROUP BY labels ORDER BY requests DESC LIMIT 12`,
-        [] as Row[],
-        (x) => x,
-      ),
-      // Analytics Engine SQL has no uniq(); a distinct count is the row count of a GROUP BY.
-      q(
-        `SELECT index1, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} GROUP BY index1`,
-        0,
-        (x) => x.length,
-      ),
-      q(
-        `SELECT blob2, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY blob2`,
-        0,
-        (x) => x.length,
-      ),
-      // Why requests fail. blob7 is "" on success, so this is the failure set.
-      q(
-        `SELECT blob7 AS reason, blob4 AS status, blob8 AS agent, sum(_sample_interval) AS requests, sum(double4 * _sample_interval) / sum(_sample_interval) AS avg_inputs
+      [] as Row[],
+      (x) => x,
+    ),
+    // Analytics Engine SQL has no uniq(); a distinct count is the row count of a GROUP BY.
+    q(
+      "visitors",
+      `SELECT index1, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} GROUP BY index1`,
+      0,
+      (x) => x.length,
+    ),
+    q(
+      "labelSets",
+      `SELECT blob2, sum(_sample_interval) AS n FROM ${DATASET} WHERE timestamp > ${since} AND blob2 != '' GROUP BY blob2`,
+      0,
+      (x) => x.length,
+    ),
+    // Why requests fail. blob7 is "" on success, so this is the failure set.
+    q(
+      "byReason",
+      `SELECT blob7 AS reason, blob4 AS status, blob8 AS agent, sum(_sample_interval) AS requests, sum(double4 * _sample_interval) / sum(_sample_interval) AS avg_inputs
          FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != ''
          GROUP BY reason, status, agent ORDER BY requests DESC LIMIT 60`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob8 AS agent, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "byAgent",
+      `SELECT blob8 AS agent, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications
          FROM ${DATASET} WHERE timestamp > ${since} AND blob8 != ''
          GROUP BY agent ORDER BY requests DESC LIMIT 10`,
-        [] as Row[],
-        (x) => x,
-      ),
-      // Which classifier configurations are the failing ones.
-      q(
-        `SELECT blob2 AS labels, blob7 AS reason, sum(_sample_interval) AS requests
+      [] as Row[],
+      (x) => x,
+    ),
+    // Which classifier configurations are the failing ones.
+    q(
+      "failLabels",
+      `SELECT blob2 AS labels, blob7 AS reason, sum(_sample_interval) AS requests
          FROM ${DATASET} WHERE timestamp > ${since} AND blob7 != '' AND blob2 != ''
          GROUP BY labels, reason ORDER BY requests DESC LIMIT 12`,
-        [] as Row[],
-        (x) => x,
-      ),
-      q(
-        `SELECT blob4 AS status, blob7 AS reason, sum(_sample_interval) AS requests,
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "dimensionTraffic",
+      `SELECT blob4 AS status, blob7 AS reason, sum(_sample_interval) AS requests,
                 sum(double1 * _sample_interval) AS classifications, sum(double6 * _sample_interval) AS items,
                 sum(double7 * _sample_interval) AS dimensions, sum(double8 * _sample_interval) AS uncertain,
                 sum(double9 * _sample_interval) AS fallback, sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) AS ms_sum
          FROM ${DATASET} WHERE timestamp > ${since} AND blob9 = 'dimensions'
          GROUP BY status, reason`,
-        [] as Row[], (x) => x,
-      ),
-      q(
-        `SELECT index1, sum(_sample_interval) AS n FROM ${DATASET}
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "dimensionCallers",
+      `SELECT index1, sum(_sample_interval) AS n FROM ${DATASET}
          WHERE timestamp > ${since} AND blob9 = 'dimensions' GROUP BY index1`,
-        0, (x) => x.length,
-      ),
-      q(
-        `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
+      0,
+      (x) => x.length,
+    ),
+    q(
+      "dimensionSeries",
+      `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
                 sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications
          FROM ${DATASET} WHERE timestamp > ${since} AND blob9 = 'dimensions'
          GROUP BY t ORDER BY t`,
-        [] as Row[], (x) => x,
-      ),
-    ]);
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "previous",
+      `SELECT sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
+                sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
+         FROM ${DATASET} WHERE timestamp > toDateTime(now()) - INTERVAL '${r.hours * 2}' HOUR AND timestamp <= ${since}`,
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "performance",
+      `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
+                sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms,
+                sum(double1 * _sample_interval) / sum(_sample_interval) AS batch_size,
+                sum(_sample_interval) AS requests
+         FROM ${DATASET} WHERE timestamp > ${since} AND (blob4 = '200' OR blob4 LIKE '5%')
+         GROUP BY t ORDER BY t`,
+      [] as Row[],
+      (x) => x,
+    ),
+    q(
+      "outcomes",
+      `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t, blob4 AS status,
+                sum(_sample_interval) AS requests
+         FROM ${DATASET} WHERE timestamp > ${since} GROUP BY t, status ORDER BY t`,
+      [] as Row[],
+      (x) => x,
+    ),
+  ]);
 
-  return { totals, series, byTier, byModel, byCountry, byStatus, byClient, topLabels, visitors, labelSets,
-    byReason, byAgent, failLabels, dimensionTraffic, dimensionCallers, dimensionSeries, errors };
+  return {
+    totals,
+    series,
+    byTier,
+    byModel,
+    byCountry,
+    byStatus,
+    byClient,
+    topLabels,
+    visitors,
+    labelSets,
+    byReason,
+    byAgent,
+    failLabels,
+    dimensionTraffic,
+    dimensionCallers,
+    dimensionSeries,
+    previous,
+    performance,
+    outcomes,
+    errors,
+    unavailable,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
-// ---------------------------------------------------------------- charts
+export type AdminData = Awaited<ReturnType<typeof load>>;
 
-/** Bar cells, in block characters. Monospace makes the column align itself. */
-const BAR_CELLS = 20;
-
-function blockBar(value: number, max: number, color: string) {
-  const filled = max > 0 ? Math.max(1, Math.round((value / max) * BAR_CELLS)) : 0;
-  return (
-    `<span class="fill" style="color:${color}">${"█".repeat(filled)}</span>` +
-    `<span class="track">${"░".repeat(BAR_CELLS - filled)}</span>`
-  );
-}
-
-/**
- * One measure over time. Two measures of different scale get two charts, never
- * two y-axes on one. Thin marks, a recessive grid, and the hover layer wired up
- * by the script at the bottom of the page.
- */
-function areaChart(id: string, points: { t: string; v: number }[], color: string, fmt: (n: number) => string) {
-  const W = 760;
-  const H = 190;
-  const L = 64;
-  const R = 8;
-  const T = 12;
-  const B = 26;
-  if (!points.length) return `<div class="empty">no data in this range yet</div>`;
-
-  const max = Math.max(...points.map((p) => p.v), 0);
-  const top = max <= 0 ? 1 : max * 1.15;
-  const iw = W - L - R;
-  const ih = H - T - B;
-  const x = (i: number) => L + (points.length === 1 ? iw / 2 : (i * iw) / (points.length - 1));
-  const y = (v: number) => T + ih - (v / top) * ih;
-
-  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join("") + (points.length === 1 ? "l0,0" : "");
-  const area = `${line}L${x(points.length - 1).toFixed(1)},${T + ih}L${x(0).toFixed(1)},${T + ih}Z`;
-
-  const grid = [0, top / 2, top]
-    .map(
-      (v) =>
-        `<line class="gridline" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>` +
-        `<text class="ylab" x="${L - 10}" y="${(y(v) + 4).toFixed(1)}">${esc(fmt(v))}</text>`,
-    )
-    .join("");
-
-  // A label on every point is noise; first, middle and last carry the axis.
-  const xi = points.length <= 2 ? [0, points.length - 1] : [0, Math.floor((points.length - 1) / 2), points.length - 1];
-  const xlab = [...new Set(xi)]
-    .map(
-      (i) =>
-        `<text class="xlab" x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="${
-          i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"
-        }">${esc(points[i].t)}</text>`,
-    )
-    .join("");
-
-  const cell = iw / Math.max(points.length, 1);
-  const hit = points
-    .map((p, i) => `<rect class="hit" data-i="${i}" x="${(x(i) - cell / 2).toFixed(1)}" y="${T}" width="${cell.toFixed(1)}" height="${ih}"/>`)
-    .join("");
-
-  return `<div class="chartwrap" data-chart="${id}">
-  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Time series; the table at the end of the page lists every value.">
-    <defs><linearGradient id="g-${id}" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="${color}" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="${color}" stop-opacity="0.01"/>
-    </linearGradient></defs>
-    ${grid}
-    <path d="${area}" fill="url(#g-${id})"/>
-    <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${points.length === 1 ? `<circle cx="${x(0).toFixed(1)}" cy="${y(points[0].v).toFixed(1)}" r="3" fill="${color}"/>` : ""}
-    <line class="cross" x1="0" x2="0" y1="${T}" y2="${T + ih}" style="display:none"/>
-    <circle class="dot" r="4" fill="${color}" style="display:none"/>
-    ${xlab}
-    ${hit}
-  </svg>
-  <div class="tip" hidden></div>
-</div>`;
-}
-
-/** Bars, always direct-labelled — the number is never carried by colour alone. */
-function barList(rows: { name: string; value: number; note?: string; color: string }[], fmt: (n: number) => string) {
-  if (!rows.length) return `<div class="empty">nothing here yet</div>`;
-  const max = Math.max(...rows.map((r) => r.value), 1);
-  return `<div class="scroll"><div class="bars">${rows
-    .map(
-      (r) => `<div class="bar">
-      <span class="bname" title="${esc(r.name)}">${esc(r.name)}</span>
-      <span class="btrack">${blockBar(r.value, max, r.color)}</span>
-      <span class="bval">${esc(fmt(r.value))}</span>
-      <span class="bnote">${r.note ? esc(r.note) : ""}</span>
-    </div>`,
-    )
-    .join("")}</div></div>`;
-}
-
-// ---------------------------------------------------------------- page
-
-/**
- * The dashboard is drawn from the site's own tokens (ui.ts), plus what only a
- * dashboard needs: the chart hues, the key/value grid, the bars and the login.
- * Charts are the one place more than one colour has a job — a tier, a status
- * class and a country each need telling apart at a glance.
- */
-const STYLE = BASE_CSS + `
-:root{--blue:#7aa2f7;--green:#7fd39a;--amber:#e0b35a;--red:var(--bad)}
-/* key/value block: the digest's aligned columns, on screen */
-.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:0 32px;margin:0}
-.kv .k{display:flex;justify-content:space-between;gap:16px;padding:1px 0;min-width:0}
-.kv dt{color:var(--dim);white-space:nowrap;flex-shrink:0}
-.kv dd{margin:0;color:var(--bright);font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere}
-.kv .sub{color:var(--dim)}
-/* block-character bars */
-.bars{display:grid;grid-template-columns:auto auto minmax(0,9ch) 1fr;gap:2px 12px;align-items:baseline;min-width:max-content}
-/* Rows share the grid so every bar starts on the same column. */
-.bar{display:contents}
-.bname{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40ch}
-.btrack{letter-spacing:-.5px;white-space:nowrap}
-.track{color:var(--rule)}
-.bval{color:var(--bright);font-variant-numeric:tabular-nums;text-align:right}
-.bnote{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* charts */
-.chartwrap{position:relative}
-.chartwrap svg{width:100%;height:180px;display:block;overflow:visible}
-.gridline{stroke:var(--rule);stroke-width:1}
-/* Under the base size the weight steps up (see the body rule in ui.ts): the
-   axis labels and the tooltip are the smallest type on the site. */
-.ylab,.xlab{fill:var(--dim);font-size:11px;font-weight:500;font-family:inherit}
-.ylab{text-anchor:end}
-.cross{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3}
-.dot{stroke:var(--bg);stroke-width:2}
-.hit{fill:transparent}
-.tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);
-  color:var(--fg);font-size:12px;font-weight:500;padding:4px 8px;white-space:nowrap;
-  transform:translate(-50%,-145%);z-index:5;font-variant-numeric:tabular-nums}
-td.lab{max-width:38ch;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
-@media (max-width:640px){.bname{max-width:20ch}}
-/* login */
+// The plain HTML report remains readable before the chart bundle loads and
+// when JavaScript is disabled. It shares the same authenticated data snapshot.
+const STYLE =
+  BASE_CSS +
+  `
+.kv{display:grid;gap:8px;margin:16px 0}.kv .k{display:flex;justify-content:space-between;gap:20px}
+.kv dd{margin:0;font-variant-numeric:tabular-nums}.kv dt{color:var(--muted)}
 .login{min-height:100dvh;display:grid;place-items:center;padding:24px}
-.loginbox{width:100%;max-width:420px}
-.loginbox>*+*{margin-top:16px}
-input[type=password]{width:100%;padding:6px 8px;background:var(--surface);color:var(--fg);
-  border:1px solid var(--line-strong);border-radius:var(--r);font:inherit}
+.loginbox{width:100%;max-width:420px}.loginbox>*+*{margin-top:16px}
+input[type=password]{width:100%;padding:8px;background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r);font:inherit}
 .err{color:var(--bad)}
 `;
 
@@ -472,7 +450,7 @@ function loginPage(error: string | undefined, csrf: string) {
       <h1><span class="syn"># </span>classifier.dev admin</h1>
       <p class="quote">operator dashboard, password required</p>
       <div>
-        <p><span class="syn">## </span>password</p>
+        <label for="p">Password</label>
         <input id="p" name="password" type="password" autocomplete="current-password" autofocus required>
       </div>
       <p><button type="submit" class="b"><span class="br">[</span>sign in<span class="br">]</span></button></p>
@@ -481,382 +459,95 @@ function loginPage(error: string | undefined, csrf: string) {
   );
 }
 
-/** What each reason code means, in the words the caller would use. */
-const REASON_TEXT: Record<string, string> = {
-  bad_json: "body was not valid JSON",
-  no_input: "no text to classify",
-  too_many_inputs: "over 1,000 inputs",
-  too_few_labels: "fewer than 2 labels",
-  too_many_labels: "over 100 labels",
-  empty_label: "a label was empty or not a string",
-  duplicate_labels: "labels were not distinct",
-  empty_input: "an input was empty or not a string",
-  input_too_long: "an input was over 32,000 characters",
-  rate_limit_minute: "per-minute rate limit",
-  rate_limit_day: "daily rate limit",
-  bad_dimensions: "invalid dimension definitions or conflicting options",
-  too_many_decisions: "too many item × dimension decisions",
-  dimension_context_too_large: "input and dimension exceed the model context",
-  chain_exhausted: "every model in the chain failed",
-  batch_unavailable: "batch too large for the LLM fallback",
-  timeout: "upstream timed out",
-  upstream_other: "other upstream failure",
-};
-const reasonText = (r: string) => REASON_TEXT[r] ?? (r.startsWith("typesafe_") ? `TypeSafe returned ${r.slice(9)}` : r);
-
-function dashboard(range: RangeKey, d: Awaited<ReturnType<typeof load>>, nonce: string) {
+export function dashboard(range: RangeKey, d: AdminData, nonce: string) {
   const t = d.totals[0] ?? {};
-  const requests = num(t.requests);
-  const classifications = num(t.classifications);
-  const spend = num(t.usd);
-  const avgMs = num(t.avg_ms);
-
-  const ok = d.byStatus.filter((r) => String(r.status) === "200").reduce((a, r) => a + num(r.requests), 0);
-  const failed = d.byStatus.filter((r) => String(r.status).startsWith("5")).reduce((a, r) => a + num(r.requests), 0);
-  const rejected = d.byStatus.filter((r) => String(r.status).startsWith("4")).reduce((a, r) => a + num(r.requests), 0);
-  const attempted = ok + failed;
-  const errRate = attempted ? (failed / attempted) * 100 : 0;
-  const rejectionRate = requests ? (rejected / requests) * 100 : 0;
-  const dimSum = (key: string, rows = d.dimensionTraffic) => rows.reduce((n, r) => n + num(r[key]), 0);
-  const dimRequests = dimSum("requests");
-  const dimDecisions = dimSum("classifications");
-  const dim5xx = dimSum("requests", d.dimensionTraffic.filter((r) => String(r.status).startsWith("5")));
-  const dim4xx = dimSum("requests", d.dimensionTraffic.filter((r) => String(r.status).startsWith("4")));
-  const dimOk = dimSum("requests", d.dimensionTraffic.filter((r) => String(r.status) === "200"));
-  const dimPercent = (n: number, total: number) => total ? `${(100 * n / total).toFixed(1)}%` : "0.0%";
-  const per1k = classifications ? (spend / classifications) * 1000 : 0;
-
-  const fmtT = (iso: unknown) => {
-    const s = String(iso ?? "").replace(" ", "T");
-    const dt = new Date(/Z|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`);
-    if (Number.isNaN(dt.getTime())) return String(iso ?? "");
-    return range === "24h" ? `${dt.toISOString().slice(11, 16)}Z` : dt.toISOString().slice(5, 10);
-  };
-
-  const pts = d.series.map((r) => ({ t: fmtT(r.t), reqs: num(r.requests), cls: num(r.classifications), usd: num(r.usd) }));
-
-  const kv = (rows: [string, string, string?][]) =>
-    `<dl class="kv">${rows
-      .map(
-        ([k, v, sub]) =>
-          `<div class="k"><dt>${esc(k)}</dt><dd>${esc(v)}${sub ? ` <span class="sub">${esc(sub)}</span>` : ""}</dd></div>`,
-      )
-      .join("")}</dl>`;
-
-  const h2 = (s: string) => `<h2><span class="syn">## </span>${esc(s)}</h2>`;
-  const tierColor: Record<string, string> = { fast: "var(--blue)", smart: "var(--amber)" };
-  const statusColor = (s: string) => (s === "200" ? "var(--green)" : s.startsWith("4") ? "var(--amber)" : "var(--red)");
-
-  const tabs = (["24h", "7d", "30d"] as RangeKey[])
-    .map((k) => btn(k, { href: `/admin?range=${k}`, cls: k === range ? "on" : "" }))
-    .join("");
-
-  // Failure causes, summed across the client/status split the table keeps.
-  const reasonTotals = new Map<string, { requests: number; status: string }>();
-  for (const r of d.byReason) {
-    const k = String(r.reason);
-    const cur = reasonTotals.get(k) ?? { requests: 0, status: String(r.status ?? "") };
-    cur.requests += num(r.requests);
-    reasonTotals.set(k, cur);
-  }
-  const reasonRows = [...reasonTotals.entries()].sort((a, b) => b[1].requests - a[1].requests);
-
-  // The same numbers as plain text, for the copy control.
-  const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);
-  const report = [
-    `classifier.dev — ${RANGES[range].label} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}Z`,
-    "",
-    `  requests          ${group(requests)}`,
-    `  classifications   ${group(classifications)}`,
-    `  upstream spend    ${usd(spend)}`,
-    `  cost / 1k         ${usd(per1k)}`,
-    `  avg latency       ${ms(avgMs)} (all requests)`,
-    `  server error rate ${errRate.toFixed(1)}%  (${group(failed)} of ${group(attempted)} accepted requests)`,
-    `  rejected requests ${group(rejected)} (${rejectionRate.toFixed(1)}% of traffic; validation or quota)`,
-    `  unique callers    ${group(d.visitors)}`,
-    `  classifiers       ${group(d.labelSets)}`,
-    "  Traffic, spend and latency are sampling-adjusted estimates. Unique counts reflect observed fingerprints.",
-    "",
-    "MULTIDIMENSIONAL CLASSIFICATION",
-    `  requests          ${group(dimRequests)} (${dimPercent(dimRequests, requests)} of traffic)`,
-    `  successful items  ${group(dimSum("items"))}`,
-    `  decisions         ${group(dimDecisions)}`,
-    `  unique callers    ${group(d.dimensionCallers)} (day-scoped)`,
-    `  server failures   ${group(dim5xx)} (${dimPercent(dim5xx, dimOk + dim5xx)} of accepted)`,
-    `  rejected requests ${group(dim4xx)}`,
-    `  uncertain fields  ${group(dimSum("uncertain"))}`,
-    `  fallback fields   ${group(dimSum("fallback"))}`,
-    "",
-    ...(reasonRows.length
-      ? ["WHY REQUESTS FAIL", ...reasonRows.map(([r, v]) => `  ${pad(reasonText(r), 38)} ${group(v.requests)}`), ""]
-      : []),
-    ...(d.byModel.length
-      ? ["BY MODEL", ...d.byModel.map((r) => `  ${pad(String(r.model ?? "?"), 38)} ${group(num(r.requests))}  ${usd(num(r.usd))}`)]
-      : []),
-  ].join("\n");
-
-  const section = (title: string, body: string) => `<section>${h2(title)}${body}</section>`;
-
+  const requests = num(t.requests),
+    classifications = num(t.classifications);
+  const total = (rows: Row[], key: string) =>
+    rows.reduce((n, r) => n + num(r[key]), 0);
+  const failed = total(
+    d.byStatus.filter((r) => String(r.status).startsWith("5")),
+    "requests",
+  );
+  const ok = total(
+    d.byStatus.filter((r) => String(r.status) === "200"),
+    "requests",
+  );
+  const dimFailed = total(
+    d.dimensionTraffic.filter((r) => String(r.status).startsWith("5")),
+    "requests",
+  );
+  const dimOk = total(
+    d.dimensionTraffic.filter((r) => String(r.status) === "200"),
+    "requests",
+  );
+  const rate = (n: number, total: number) =>
+    total ? `${((n / total) * 100).toFixed(1)}%` : "—";
+  const kv = (rows: [string, string][]) =>
+    `<dl class="kv">${rows.map(([k, v]) => `<div class="k"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>`;
+  const unavailable = (key: string, content: string) =>
+    d.unavailable.includes(key)
+      ? `<p>Data unavailable. Refresh to retry.</p>`
+      : content;
+  const table = (name: string, rows: Row[], keys: string[], query: string) =>
+    `<details><summary>${esc(name)}</summary>${unavailable(query, rows.length ? `<div class="scroll"><table><thead><tr>${keys.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${keys.map((k) => `<td>${esc(k === "reason" ? reasonText(String(r[k] || "")) : (r[k] ?? "—"))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<p>No activity in this period.</p>`)}</details>`;
+  const body = `<div class="page"><article class="doc">
+<h1>API analytics</h1><p>${esc(RANGES[range].label)} · ${esc(d.generatedAt)} · UTC</p>
+<nav aria-label="Time range"><a href="/admin?range=24h">24h</a> · <a href="/admin?range=7d">7d</a> · <a href="/admin?range=30d">30d</a> · <a href="/admin?logout=1">Sign out</a></nav>
+<noscript><p>Enable JavaScript for interactive charts. The data report is available below.</p></noscript>
+${d.errors.length ? `<p role="alert">some panels are empty because data is unavailable. Refresh to retry. ${esc(d.errors.join(" · ").slice(0, 300))}</p>` : ""}
+<section><h2>Totals</h2>${unavailable(
+    "totals",
+    kv([
+      ["requests", group(requests)],
+      ["classifications", group(classifications)],
+      ["upstream spend", usd(num(t.usd))],
+      ["avg latency", ms(num(t.avg_ms))],
+    ]),
+  )}${unavailable(
+    "byStatus",
+    kv([
+      ["server error rate", rate(failed, ok + failed)],
+      [
+        "rejected requests",
+        group(
+          total(
+            d.byStatus.filter((r) => String(r.status).startsWith("4")),
+            "requests",
+          ),
+        ),
+      ],
+    ]),
+  )}<p>Traffic, spend and latency are sampling-adjusted estimates. Caller identifiers rotate daily; counts reflect observed caller-days, not unique people.</p></section>
+<section><h2>Multidimensional classification</h2>${unavailable(
+    "dimensionTraffic",
+    kv([
+      ["requests", group(total(d.dimensionTraffic, "requests"))],
+      ["successful items", group(total(d.dimensionTraffic, "items"))],
+      ["decisions", group(total(d.dimensionTraffic, "classifications"))],
+      ["uncertain fields", group(total(d.dimensionTraffic, "uncertain"))],
+      ["fallback fields", group(total(d.dimensionTraffic, "fallback"))],
+      [
+        "server failures",
+        `${group(dimFailed)} (${rate(dimFailed, dimOk + dimFailed)} of accepted)`,
+      ],
+    ]),
+  )}</section>
+${table("Traffic buckets", d.series, ["t", "requests", "classifications", "usd"], "series")}
+${table("Accepted-request performance", d.performance, ["t", "avg_ms", "batch_size"], "performance")}
+${table("Models", d.byModel, ["model", "requests", "classifications", "usd", "avg_ms"], "byModel")}
+${table("Tiers", d.byTier, ["tier", "requests", "classifications", "usd", "avg_ms"], "byTier")}
+${table("Failure causes", d.byReason, ["reason", "status", "agent", "requests"], "byReason")}
+${table("Dimension outcomes", d.dimensionTraffic, ["status", "reason", "requests", "uncertain", "fallback"], "dimensionTraffic")}
+${table("Clients", d.byAgent, ["agent", "requests", "classifications"], "byAgent")}
+${table("Countries", d.byCountry, ["country", "requests"], "byCountry")}
+${table("Busiest classifiers", d.topLabels, ["labels", "requests", "classifications", "usd"], "topLabels")}
+</article></div>`;
   return shell(
     "admin · classifier.dev",
-    `<div class="page"><article class="doc">
-  <h1><span class="syn"># </span>classifier.dev admin</h1>
-  <p class="quote">${esc(RANGES[range].label)}, generated ${esc(new Date().toISOString().slice(0, 16).replace("T", " "))}Z</p>
-
-  <p class="row">${tabs}${btn("copy report", {
-      cls: "dim",
-      icon: COPY_ICON,
-      attrs: ' id="copy" aria-label="Copy these figures to your clipboard"',
-    })}${btn("sign out", { href: "/admin?logout=1", cls: "dim" })}</p>
-
-  ${d.errors.length ? `<p class="note"><b>some panels are empty.</b> analytics engine returned: ${esc(d.errors.join(" · ").slice(0, 300))}</p>` : ""}
-  ${
-    spend === 0 && requests > 0
-      ? `<p class="note">spend reads <b>$0</b>, and failures have no recorded cause, for traffic served before this instrumentation shipped — both are real only after that deploy.</p>`
-      : ""
-  }
-
-  ${section(
-    "Totals",
-    `<p class="quote">Traffic, spend and latency are sampling-adjusted estimates. Unique counts reflect observed fingerprints.</p>` + kv([
-      ["requests", group(requests)],
-      ["classifications", group(classifications), requests ? `${(classifications / requests).toFixed(1)}/received req` : ""],
-      ["upstream spend", usd(spend), "provider-reported"],
-      ["cost / 1k", usd(per1k)],
-      ["avg latency", ms(avgMs), "all requests"],
-      ["server error rate", `${errRate.toFixed(1)}%`, `${group(failed)} of ${group(attempted)} accepted`],
-      ["rejected requests", group(rejected), `${rejectionRate.toFixed(1)}% of traffic; validation or quota`],
-      ["unique callers", group(d.visitors), range === "24h" ? "" : "counts caller-days"],
-      ["classifiers", group(d.labelSets)],
-    ]),
-  )}
-
-  ${section(
-    "Multidimensional classification",
-    `<p class="quote">Each item × dimension is one decision. Counts start when this feature shipped; caller text and dimension names are never stored.</p>` +
-    kv([
-      ["requests", group(dimRequests), `${dimPercent(dimRequests, requests)} of all requests`],
-      ["successful requests", group(dimOk)],
-      ["successful items", group(dimSum("items"))],
-      ["decisions", group(dimDecisions)],
-      ["unique callers", group(d.dimensionCallers), range === "24h" ? "day-scoped" : "counts caller-days"],
-      ["server failures", group(dim5xx), `${dimPercent(dim5xx, dimOk + dim5xx)} of accepted`],
-      ["rejected requests", group(dim4xx), "validation or quota"],
-      ["uncertain fields", group(dimSum("uncertain")), "confidence < 0.7 or unscored"],
-      ["fallback fields", group(dimSum("fallback")), "Jev unavailable"],
-      ["upstream spend", usd(dimSum("usd"))],
-      ["avg latency", ms(dimRequests ? dimSum("ms_sum") / dimRequests : 0), "all requests"],
-    ]) +
-    areaChart("dimensions", d.dimensionSeries.map((r) => ({ t: fmtT(r.t), v: num(r.classifications) })), "var(--blue)", group) +
-    `<p class="sub">Decisions over time</p>` +
-    (d.dimensionTraffic.some((r) => String(r.status) !== "200") ?
-      `<div class="scroll"><table><thead><tr><th>failure cause</th><th>status</th><th>requests</th></tr></thead><tbody>${d.dimensionTraffic.filter((r) => String(r.status) !== "200").map((r) =>
-        `<tr><td>${esc(reasonText(String(r.reason || "unknown")))}</td><td>${esc(r.status)}</td><td>${group(num(r.requests))}</td></tr>`).join("")}</tbody></table></div>` :
-      `<div class="empty">no multidimensional failures recorded in this range</div>`),
-  )}
-
-  ${section("Requests over time", areaChart("req", pts.map((p) => ({ t: p.t, v: p.reqs })), "var(--blue)", group))}
-  ${section("Upstream spend over time", areaChart("usd", pts.map((p) => ({ t: p.t, v: p.usd })), "var(--amber)", usd))}
-
-  ${section(
-    "Why requests fail",
-    (reasonRows.length
-      ? barList(
-          reasonRows.map(([reason, v]) => ({
-            name: reasonText(reason),
-            value: v.requests,
-            color: v.status.startsWith("5") ? "var(--red)" : "var(--amber)",
-          })),
-          group,
-        )
-      : `<div class="empty">no failures recorded in this range</div>`) +
-      `<details><summary>by client and status</summary><div class="scroll"><table>
-      <thead><tr><th>cause</th><th>client</th><th>status</th><th>requests</th><th>avg inputs</th></tr></thead><tbody>
-      ${
-        d.byReason.length
-          ? d.byReason
-              .slice(0, 25)
-              .map(
-                (r) =>
-                  `<tr><td>${esc(reasonText(String(r.reason)))}</td><td>${esc(r.agent || "?")}</td><td>${esc(
-                    r.status || "?",
-                  )}</td><td>${group(num(r.requests))}</td><td>${num(r.avg_inputs).toFixed(1)}</td></tr>`,
-              )
-              .join("")
-          : `<tr><td colspan="5" class="empty">nothing yet</td></tr>`
-      }
-      </tbody></table></div></details>`,
-  )}
-
-  ${section(
-    "By tier",
-    barList(
-      d.byTier.map((r) => ({
-        name: String(r.tier || "?"),
-        value: num(r.requests),
-        note: `${usd(num(r.usd))} · ${ms(num(r.avg_ms))}`,
-        color: tierColor[String(r.tier)] ?? "var(--blue)",
-      })),
-      group,
-    ),
-  )}
-
-  ${section(
-    "By model",
-    barList(
-      d.byModel.map((r) => ({
-        name: String(r.model || "?"),
-        value: num(r.requests),
-        note: usd(num(r.usd)),
-        color: "var(--blue)",
-      })),
-      group,
-    ),
-  )}
-
-  ${section(
-    "By status",
-    barList(
-      d.byStatus.map((r) => ({ name: String(r.status || "?"), value: num(r.requests), color: statusColor(String(r.status)) })),
-      group,
-    ),
-  )}
-
-  ${section(
-    "By client",
-    barList(
-      d.byAgent.map((r) => ({
-        name: String(r.agent || "?"),
-        value: num(r.requests),
-        note: `${group(num(r.classifications))} cls`,
-        color: "var(--blue)",
-      })),
-      group,
-    ),
-  )}
-
-  ${section(
-    "By country",
-    barList(
-      d.byCountry.map((r) => ({ name: String(r.country || "??"), value: num(r.requests), color: "var(--green)" })),
-      group,
-    ),
-  )}
-
-  ${section(
-    "Classifiers that fail",
-    `<div class="scroll"><table><thead><tr><th>classifier</th><th>cause</th><th>requests</th></tr></thead><tbody>
-    ${
-      d.failLabels.length
-        ? d.failLabels
-            .map(
-              (r) =>
-                `<tr><td class="lab" title="${esc(r.labels)}">${esc(r.labels)}</td><td>${esc(
-                  reasonText(String(r.reason)),
-                )}</td><td>${group(num(r.requests))}</td></tr>`,
-            )
-            .join("")
-        : `<tr><td colspan="3" class="empty">nothing yet</td></tr>`
-    }
-    </tbody></table></div>`,
-  )}
-
-  ${section(
-    "Public vs enterprise",
-    `<div class="scroll"><table><thead><tr><th>client</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
-    ${
-      d.byClient.length
-        ? d.byClient
-            .map(
-              (r) =>
-                `<tr><td>${esc(r.client || "public")}</td><td>${group(num(r.requests))}</td><td>${group(
-                  num(r.classifications),
-                )}</td><td>${esc(usd(num(r.usd)))}</td></tr>`,
-            )
-            .join("")
-        : `<tr><td colspan="4" class="empty">nothing yet</td></tr>`
-    }
-    </tbody></table></div>`,
-  )}
-
-  ${section(
-    "Busiest classifiers",
-    `<p class="note">a classifier is a keyed fingerprint of the label set. the labels themselves are never recorded — see <code>src/privacy.ts</code>.</p><div class="scroll"><table><thead><tr><th>classifier</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
-    ${
-      d.topLabels.length
-        ? d.topLabels
-            .map(
-              (r) =>
-                `<tr><td class="lab" title="${esc(r.labels)}">${esc(r.labels)}</td><td>${group(
-                  num(r.requests),
-                )}</td><td>${group(num(r.classifications))}</td><td>${esc(usd(num(r.usd)))}</td></tr>`,
-            )
-            .join("")
-        : `<tr><td colspan="4" class="empty">nothing yet</td></tr>`
-    }
-    </tbody></table></div>`,
-  )}
-
-  ${section(
-    "The numbers behind the charts",
-    `<details><summary>every bucket (${pts.length})</summary><div class="scroll"><table>
-    <thead><tr><th>bucket</th><th>requests</th><th>classifications</th><th>spend</th></tr></thead><tbody>
-    ${pts
-      .map((p) => `<tr><td>${esc(p.t)}</td><td>${group(p.reqs)}</td><td>${group(p.cls)}</td><td>${esc(usd(p.usd))}</td></tr>`)
-      .join("")}
-    </tbody></table></div></details>`,
-  )}
-  <details><summary>multidimensional buckets (${d.dimensionSeries.length})</summary><div class="scroll"><table>
-  <thead><tr><th>bucket</th><th>requests</th><th>decisions</th></tr></thead><tbody>
-  ${d.dimensionSeries.map((r) => `<tr><td>${esc(fmtT(r.t))}</td><td>${group(num(r.requests))}</td><td>${group(num(r.classifications))}</td></tr>`).join("")}
-  </tbody></table></div></details>
-</article></div>`,
-    `<script nonce="${nonce}">
-const DATA = ${JSON.stringify({
-      req: pts.map((p) => [p.t, `${group(p.reqs)} requests`]),
-      usd: pts.map((p) => [p.t, `${usd(p.usd)} spend`]),
-      dimensions: d.dimensionSeries.map((r) => [fmtT(r.t), `${group(num(r.classifications))} decisions`]),
-    }).replace(/</g, "\\u003c")};
-const REPORT = ${JSON.stringify(report).replace(/</g, "\\u003c")};
-const copy = document.getElementById("copy");
-if (copy) copy.addEventListener("click", async () => {
-  const label = copy.querySelector(".lbl");
-  try { await navigator.clipboard.writeText(REPORT); label.textContent = "copied"; }
-  catch { label.textContent = "press ctrl+c"; }
-  setTimeout(() => { label.textContent = "copy report"; }, 1600);
-});
-for (const wrap of document.querySelectorAll(".chartwrap")) {
-  const key = wrap.dataset.chart, svg = wrap.querySelector("svg");
-  if (!svg || !DATA[key]) continue;
-  const cross = svg.querySelector(".cross"), dot = svg.querySelector(".dot"), tip = wrap.querySelector(".tip");
-  const line = svg.querySelector("path[stroke]"), hits = svg.querySelectorAll(".hit");
-  const show = (i, rect) => {
-    const row = DATA[key][i], h = hits[i];
-    if (!row || !h) return;
-    const cx = +h.getAttribute("x") + +h.getAttribute("width") / 2;
-    // Walk the path to the x we want; cheap enough at these point counts.
-    let lo = 0, hi = line.getTotalLength(), pt = line.getPointAtLength(0);
-    for (let k = 0; k < 18; k++) { const mid = (lo + hi) / 2; pt = line.getPointAtLength(mid);
-      if (pt.x < cx) lo = mid; else hi = mid; }
-    cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.style.display = "";
-    dot.setAttribute("cx", pt.x); dot.setAttribute("cy", pt.y); dot.style.display = "";
-    tip.hidden = false; tip.textContent = row[0] + "  " + row[1];
-    tip.style.left = (pt.x / 760 * rect.width) + "px";
-    tip.style.top = (pt.y / 190 * rect.height) + "px";
-  };
-  svg.addEventListener("mousemove", (e) => {
-    const rect = svg.getBoundingClientRect();
-    const xr = (e.clientX - rect.left) / rect.width * 760;
-    let best = 0, bd = Infinity;
-    hits.forEach((h, i) => { const c = +h.getAttribute("x") + +h.getAttribute("width") / 2;
-      const dd = Math.abs(c - xr); if (dd < bd) { bd = dd; best = i; } });
-    show(best, rect);
-  });
-  svg.addEventListener("mouseleave", () => {
-    cross.style.display = "none"; dot.style.display = "none"; tip.hidden = true;
-  });
-}
-</script>`,
+    body,
+    `<link rel="stylesheet" href="/admin-assets/admin.css">
+<script nonce="${nonce}" src="/admin-assets/admin.js" defer data-admin="${esc(JSON.stringify({ range, data: d }))}"></script>`,
   );
 }
 
@@ -876,7 +567,7 @@ function securityHeaders(nonce?: string): Record<string, string> {
   const csp = [
     "default-src 'none'",
     nonce ? `script-src 'nonce-${nonce}'` : "script-src 'none'",
-    "style-src 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "form-action 'self'",
     "base-uri 'none'",
