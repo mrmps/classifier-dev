@@ -16,7 +16,7 @@ export function useAnalytics(
     enabled,
     queryFn: async () => {
       const { getUsageAnalytics } = await import("./usage.functions");
-      return getUsageAnalytics({ data: { kind, params } });
+      return getUsageAnalytics({ data: { workspaceId: accountId, kind, params } });
     },
   });
   return {

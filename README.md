@@ -170,22 +170,22 @@ and are never returned from signup. Resend's idempotency key deduplicates repeat
 requests for the same inbox within each clock hour. Existing per-IP limits also
 apply. Signing-key rotation invalidates outstanding links.
 
-Apply `migrations/001-newsletter-confirmation.sql` to the separate newsletter
-Neon project before deploying. Existing subscribers remain unconfirmed; do not
+Apply `migrations/postgres/` with `npm run db:migrate` before deploying. The
+subscriber table shares the application database. Existing unconfirmed subscribers stay unconfirmed; do not
 backfill `confirmed_at` or send them updates until they confirm. An existing
 unsubscribe is never cleared by confirmation or by replaying an old token.
 
-Required Worker secrets: `NEWSLETTER_DATABASE_URL`, `NEWSLETTER_RESEND_API_KEY`, and a
+Required Worker secrets: `DATABASE_URL`, `NEWSLETTER_RESEND_API_KEY`, and a
 random `NEWSLETTER_CONFIRMATION_SECRET` of at least 32 bytes. `NEWSLETTER_FROM`
 in `wrangler.example.toml` must use a verified Resend sending domain. `REPORT_TO`
 is the reply address and receives notifications only for newly confirmed rows.
 
-The database holds email, source, signup/confirmation/unsubscribe dates, which
+The subscriber table holds email, source, signup/confirmation/unsubscribe dates, which
 roadmap items were ticked (`wants text[]`, holding `ROADMAP` keys; the ticks
 ride in the confirmation token and are written on confirmation), and an
 internal id. It holds no IP, request id, or classification traffic. Pending
 signups are not stored. Tokens and mail-provider error bodies must not be logged.
-`migrations/002-newsletter-wants.sql` adds the column; a repeat confirmation
+`migrations/postgres/0007_newsletter.sql` defines the table; a repeat confirmation
 replaces the ticks only when it ticked something, and never clears an
 unsubscribe or moves the first confirmation date.
 
@@ -199,15 +199,11 @@ What people asked for first, to order the work by:
     SELECT unnest(wants) AS item, count(*) FROM subscriber
     WHERE unsubscribed_at IS NULL GROUP BY 1 ORDER BY 2 DESC;
 
-The Worker connects as `newsletter_writer`, which can insert and update
-confirmation state and the ticks on that one table. Do not read more into that than it deserves: Neon
-puts every role it creates into `neon_superuser`, which can read any table
-whatever the grants say, and neither the project owner nor `ALTER ROLE` can
-revoke that membership. So the connection string can in fact read the list.
-What actually keeps the addresses apart is the separate project and the absent
-columns, not the grant. To rotate the credential, delete and recreate the role
-(`neonctl roles delete newsletter_writer`, then `create`) and put the new
-string back with `wrangler secret put`.
+The Worker uses the application `DATABASE_URL` for newsletter and account data.
+Subscriber rows have no account foreign key or API traffic identifier; sharing
+storage does not subscribe account holders or change existing consent. The old
+newsletter project is retained as a read-only migration archive. See
+`docs/postgres-setup.md` for the verified cutover and recovery procedure.
 
 The copy is one constant — `ROADMAP` in `src/newsletter.ts`. The plain text at
 `curl classifier.dev`, the form on the rendered page and `index.md` all read it,

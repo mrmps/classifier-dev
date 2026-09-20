@@ -26,6 +26,7 @@
     }
   },
   "include": [
+    "drizzle/**/*.ts",
     "src/**/*.ts",
     "src/**/*.tsx"
   ]

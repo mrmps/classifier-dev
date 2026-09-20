@@ -1,4 +1,4 @@
-import { neon, types } from "@neondatabase/serverless";
+import { neon, types, type CustomTypesConfig } from "@neondatabase/serverless";
 import type { AccountAnalyticsEnv } from "./analytics/contracts";
 
 // Postgres returns int8 (including COUNT/SUM) as text by default. Credits must
@@ -9,8 +9,6 @@ export function parseCreditInteger(value: string): number {
     throw new Error("Database integer exceeds the safe range.");
   return number;
 }
-types.setTypeParser(20, parseCreditInteger);
-types.setTypeParser(1700, parseCreditInteger);
 
 export interface QueryResult<T = Record<string, unknown>> {
   results: T[];
@@ -102,8 +100,16 @@ export function postgresDatabase(execute: PostgresExecutor): AppDatabase {
 
 export function neonDatabase(databaseUrl: string): AppDatabase {
   const sql = neon(databaseUrl, { fullResults: true });
+  // This adapter exposes safe JS integers. Keep its parsers query-local so
+  // Drizzle and other clients retain exact string representations of int8.
+  const accountTypes: CustomTypesConfig = {
+    getTypeParser: (id, format) =>
+      (id === 20 || id === 1700) && format !== "binary"
+        ? parseCreditInteger
+        : types.getTypeParser(id, format),
+  };
   return postgresDatabase(async (queries, transaction) => {
-    const pending = queries.map((query) => sql.query(query.sql, query.params));
+    const pending = queries.map((query) => sql.query(query.sql, query.params, { types: accountTypes }));
     const results = transaction
       ? await sql.transaction(pending, {
           isolationLevel: "Serializable",

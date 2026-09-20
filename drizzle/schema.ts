@@ -1,6 +1,15 @@
 import { pgTable, text, timestamp, foreignKey, index, unique, bigint, check, uniqueIndex, integer, jsonb, boolean, primaryKey } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
+export const subscriber = pgTable("subscriber", {
+  id: bigint({ mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  email: text().notNull().unique(),
+  source: text().notNull().default("site"),
+  wants: text().array().notNull().default(sql`'{}'`),
+  created_at: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  confirmed_at: timestamp({ withTimezone: true, mode: "string" }),
+  unsubscribed_at: timestamp({ withTimezone: true, mode: "string" }),
+});
 
 
 export const app_schema_migrations = pgTable("app_schema_migrations", {
@@ -26,10 +35,8 @@ export const app_transactions = pgTable("app_transactions", {
 	account_id: text().notNull(),
 	idempotency_key: text().notNull(),
 	kind: text().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	amount_cents: bigint({ mode: "number" }).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	credits: bigint({ mode: "number" }).notNull(),
+	amount_cents: bigint({ mode: "bigint" }).notNull(),
+	credits: bigint({ mode: "bigint" }).notNull(),
 	created_at: text().notNull(),
 	plan_id: text(),
 }, (table) => [
@@ -86,23 +93,16 @@ export const app_usage = pgTable("app_usage", {
 	account_id: text().notNull(),
 	agent_id: text().notNull(),
 	items: integer().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	credits: bigint({ mode: "number" }).notNull(),
+	credits: bigint({ mode: "bigint" }).notNull(),
 	status: text().default('pending').notNull(),
 	created_at: text().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	paid_credits: bigint({ mode: "number" }).default(0).notNull(),
+	paid_credits: bigint({ mode: "bigint" }).default(sql`0`).notNull(),
 	usage_type: text().default('classification').notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	input_tokens: bigint({ mode: "number" }),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	output_tokens: bigint({ mode: "number" }),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	reserved_credits: bigint({ mode: "number" }),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	reserved_paid_credits: bigint({ mode: "number" }),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	actual_nano: bigint({ mode: "number" }),
+	input_tokens: bigint({ mode: "bigint" }),
+	output_tokens: bigint({ mode: "bigint" }),
+	reserved_credits: bigint({ mode: "bigint" }),
+	reserved_paid_credits: bigint({ mode: "bigint" }),
+	actual_nano: bigint({ mode: "bigint" }),
 	rate_version: text(),
 	metering_mode: text().default('credits').notNull(),
 	reporting_status: text().default('not_ready').notNull(),
@@ -131,10 +131,8 @@ export const app_agents = pgTable("app_agents", {
 	name: text().notNull(),
 	client: text().notNull(),
 	status: text().default('pending').notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	credit_limit: bigint({ mode: "number" }).default(1000).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	used: bigint({ mode: "number" }).default(0).notNull(),
+	credit_limit: bigint({ mode: "bigint" }).default(sql`1000`).notNull(),
+	used: bigint({ mode: "bigint" }).default(sql`0`).notNull(),
 	token_hash: text().notNull(),
 	prefix: text().notNull(),
 	created_at: text().notNull(),
@@ -153,8 +151,7 @@ export const app_agents = pgTable("app_agents", {
 export const app_autumn_customers = pgTable("app_autumn_customers", {
 	account_id: text().primaryKey().notNull(),
 	customer_id: text().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	revision: bigint({ mode: "number" }).default(0).notNull(),
+	revision: bigint({ mode: "bigint" }).default(sql`0`).notNull(),
 	snapshot: jsonb(),
 	synced_at: text(),
 	identity_verified_at: text(),
@@ -178,10 +175,8 @@ export const app_autumn_events = pgTable("app_autumn_events", {
 export const app_autumn_grants = pgTable("app_autumn_grants", {
 	invoice_id: text().primaryKey().notNull(),
 	account_id: text().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	period_start: bigint({ mode: "number" }).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	period_end: bigint({ mode: "number" }).notNull(),
+	period_start: bigint({ mode: "bigint" }).notNull(),
+	period_end: bigint({ mode: "bigint" }).notNull(),
 	operation_id: text().notNull(),
 	created_at: text().notNull(),
 	revoked_at: text(),
@@ -205,17 +200,14 @@ export const app_accounts = pgTable("app_accounts", {
 	id: text().primaryKey().notNull(),
 	email: text().notNull(),
 	name: text().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	balance: bigint({ mode: "number" }).default(0).notNull(),
+	balance: bigint({ mode: "bigint" }).default(sql`0`).notNull(),
 	bonus_granted: integer().default(0).notNull(),
 	intent: text().default('agent').notNull(),
 	reset_at: text().notNull(),
 	created_at: text().notNull(),
 	period_start: text(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	bonus_active: bigint({ mode: "number" }).default(0).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	paid_balance: bigint({ mode: "number" }).default(0).notNull(),
+	bonus_active: bigint({ mode: "bigint" }).default(sql`0`).notNull(),
+	paid_balance: bigint({ mode: "bigint" }).default(sql`0`).notNull(),
 	billing_plan: text().default('free').notNull(),
 	cancel_at_period_end: integer().default(0).notNull(),
 	auto_top_up_enabled: integer().default(0).notNull(),
@@ -224,8 +216,7 @@ export const app_accounts = pgTable("app_accounts", {
 	auto_top_up_cap_cents: integer().default(5000).notNull(),
 	scheduled_plan: text(),
 	billing_revision: integer().default(0).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	fractional_spend_nano: bigint({ mode: "number" }).default(0).notNull(),
+	fractional_spend_nano: bigint({ mode: "bigint" }).default(sql`0`).notNull(),
 	default_key_provisioned: boolean().default(false).notNull(),
 	billing_hold: boolean().default(false).notNull(),
 	signup_granted_at: text(),

@@ -72,12 +72,8 @@ export interface Env extends BillingEnv {
    * checked. A Wrangler secret, never in the repository.
    */
   OPENAI_APPS_CHALLENGE?: string;
-  /**
-   * Postgres for the updates list, and nothing else. A separate Neon project on
-   * purpose: the addresses share a database with no other data, so there is
-   * nothing they could be joined against.
-   */
-  NEWSLETTER_DATABASE_URL?: string;
+  /** Shared application Postgres, including the subscriber table. */
+  DATABASE_URL?: string;
   NEWSLETTER_CONFIRMATION_SECRET?: string;
   NEWSLETTER_FROM?: string;
   NEWSLETTER_RESEND_API_KEY?: string;

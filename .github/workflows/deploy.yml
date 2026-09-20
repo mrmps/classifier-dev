@@ -48,6 +48,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Worker tests
+        env:
+          NEON_MIGRATION_TEST_URL: ${{ secrets.NEON_MIGRATION_TEST_URL }}
         run: npm test
       - name: CLI tests
         run: node --test
@@ -95,6 +97,19 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}
         run: npm run db:migrate
+
+      - name: Require verified newsletter cutover
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun scripts/check-newsletter-cutover.ts
+
+      # Open the verified destination before publishing code that writes to it.
+      # If activation fails, no new Worker is published. Once activated, this
+      # step is idempotent and normal subscriber changes are allowed.
+      - name: Activate verified newsletter database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun scripts/check-newsletter-cutover.ts --activate
 
       - name: Deploy
         env:

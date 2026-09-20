@@ -581,7 +581,7 @@ WORKSPACES, API KEYS AND ACTIVITY
   stores your account ID, email, display name, memberships, invitations,
   workspace settings, key names, usage and billing records. Workspace members
   can see the workspace's keys and activity according to their permissions.
-  Account and newsletter data use separate databases.
+  Account and newsletter data use separate tables in the same database.
 
   Workspace API keys are stored as a hash for authentication and as an
   encrypted secret so owners and admins can reveal or copy them later.
@@ -610,10 +610,10 @@ WORKSPACES, API KEYS AND ACTIVITY
 IF YOU ASK FOR UPDATES
 
   The updates form keeps the address you typed, the date, the signup source
-  and what you ticked, in a separate database with no other table in it. The
-  row holds no IP, user agent or request id, so there is nothing an address
-  could be joined on. Your IP gates the form as it gates the API and is not
-  stored beside the address.
+  and what you ticked, in the subscriber table of our application database.
+  Newsletter consent is independent of your account. The subscriber row holds
+  no IP, user agent, request id or workspace ID. Your IP gates the form as it
+  gates the API and is not stored beside the address.
 
   The updates bar on the home page keeps one flag in your browser's local
   storage: that you closed it. It never leaves the browser.
@@ -646,8 +646,8 @@ PRO BILLING
 
   Autumn and Stripe handle subscriptions and payments. Workspace billing
   state and credit adjustments are stored in Neon; the older Pro billing
-  flow uses separate Cloudflare Durable Object storage. These systems are
-  separate from the newsletter database. Payment details are entered in
+  flow uses separate Cloudflare Durable Object storage. Newsletter consent is
+  stored independently in the subscriber table. Payment details are entered in
   Stripe checkout. Billing identity is not added to the anonymous public
   service logs; authenticated workspace usage is linked to the workspace
   for billing and reporting as described above.

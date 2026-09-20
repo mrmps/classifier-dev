@@ -11,7 +11,7 @@ import worker, { type Env } from "../src/index";
 import { OPENAPI } from "../src/openapi";
 
 const CONN = "postgresql://writer:pw@ep-test.us-east-1.aws.neon.tech/neondb?sslmode=require";
-const env = { NEWSLETTER_DATABASE_URL: CONN, NEWSLETTER_CONFIRMATION_SECRET: "test-secret-long-enough-for-confirmation", NEWSLETTER_RESEND_API_KEY: "test-resend", NEWSLETTER_FROM: "classifier.dev <updates@classifier.dev>" } as Env;
+const env = { DATABASE_URL: CONN, NEWSLETTER_CONFIRMATION_SECRET: "test-secret-long-enough-for-confirmation", NEWSLETTER_RESEND_API_KEY: "test-resend", NEWSLETTER_FROM: "classifier.dev <updates@classifier.dev>" } as Env;
 
 let realFetch: typeof globalThis.fetch;
 beforeEach(() => void (realFetch = globalThis.fetch));
