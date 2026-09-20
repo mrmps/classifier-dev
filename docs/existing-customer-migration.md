@@ -48,6 +48,9 @@ to Autumn or Stripe.
 - Stripe still had exactly 5 active $20/month subscriptions, none canceling.
 - Observed the live signed-in Pro dashboard with its $20 balance and existing
   renewal date, and the separate non-paying dashboard showing Free.
+- Retried initial identity verification through the live paid dashboard. It
+  recovered the original mapping and retained its balance; Autumn still had
+  exactly 17 customers, all with their original legacy IDs.
 - Unit coverage includes conflicting identities, unverified email, provider
   failures, exhausted signup allowance and duplicate-checkout prevention. The
   duplicate-checkout regression test failed when its guard was disabled and
@@ -55,8 +58,8 @@ to Autumn or Stripe.
   initial links with one customer mapping and one paid grant.
 
 Snapshot before migration: `pre-existing-customer-link-2026-09-20`
-(`snap-lively-breeze-a6hnlig4`). Deployment:
-`8a89b8a1-b15a-425f-9990-249f1df496d1`.
+(`snap-lively-breeze-a6hnlig4`). Final deployment, including the updated #79
+prerequisite: `5bcc39b0-f350-4e15-a8ad-8aecfafaa8e0`.
 
 No new purchase or cancellation was exercised against real customers. Legacy
 key compatibility was checked through the existing automated billing suite;
