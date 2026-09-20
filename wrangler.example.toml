@@ -44,7 +44,7 @@ dataset = "classifier_account_events"
 
 [vars]
 # Enable only after account migration, pricing and Autumn reconciliation checks.
-APP_ACCOUNTS_ENABLED = "false"
+APP_ACCOUNTS_ENABLED = "true"
 ACCOUNT_ANALYTICS_CONTENT_ENABLED = "false"
 # Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.
 AI_GATEWAY_DISABLED = "true"

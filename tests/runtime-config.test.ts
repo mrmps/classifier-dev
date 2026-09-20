@@ -32,7 +32,7 @@ test("production rendering uses PostgreSQL secrets and preserves closed account 
   const config = Bun.TOML.parse(result.toml!) as any;
   expect(config.main).toBe("src/server.ts");
   expect(config.d1_databases).toBeUndefined();
-  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("false");
+  expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("true");
   expect(config.vars.DATABASE_URL).toBeUndefined();
   expect(config.secrets.required).toContain("DATABASE_URL");
   expect(config.secrets.required).not.toContain("DATABASE_URL_UNPOOLED");

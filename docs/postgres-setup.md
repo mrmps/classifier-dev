@@ -3,7 +3,8 @@
 The dashboard uses PostgreSQL through Neon's HTTP driver. `DATABASE_URL` is the
 connection secret; `APP_DB` is an application adapter created from that secret,
 not a Cloudflare D1 binding. Account mutations stay disabled in production until
-`APP_ACCOUNTS_ENABLED` is explicitly enabled after migration and billing checks.
+`APP_ACCOUNTS_ENABLED` is enabled in the production template after migration,
+hosted sign-in, billing, and signed-webhook checks pass.
 
 ## Development
 
