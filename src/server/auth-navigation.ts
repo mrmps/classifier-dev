@@ -17,7 +17,9 @@ function cookie(name: string, value: string, request: Request, maxAge: number) {
 export async function authNavigationResponse(url: string, returnTo: string, request: Request) {
   const headers = new Headers({ Location: url });
   const name = await returnCookieName(new URL(url));
-  if (name) headers.append("Set-Cookie", cookie(name, encodeURIComponent(authReturnPath(returnTo)), request, 600));
+  // Outlive the ten-minute PKCE cookie so an expired sign-in can still retry
+  // its destination. This navigation hint contains no credentials.
+  if (name) headers.append("Set-Cookie", cookie(name, encodeURIComponent(authReturnPath(returnTo)), request, 3600));
   return new Response(null, { status: 302, headers });
 }
 

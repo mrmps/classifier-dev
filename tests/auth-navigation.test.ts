@@ -7,7 +7,7 @@ test("failed login remembers only its own safe destination and expires the navig
   const second = await authNavigationResponse("https://auth.test?state=second", "/app/usage", request);
   const cookies = [first, second].map(response => response.headers.get("Set-Cookie")!.split(";")[0]);
   expect(cookies[0].split("=")[0]).not.toBe(cookies[1].split("=")[0]);
-  expect(first.headers.get("Set-Cookie")).toContain("HttpOnly; SameSite=Lax; Max-Age=600; Secure");
+  expect(first.headers.get("Set-Cookie")).toContain("HttpOnly; SameSite=Lax; Max-Age=3600; Secure");
   for (const [state, destination] of [["first", "/app/plans"], ["second", "/app/usage"], ["missing", "/app"]]) {
     const navigation = await callbackNavigation(new Request(`https://example.test/api/auth/callback?state=${state}`, { headers: { Cookie: cookies.join("; ") } }));
     expect(navigation.errorRedirectUrl).toBe(`/login?error=auth_failed&returnTo=${encodeURIComponent(destination)}`);
