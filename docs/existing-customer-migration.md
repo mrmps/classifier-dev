@@ -69,9 +69,31 @@ Revoke disposable keys afterwards; never substitute a real customer's secret.
   passed after restoration. Native PostgreSQL coverage includes 20 simultaneous
   initial links with one customer mapping and one paid grant.
 
+### End-to-end billing follow-up
+
+- Replaced the under-scoped CLI runtime credential with a restricted production
+  key permitting customer and billing read/write. The actual dashboard button
+  now opens Stripe's portal with the existing subscription and paid invoice.
+- A signed-in Free account reached the $20/month Stripe checkout. Leaving
+  without payment retained Free; no subscription or allowance was activated.
+- Both Pro and Free passed all 9 live API checks after deployment. The checks
+  consumed a tiny amount of normal usage credit; disposable keys were revoked.
+- A manually signed production webhook returned 204; duplicate delivery also
+  returned 204 without changing the balance or grant count. An invalid signature
+  returned 400. The provider endpoint subscribes to `billing.updated`; no natural
+  provider delivery was available yet, so this was a direct signed smoke test.
+- Cancellation/resumption now refreshes the dashboard schedule without refilling
+  credits. Incomplete paid periods remain retryable. Both regressions were
+  observed failing before their fixes and passing afterwards.
+- The final read-only rehearsal covered the then-current 18 customers (5 paid,
+  13 free), preserving spent balances on repeat sync. Stripe still had 5 active
+  $20/month subscriptions and no pending cancellations.
+- Verification: 653 unit-suite passes, 25 standalone CLI passes, 6 native
+  PostgreSQL concurrency passes, type checks, build and the PR's CI check.
+
 Snapshot before migration: `pre-existing-customer-link-2026-09-20`
-(`snap-lively-breeze-a6hnlig4`). Final deployment, including the updated #79
-prerequisite: `5bcc39b0-f350-4e15-a8ad-8aecfafaa8e0`.
+(`snap-lively-breeze-a6hnlig4`). Current deployment, including the updated #79
+prerequisite and billing follow-up: `fb91c92d-6ce8-4fdb-8e5c-030ab791e2ee`.
 
 No new purchase or cancellation was exercised against real customers. Legacy
 key compatibility was checked through the existing automated billing suite;
