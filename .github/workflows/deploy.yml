@@ -103,6 +103,14 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: bun scripts/check-newsletter-cutover.ts
 
+      # Open the verified destination before publishing code that writes to it.
+      # If activation fails, no new Worker is published. Once activated, this
+      # step is idempotent and normal subscriber changes are allowed.
+      - name: Activate verified newsletter database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun scripts/check-newsletter-cutover.ts --activate
+
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -114,11 +122,6 @@ jobs:
               JSON.stringify({ DATABASE_URL: process.env.DATABASE_URL }), { mode: 0o600 });
           '
           npx wrangler deploy --secrets-file "$RUNNER_TEMP/classifier-secrets.json"
-
-      - name: Activate verified newsletter database
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: bun scripts/check-newsletter-cutover.ts --activate
 
       # A deploy that uploads and then serves a broken Worker should fail here
       # rather than in somebody's terminal.
