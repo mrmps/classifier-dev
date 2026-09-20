@@ -16,6 +16,9 @@ test("public navigation exposes pricing and the WorkOS entry points", () => {
   expect(html).toContain('href="/openapi.json"');
   expect(html).toContain('href="/skill.md"');
   expect(html).toContain('href="/llms.txt"');
+  expect(html).toContain('class="site-menu-resources"');
+  expect(html).toContain('class="site-menu-actions"');
+  expect(html).toContain('<span class="sr">Menu</span>');
   expect(html).not.toContain('href="/pro"');
 });
 
@@ -29,7 +32,10 @@ test("public navigation and its menus stay above content but below the chat cont
 
 test("pricing renders current shared plan values and keeps legacy keys documented", () => {
   const html = pricingHtml();
-  expect(html).toContain("Pricing that grows with your workload.");
+  expect(html).toContain("simple plans with upfront usage");
+  expect(html).toContain("more included usage + a shared workspace");
+  expect(html).toContain('class="plan-grid"');
+  expect(html).toContain('class="plan-action" href="/auth/sign-up"');
   expect(html).toContain(`$${BILLING_PLANS.pro.priceCents / 100}`);
   expect(html).toContain(formatCreditsUsd(BILLING_PLANS.pro.includedCredits));
   expect(html).toContain("laya-0.3.4-english-fast");

@@ -3,9 +3,7 @@ import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
 import retailRates from "./retail-rates.json";
 import { esc, page } from "./ui";
 
-const CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>`;
-
-const feature = (text: string) => `<li>${CHECK}<span>${esc(text)}</span></li>`;
+const feature = (text: string) => `<li>${esc(text)}</li>`;
 
 export function pricingHtml() {
   const pro = BILLING_PLANS.pro;
@@ -18,70 +16,64 @@ export function pricingHtml() {
     )
     .join("");
   const description =
-    "Start free, then move to Pro when you need more usage and a shared workspace.";
+    "Simple plans with upfront usage for classifier.dev workspaces.";
   return page({
     title: "Pricing · classifier.dev",
     head: META("classifier.dev pricing", description, "/pricing"),
     css: `${HOME_CSS}
-.pricing{max-width:1180px}
-.pricing>*+*{margin-top:72px}
-.pricing-hero{max-width:760px;padding-block:28px 12px}
-.pricing-hero>*+*{margin-top:18px}
-.pricing-hero h1{font-size:clamp(34px,6vw,64px);line-height:1.04;letter-spacing:-.045em}
-.pricing-hero p{max-width:62ch;color:var(--muted);font-size:16px;line-height:1.6}
-.pricing-hero .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
-.pricing-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding-inline:16px;
-  border-radius:var(--r);color:var(--fg);font-weight:600;text-decoration:none;box-shadow:inset 0 0 0 1px var(--line-strong);
-  transition-property:background-color,color,scale;transition-duration:.1s}
-.pricing-button.primary{color:var(--ink);background:var(--accent);box-shadow:none}
-.pricing-button:active{scale:.96}
-.plan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
-.plan{display:flex;min-width:0;flex-direction:column;padding:24px;background:var(--surface);border:1px solid var(--line);
-  border-radius:calc(var(--r) + 6px)}
-.plan.featured{border-color:var(--accent);box-shadow:0 20px 56px -40px var(--accent)}
-.plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.plan h2{font-size:18px;color:var(--bright)}
-.plan-badge{padding:3px 8px;border-radius:999px;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);
-  font-size:12px;font-weight:600;white-space:nowrap}
-.plan-price{margin-top:22px;color:var(--bright);font-size:34px;font-weight:700;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
-.plan-price small{font-size:13px;font-weight:500;letter-spacing:0;color:var(--muted)}
-.plan-copy{min-height:52px;margin-top:8px;color:var(--muted)}
-.plan ul{display:flex;flex-direction:column;gap:12px;margin:24px 0;padding:0;list-style:none;color:var(--muted)}
-.plan li{display:flex;align-items:flex-start;gap:9px}.plan li svg{width:16px;height:16px;flex:none;margin-top:3px;color:var(--accent)}
-.plan .pricing-button{width:100%;margin-top:auto}
+.pricing{max-width:980px}
+.pricing>*+*{margin-top:56px}
+.pricing-intro{padding-block:22px 34px;border-block-end:1px solid var(--rule)}
+.pricing-intro h1{font-size:30px;line-height:1.15;letter-spacing:-.025em;text-transform:lowercase}
+.pricing-intro p{margin-top:8px;color:var(--muted);font-size:15px}
+.plan-summary{display:grid;grid-template-columns:max-content 1fr;gap:12px 26px;padding-block:28px}
+.plan-summary dt{color:var(--dim);font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.plan-summary dd{margin:0;color:var(--fg);font-size:15px;font-weight:600}
+.plan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line)}
+.plan{display:flex;min-width:0;min-height:430px;flex-direction:column;padding:28px 26px}
+.plan+.plan{border-inline-start:1px solid var(--line)}
+.plan h2{font-size:19px;color:var(--bright);text-transform:lowercase}
+.plan.featured h2,.plan.featured .plan-price{color:var(--accent)}
+.plan-kicker{min-height:40px;margin-top:8px;color:var(--muted);font-size:12px}
+.plan-price{margin-top:34px;color:var(--bright);font-size:34px;font-weight:500;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.plan-price small{font-size:12px;font-weight:500;letter-spacing:0;color:var(--muted)}
+.plan ul{display:flex;flex-direction:column;gap:12px;margin:26px 0;padding:0;list-style:none;color:var(--fg)}
+.plan li{position:relative;padding-inline-start:16px}.plan li::before{content:"·";position:absolute;inset-inline-start:0;color:var(--dim)}
+.plan-action{display:inline-flex;align-items:center;min-height:44px;margin-top:auto;color:var(--accent);font-weight:600;text-decoration:none;
+  text-transform:lowercase;transition-property:color,scale;transition-duration:.1s;transform-origin:left center}
+.plan-action::before{content:"[ ";color:var(--accent)}.plan-action::after{content:" ]";color:var(--accent)}
+.plan-action:active{scale:.96}
+.enterprise-note{padding-block:28px;border-block:1px solid var(--rule);color:var(--muted)}
+.enterprise-note a{color:var(--accent);font-weight:600;text-decoration:none}
 .pricing-section>*+*{margin-top:16px}
-.pricing-section>h2{font-size:22px;color:var(--bright)}
-.pricing-section>p{max-width:70ch;color:var(--muted)}
-.pricing-table{overflow-x:auto;border:1px solid var(--line);border-radius:calc(var(--r) + 4px)}
+.pricing-section>h2{font-size:20px;color:var(--bright);text-transform:lowercase}
+.pricing-section>p{max-width:72ch;color:var(--muted)}
+.pricing-table{overflow-x:auto;border:1px solid var(--line)}
 .pricing-table table{min-width:620px}.pricing-table th,.pricing-table td{padding:13px 16px;text-align:start}
-.pricing-table thead th{color:var(--muted);background:var(--surface)}
+.pricing-table thead th{color:var(--dim);background:transparent;font-size:12px;text-transform:uppercase}
 .pricing-table tbody tr+tr{border-top:1px solid var(--rule)}
 .pricing-table tbody th{color:var(--fg);font-weight:500;border:0}.pricing-table td{font-variant-numeric:tabular-nums}
 .pricing-note{font-size:12px;color:var(--dim)}
-@media(hover:hover){.pricing-button:hover{background:var(--fg);color:var(--bg)}.pricing-button.primary:hover{background:var(--accent-hover);color:var(--ink)}}
-@media(max-width:820px){.pricing>*+*{margin-top:52px}.plan-grid{grid-template-columns:1fr}.plan-copy{min-height:0}}
-@media(max-width:640px){.pricing-hero{padding-block-start:12px}.pricing-hero h1{font-size:36px}.plan{padding:20px}}
+@media(hover:hover){.plan-action:hover,.enterprise-note a:hover{color:var(--bright)}}
+@media(max-width:760px){.pricing>*+*{margin-top:44px}.plan-grid{grid-template-columns:1fr}.plan{min-height:0;padding:24px 20px}.plan+.plan{border-inline-start:0;border-block-start:1px solid var(--line)}.plan-kicker{min-height:0}.plan-price{margin-top:24px}.plan-action{margin-top:8px}}
+@media(max-width:480px){.pricing-intro{padding-block-start:8px}.plan-summary{grid-template-columns:1fr;gap:5px}.plan-summary dd+dt{margin-top:14px}}
 `,
-    body: `${NAV("pricing")}<div class="page"><main class="doc pricing">
-  <header class="pricing-hero"><h1>Pricing that grows with your workload.</h1>
-    <p>Try the API without an account. Create a workspace when you want usage credits, API keys and billing in one place.</p>
-    <div class="actions"><a class="pricing-button primary" href="/auth/sign-up">Get started</a><a class="pricing-button" href="/login">Log in</a></div>
-  </header>
+    body: `${NAV("pricing")}<div class="page"><main class="doc pricing" id="main">
+  <header class="pricing-intro"><h1>pricing</h1><p>simple plans with upfront usage</p></header>
+  <dl class="plan-summary"><dt>Every plan</dt><dd>fast + smart classification · REST, MCP + CLI</dd><dt>Upgrade</dt><dd>more included usage + a shared workspace</dd></dl>
   <section class="plan-grid" aria-label="Plans">
-    <article class="plan"><div class="plan-head"><h2>Free</h2></div><p class="plan-price">$0 <small>/ month</small></p>
-      <p class="plan-copy">Explore classifier.dev and ship a first integration without a card.</p>
-      <ul>${feature(`${formatCreditsUsd(BILLING_PLANS.free.includedCredits)} signup credit`)}${feature("1 workspace seat")}${feature("Fast and Smart classification")}${feature("REST, MCP and CLI access")}</ul>
-      <a class="pricing-button" href="/auth/sign-up">Start free</a></article>
-    <article class="plan featured"><div class="plan-head"><h2>${esc(pro.name)}</h2><span class="plan-badge">For production</span></div>
+    <article class="plan"><h2>Free</h2><p class="plan-kicker">for trying the API and shipping a first integration</p><p class="plan-price">$0 <small>always free</small></p>
+      <ul>${feature(`${formatCreditsUsd(BILLING_PLANS.free.includedCredits)} signup credit`)}${feature("1 workspace seat")}${feature("Public access without an account")}${feature("Fast + Smart classification")}</ul>
+      <a class="plan-action" href="/auth/sign-up">Get started</a></article>
+    <article class="plan featured"><h2>${esc(pro.name)}</h2><p class="plan-kicker">for developers and personal agents in production</p>
       <p class="plan-price">$${pro.priceCents / 100} <small>/ month</small></p>
-      <p class="plan-copy">For individual developers and personal agents running regular workloads.</p>
       <ul>${feature(`${formatCreditsUsd(pro.includedCredits)} of usage each month`)}${feature(`${pro.seatLimit} workspace seats`)}${feature("Usage by connection and agent")}${feature("No automatic top-ups")}</ul>
-      <a class="pricing-button" href="/auth/sign-up?returnTo=/app/plans">Choose Pro</a></article>
-    <article class="plan"><div class="plan-head"><h2>Enterprise</h2></div><p class="plan-price">Custom</p>
-      <p class="plan-copy">For teams that need more capacity, private infrastructure or a contract.</p>
+      <a class="plan-action" href="/auth/sign-up?returnTo=/app/plans">Choose Pro</a></article>
+    <article class="plan"><h2>Enterprise</h2><p class="plan-kicker">for teams that need capacity, infrastructure or a contract</p><p class="plan-price">Custom</p>
       <ul>${feature("Volume-based capacity")}${feature("Dedicated deployment")}${feature("Private inference options")}${feature("Measured accuracy on your data")}</ul>
-      <a class="pricing-button" href="mailto:contact@classifier.dev">Contact sales</a></article>
+      <a class="plan-action" href="mailto:contact@classifier.dev">Contact sales</a></article>
   </section>
+  <p class="enterprise-note">need custom limits or enterprise features? <a href="mailto:contact@classifier.dev">get in touch</a></p>
   <section class="pricing-section" aria-label="Token prices"><h2>Token prices</h2>
     <p>Prices per million tokens. Fast uses Jev at cost. Smart adds Gemini at cost plus 20% only when it escalates.</p>
     <div class="pricing-table"><table><thead><tr><th scope="col">Model</th><th scope="col">Input</th><th scope="col">Cached input</th><th scope="col">Output</th></tr></thead><tbody>${tokenRows}</tbody></table></div>

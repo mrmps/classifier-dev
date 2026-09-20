@@ -37,6 +37,7 @@ export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
   border-radius:var(--r-s);color:var(--fg);font-weight:600;cursor:pointer;list-style:none}
 .site-menu summary::-webkit-details-marker,.site-resources summary::-webkit-details-marker{display:none}
 .site-menu summary::before,.site-resources summary::before{content:none}
+.site-menu[open]>summary::before,.site-resources[open]>summary::before{content:none}
 .site-resources summary.active{color:var(--bright);background:var(--surface)}
 .site-menu-panel,.site-resources-panel{position:absolute;inset-block-start:calc(100% + 8px);inset-inline-end:0;width:min(280px,calc(100vw - 24px));
   padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--r) + 4px);
@@ -46,10 +47,33 @@ export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
 .site-menu-panel .site-action.primary{margin:4px 0 0;justify-content:center}
 @media(hover:hover){.site-link:hover,.site-action:not(.primary):hover,.site-menu summary:hover,.site-resources summary:hover{background:var(--surface);color:var(--bright)}
   .site-action.primary:hover{background:var(--accent-hover);color:var(--ink)}}
-@media(max-width:900px){.site-nav{padding-inline:16px;gap:12px}.site-links{display:none}.site-actions{margin-inline-start:auto}
-  .site-actions .login,.site-actions .signup{display:none}.site-menu{display:block}}
+@media(max-width:900px){.site-nav{padding-inline:16px;gap:12px}.site-links,.site-actions{display:none}.site-menu{display:block;margin-inline-start:auto}
+  .site-header:has(.site-menu[open]){background:var(--bg);backdrop-filter:none}
+  .site-menu>summary{position:relative;width:44px;padding:0;color:var(--bright)}
+  .site-menu-icon{display:block;position:relative;width:22px;height:16px;background:linear-gradient(currentColor,currentColor) center/100% 1.5px no-repeat}
+  .site-menu-icon::before,.site-menu-icon::after{content:"";position:absolute;inset-block-start:50%;inset-inline-start:0;width:22px;height:1.5px;background:currentColor;transform-origin:center}
+  .site-menu-icon::before{transform:translateY(-7px)}.site-menu-icon::after{transform:translateY(6px)}
+  .site-menu[open] .site-menu-icon{background:none}
+  .site-menu[open] .site-menu-icon::before{transform:translateY(-.75px) rotate(45deg)}.site-menu[open] .site-menu-icon::after{transform:translateY(-.75px) rotate(-45deg)}
+  .site-menu-panel{position:fixed;inset:72px 0 0;width:auto;padding:26px 24px max(32px,env(safe-area-inset-bottom));overflow-y:auto;
+    background:var(--bg);border:0;border-block-start:1px solid var(--rule);border-radius:0;box-shadow:none}
+  .site-menu-links{display:flex;flex-direction:column}
+  .site-menu-links .site-link,.site-menu-resources>summary{justify-content:flex-start;min-height:58px;padding:0;color:var(--muted);font-size:25px;font-weight:500}
+  .site-menu-links .site-link[aria-current=page]{color:var(--bright);background:transparent}
+  .site-menu-resources{border-block-end:1px solid var(--rule)}
+  .site-menu-resources>summary{justify-content:space-between}
+  .site-menu-resources>summary::before{content:none}
+  .site-menu-resources[open]>summary::before{content:none}
+  .site-menu-resources>summary::after{content:"";width:10px;height:10px;margin-inline-end:5px;border-inline-end:2px solid currentColor;border-block-end:2px solid currentColor;rotate:45deg}
+  .site-menu-resources[open]>summary::after{rotate:-135deg}
+  .site-menu-resources-panel{display:grid;grid-template-columns:1fr 1fr;padding:0 0 18px;gap:2px 12px}
+  .site-menu-resources-panel .site-link{min-height:44px;padding:0;color:var(--muted)}
+  .site-menu-actions{display:grid;gap:12px;margin-top:28px}
+  .site-menu-actions .site-action{min-height:50px;justify-content:center;border:1px solid var(--line-strong);font-size:15px}
+  .site-menu-actions .site-action.primary{margin:0;color:var(--ink);background:var(--accent);border-color:var(--accent)}
+  body:has(.site-menu[open]){overflow:hidden}}
 @media(max-width:420px){.site-nav{min-height:64px;padding-inline:12px}.site-brand{font-size:14px}.site-mark{width:26px;height:26px}
-  .site-action.primary{padding-inline:10px;margin-inline-start:0}}
+  .site-action.primary{padding-inline:10px;margin-inline-start:0}.site-menu-panel{inset-block-start:64px;padding-inline:18px}}
 .prose section>*+*{margin-top:14px}
 .prose>section{margin-top:28px}
 .lead{color:var(--muted)}
@@ -806,8 +830,8 @@ const navLink = (label: string, href: string, here: string, key: string) =>
 
 const MARK = `<svg class="site-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><rect x="6" y="9" width="20" height="4" rx="2" fill="var(--ink)"/><rect x="6" y="16" width="11" height="4" rx="2" fill="#765db9"/><rect x="6" y="23" width="6" height="4" rx="2" fill="#765db9"/></svg>`;
 
-const navLinks = (here: string) =>
-  `${navLink("Home", "/", here, "home")}${navLink("Benchmark", "/benchmark", here, "benchmark")}${navLink("Docs", "/docs", here, "developers")}${navLink("Pricing", "/pricing", here, "pricing")}<a class="site-link" href="/chat"${here === "chat" ? ' aria-current="page"' : ""} data-chat-open aria-controls="chat" aria-expanded="false">Chat</a>`;
+const navLinks = (here: string, opensChat = true) =>
+  `${navLink("Home", "/", here, "home")}${navLink("Benchmark", "/benchmark", here, "benchmark")}${navLink("Docs", "/docs", here, "developers")}${navLink("Pricing", "/pricing", here, "pricing")}<a class="site-link" href="/chat"${here === "chat" ? ' aria-current="page"' : ""}${opensChat ? ' data-chat-open aria-controls="chat" aria-expanded="false"' : ""}>Chat</a>`;
 
 const resourceLinks = (here: string) =>
   `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}${navLink("Skills", "/skills", here, "skills")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
@@ -822,7 +846,11 @@ export const NAV = (here: string) =>
   <a class="site-brand" href="/" aria-label="classifier.dev home">${MARK}<span>classifier.dev</span></a>
   <div class="site-links">${navLinks(here)}${resourceMenu(here)}</div>
   <div class="site-actions"><a class="site-action login" href="/login">Log in</a><a class="site-action signup" href="/auth/sign-up">Sign up</a><a class="site-action primary" href="/auth/sign-up">Get started</a></div>
-  <details class="site-menu"><summary>Menu</summary><div class="site-menu-panel">${navLinks(here)}${resourceLinks(here)}<a class="site-action" href="/login">Log in</a><a class="site-action" href="/auth/sign-up">Sign up</a></div></details>
+  <details class="site-menu"><summary><span class="sr">Menu</span><span class="site-menu-icon" aria-hidden="true"></span></summary><div class="site-menu-panel">
+    <div class="site-menu-links">${navLinks(here, false)}</div>
+    <details class="site-menu-resources"><summary>Resources</summary><div class="site-menu-resources-panel">${resourceLinks(here)}</div></details>
+    <div class="site-menu-actions"><a class="site-action" href="/login">Log in</a><a class="site-action" href="/auth/sign-up">Sign up</a><a class="site-action primary" href="/auth/sign-up">Get started</a></div>
+  </div></details>
 </nav></header>`;
 
 export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/terms">terms</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
