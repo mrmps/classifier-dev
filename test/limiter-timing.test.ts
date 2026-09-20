@@ -51,3 +51,40 @@ test("instrumentation does not suppress storage write failure", async () => {
   const f = fixture(0, true);
   await expect(f.limiter.fetch(new Request("https://limiter/"))).rejects.toThrow("storage unavailable");
 });
+
+test("timing=1 includes pending durability in write time; ordinary requests do not explicitly sync", async () => {
+  let syncs = 0, committed = false;
+  const limiter = new RateLimiter({ storage: {
+    get: async () => undefined,
+    put: async () => { committed = false; },
+    sync: async () => {
+      syncs++;
+      await new Promise(resolve => setTimeout(resolve, 15));
+      committed = true;
+    },
+  } } as unknown as DurableObjectState);
+  const ordinary = await limiter.fetch(new Request("https://limiter/"));
+  expect((await ordinary.json()).limited).toBe(false);
+  expect(syncs).toBe(0);
+  const measured = await limiter.fetch(new Request("https://limiter/?timing=1"));
+  expect(committed).toBe(true);
+  expect(syncs).toBe(1);
+  expect(timing(measured).write).toBeGreaterThanOrEqual(10);
+  expect((await measured.json()).limited).toBe(false);
+  await limiter.fetch(new Request("https://limiter/?timing=true"));
+  expect(syncs).toBe(1);
+});
+
+test("timing=1 does not sync rejected work or suppress durability errors", async () => {
+  let syncs = 0;
+  const limiter = new RateLimiter({ storage: {
+    get: async () => undefined,
+    put: async () => {},
+    sync: async () => { syncs++; throw new Error("commit failed"); },
+  } } as unknown as DurableObjectState);
+  const denied = await limiter.fetch(new Request("https://limiter/?timing=1&limit=0"));
+  expect((await denied.json()).limited).toBe(true);
+  expect(syncs).toBe(0);
+  await expect(limiter.fetch(new Request("https://limiter/?timing=1"))).rejects.toThrow("commit failed");
+  expect(syncs).toBe(1);
+});

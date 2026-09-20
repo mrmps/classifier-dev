@@ -66,7 +66,7 @@ export async function limitLaya(env: LayaEnv, lane: Processing, owner: string, c
   const { rpm, daily } = LAYA_LIMITS[lane];
   try {
     const id = env.LIMITER.idFromName(`laya:${lane}:${owner}`);
-    const response = await env.LIMITER.get(id).fetch(`https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}`);
+    const response = await env.LIMITER.get(id).fetch(`https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}${timing ? "&timing=1" : ""}`);
     readQuotaTiming(response, timing);
     if (!response.ok) throw new Error("limiter unavailable");
     const result = await response.json() as { limited: boolean; remaining: number; resetIn?: number; scope?: "minute" | "day" };

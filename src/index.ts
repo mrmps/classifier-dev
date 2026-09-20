@@ -1132,7 +1132,7 @@ async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplie
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
     const res = await env.LIMITER.get(id).fetch(
-      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}`,
+      `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}${timing ? "&timing=1" : ""}`,
     );
     readQuotaTiming(res, timing);
     return (await res.json()) as {

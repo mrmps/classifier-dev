@@ -51,6 +51,9 @@ export class RateLimiter implements DurableObject {
     d.n += cost;
     const writeStarted = performance.now();
     await this.state.storage.put({ b, d });
+    // put() may resolve at the write buffer. Diagnostic calls explicitly await
+    // the durability the output gate already requires before delivering a reply.
+    if (url.searchParams.get("timing") === "1") await this.state.storage.sync();
     writeMs = performance.now() - writeStarted;
     return respond({
       limited: false,
