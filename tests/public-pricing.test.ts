@@ -30,6 +30,14 @@ test("public navigation and its menus stay above content but below the chat cont
   expect(homeHtml({chat: true})).toContain('class="chat" id="chat" aria-label="Chat">');
 });
 
+test("the open mobile menu removes the newsletter dock from view and interaction", () => {
+  const mobileMenuCss = HOME_CSS.slice(
+    HOME_CSS.indexOf("@media(max-width:1024px)"),
+    HOME_CSS.indexOf("@media(max-width:420px)"),
+  );
+  expect(mobileMenuCss).toMatch(/body:has\(\.site-menu\[open\]\)\s+\.dock\s*\{\s*display:\s*none\s*;?\s*\}/);
+});
+
 test("pricing renders current shared plan values and keeps legacy keys documented", () => {
   const html = pricingHtml();
   expect(html).toContain("simple plans with upfront usage");

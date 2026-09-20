@@ -47,7 +47,7 @@ export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
 .site-menu-panel .site-action.primary{margin:4px 0 0;justify-content:center}
 @media(hover:hover){.site-link:hover,.site-action:not(.primary):hover,.site-menu summary:hover,.site-resources summary:hover{background:var(--surface);color:var(--bright)}
   .site-action.primary:hover{background:var(--accent-hover);color:var(--ink)}}
-@media(max-width:900px){.site-nav{padding-inline:16px;gap:12px}.site-links,.site-actions{display:none}.site-menu{display:block;margin-inline-start:auto}
+@media(max-width:1024px){.site-nav{padding-inline:16px;gap:12px}.site-links,.site-actions{display:none}.site-menu{display:block;margin-inline-start:auto}
   .site-header:has(.site-menu[open]){background:var(--bg);backdrop-filter:none}
   .site-menu>summary{position:relative;width:44px;padding:0;color:var(--bright)}
   .site-menu-icon{display:block;position:relative;width:22px;height:16px;background:linear-gradient(currentColor,currentColor) center/100% 1.5px no-repeat}
@@ -71,7 +71,8 @@ export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
   .site-menu-actions{display:grid;gap:12px;margin-top:28px}
   .site-menu-actions .site-action{min-height:50px;justify-content:center;border:1px solid var(--line-strong);font-size:15px}
   .site-menu-actions .site-action.primary{margin:0;color:var(--ink);background:var(--accent);border-color:var(--accent)}
-  body:has(.site-menu[open]){overflow:hidden}}
+  body:has(.site-menu[open]){overflow:hidden}
+  body:has(.site-menu[open]) .dock{display:none}}
 @media(max-width:420px){.site-nav{min-height:64px;padding-inline:12px}.site-brand{font-size:14px}.site-mark{width:26px;height:26px}
   .site-action.primary{padding-inline:10px;margin-inline-start:0}.site-menu-panel{inset-block-start:64px;padding-inline:18px}}
 .prose section>*+*{margin-top:14px}
