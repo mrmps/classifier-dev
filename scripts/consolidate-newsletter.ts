@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
 export const NEWSLETTER_CUTOVER = "data:newsletter-consolidation-v1";
+export const NEWSLETTER_ACTIVATED = "data:newsletter-activated-v1";
 
 /** Copy exact PostgreSQL values; never round IDs or timestamps through JS. */
 export async function consolidateNewsletter(
@@ -17,6 +18,7 @@ export async function consolidateNewsletter(
     const source = drizzle(sourcePool);
     const destination = drizzle(destinationPool);
     const payload = await source.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL TIME ZONE 'UTC'`);
       if (options.sourceSchema) await tx.execute(sql`SET LOCAL search_path TO ${sql.identifier(options.sourceSchema)}`);
       if (!options.verifyOnly) {
         const frozen = await tx.execute<{ frozen: boolean }>(sql`
@@ -34,11 +36,18 @@ export async function consolidateNewsletter(
     }, { isolationLevel: "repeatable read", accessMode: "read only" });
 
     const counts = await destination.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL TIME ZONE 'UTC'`);
       if (options.destinationSchema) await tx.execute(sql`SET LOCAL search_path TO ${sql.identifier(options.destinationSchema)}`);
       // Serialize against confirmations and other imports until verification commits.
       await tx.execute(sql`LOCK TABLE subscriber IN ACCESS EXCLUSIVE MODE`);
       if (!options.verifyOnly) {
-        await tx.execute(sql`
+        const history = await tx.execute<{ name: string }>(sql`
+          SELECT name FROM app_schema_migrations WHERE name IN (${NEWSLETTER_CUTOVER}, ${NEWSLETTER_ACTIVATED})
+        `);
+        if (history.rows.some(row => row.name === NEWSLETTER_ACTIVATED)) {
+          throw new Error("Newsletter destination is already active; copying archived consent over live data is forbidden.");
+        }
+        if (!history.rows.some(row => row.name === NEWSLETTER_CUTOVER)) await tx.execute(sql`
           INSERT INTO subscriber(id,email,source,wants,created_at,confirmed_at,unsubscribed_at)
           OVERRIDING SYSTEM VALUE
           SELECT id,email,source,wants,created_at,confirmed_at,unsubscribed_at
@@ -69,8 +78,15 @@ export async function consolidateNewsletter(
         await tx.execute(sql`
           INSERT INTO app_schema_migrations(name,sha256)
           VALUES (${NEWSLETTER_CUTOVER}, ${createHash("sha256").update(payload).digest("hex")})
-          ON CONFLICT (name) DO NOTHING
+          ON CONFLICT (name) DO UPDATE SET sha256=excluded.sha256
         `);
+        const guard = await tx.execute(sql`SELECT 1 FROM pg_trigger
+          WHERE tgrelid='subscriber'::regclass AND tgname='subscriber_cutover_pending'`);
+        if (!guard.rows.length) await tx.execute(sql`
+          CREATE TRIGGER subscriber_cutover_pending BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON subscriber
+          FOR EACH STATEMENT EXECUTE FUNCTION subscriber_cutover_pending()
+        `);
+        await tx.execute(sql`ALTER TABLE subscriber ENABLE ALWAYS TRIGGER subscriber_cutover_pending`);
       }
       const result = await tx.execute<{ copied: number; destination: number }>(sql`
         SELECT jsonb_array_length(${payload}::jsonb) AS copied,

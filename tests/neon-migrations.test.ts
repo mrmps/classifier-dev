@@ -16,6 +16,7 @@ const url = process.env.NEON_MIGRATION_TEST_URL;
 describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
   const schema = `migration_test_${crypto.randomUUID().replaceAll("-", "")}`;
   const sourceSchema = `${schema}_source`;
+  const conflictSchema = `${schema}_conflict`;
   const files = mkdtempSync(join(tmpdir(), "classifier-migration-test-"));
   const directory = pathToFileURL(`${files}/`);
   let pool: Pool;
@@ -35,11 +36,13 @@ describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
     db = drizzle(pool);
     await db.execute(sql`CREATE SCHEMA ${sql.identifier(schema)}`);
     await db.execute(sql`CREATE SCHEMA ${sql.identifier(sourceSchema)}`);
+    await db.execute(sql`CREATE SCHEMA ${sql.identifier(conflictSchema)}`);
   }, 30_000);
   afterAll(async () => {
     if (db) {
       await db.execute(sql`DROP SCHEMA ${sql.identifier(schema)} CASCADE`);
       await db.execute(sql`DROP SCHEMA ${sql.identifier(sourceSchema)} CASCADE`);
+      await db.execute(sql`DROP SCHEMA ${sql.identifier(conflictSchema)} CASCADE`);
       await pool.end();
     }
     rmSync(files, { recursive: true, force: true });
@@ -47,7 +50,7 @@ describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
   test("all real multi-statement migrations apply once, even with concurrent runners", async () => {
     await Promise.all([migratePostgres(url!, undefined, schema), migratePostgres(url!, undefined, schema)]);
     const result = await db.execute(sql`SELECT name FROM ${sql.identifier(schema)}.app_schema_migrations`);
-    expect(result.rows).toHaveLength(7);
+    expect(result.rows).toHaveLength(8);
     const functions = await db.execute(sql`SELECT proname FROM pg_proc WHERE pronamespace=${schema}::regnamespace`);
     expect(functions.rows.map((row) => row.proname)).toContain("settle_token_reservation");
     await expect(checkNewsletterCutover(url!, schema)).rejects.toThrow("not verified");
@@ -91,23 +94,38 @@ describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
     expect(first.copied).toBe(2);
     await checkNewsletterCutover(url!, schema);
     expect(await consolidateNewsletter(url!, url!, options)).toEqual(first);
+    await expect(Promise.resolve(db.execute(sql`UPDATE ${sql.identifier(schema)}.subscriber SET source=source`))).rejects.toThrow();
+    // Simulate an out-of-band admin edit: the pre-deploy gate must detect a
+    // stale receipt even if somebody bypasses the write guard.
+    await db.execute(sql`ALTER TABLE ${sql.identifier(schema)}.subscriber DISABLE TRIGGER subscriber_cutover_pending`);
+    await db.execute(sql`UPDATE ${sql.identifier(schema)}.subscriber SET source='changed' WHERE id=2`);
+    await expect(checkNewsletterCutover(url!, schema)).rejects.toThrow("differs from its verified snapshot");
+    await db.execute(sql`UPDATE ${sql.identifier(schema)}.subscriber SET source='site' WHERE id=2`);
+    await expect(checkNewsletterCutover(url!, schema)).rejects.toThrow("not frozen");
+    await db.execute(sql`ALTER TABLE ${sql.identifier(schema)}.subscriber ENABLE ALWAYS TRIGGER subscriber_cutover_pending`);
+    await checkNewsletterCutover(url!, schema, true);
     await db.transaction(async (tx) => {
       await tx.execute(sql`SET LOCAL search_path TO ${sql.identifier(schema)}`);
       const next = await tx.execute<{ id: string }>(sql`INSERT INTO subscriber(email) VALUES ('new@example.invalid') RETURNING id`);
       expect(BigInt(next.rows[0].id)).toBeGreaterThan(9007199254740993n);
     });
+    await checkNewsletterCutover(url!, schema);
+    await checkNewsletterCutover(url!, schema, true); // idempotent after activation
+    await expect(consolidateNewsletter(url!, url!, options)).rejects.toThrow("already active");
   }, 30_000);
   test("conflicts abort the entire copy instead of overwriting consent", async () => {
     // The preceding test added a new destination-only row: exact verification
     // must reject it even though every source row is still identical.
-    await expect(consolidateNewsletter(url!, url!, { sourceSchema, destinationSchema: schema })).rejects.toThrow("verification failed");
     await expect(consolidateNewsletter(url!, url!, { sourceSchema, destinationSchema: schema, verifyOnly: true })).rejects.toThrow("verification failed");
-    await db.execute(sql`UPDATE ${sql.identifier(schema)}.subscriber SET wants=ARRAY['api'] WHERE id=2`);
+    await migratePostgres(url!, undefined, conflictSchema);
+    await db.execute(sql`INSERT INTO ${sql.identifier(conflictSchema)}.subscriber(id,email,source,wants,created_at)
+      OVERRIDING SYSTEM VALUE VALUES (2,'unconfirmed@example.invalid','site',ARRAY['api'],'2025-01-01')`);
     await sourceScript("newsletter-unfreeze.sql");
     await db.execute(sql`INSERT INTO ${sql.identifier(sourceSchema)}.subscriber(email) VALUES ('must-not-copy@example.invalid')`);
     await sourceScript("newsletter-freeze.sql");
-    await expect(consolidateNewsletter(url!, url!, { sourceSchema, destinationSchema: schema })).rejects.toThrow("verification failed");
-    const result = await db.execute(sql`SELECT count(*)::integer AS count FROM ${sql.identifier(schema)}.subscriber WHERE email='must-not-copy@example.invalid'`);
+    await expect(consolidateNewsletter(url!, url!, { sourceSchema, destinationSchema: conflictSchema })).rejects.toThrow("verification failed");
+    await expect(checkNewsletterCutover(url!, conflictSchema)).rejects.toThrow("not verified");
+    const result = await db.execute(sql`SELECT count(*)::integer AS count FROM ${sql.identifier(conflictSchema)}.subscriber WHERE email='must-not-copy@example.invalid'`);
     expect(result.rows[0].count).toBe(0);
   }, 30_000);
   test("cutover freeze rejects writes without changing rows and can be reversed", async () => {

@@ -76,7 +76,12 @@ timestamps, preferences and unsubscribe state), rejects conflicting destination
 rows (including destination-only rows), and verifies exact equality before
 committing. Copying requires the source freeze trigger. Its transaction also
 records `data:newsletter-consolidation-v1` and the source checksum in
-`app_schema_migrations`; deployment refuses to switch without that marker.
+`app_schema_migrations` and freezes the destination table. Before the first
+deployment, the gate rechecks the destination checksum and write guard. After
+Wrangler deploy succeeds, activation records `data:newsletter-activated-v1`
+with the same checksum and atomically removes the guard. Subsequent deploys
+accept the activation receipt so new subscribers and preference changes can
+continue normally; the copy script refuses to overwrite an activated database.
 Before production cutover,
 create and verify a source backup branch. Freeze source subscriber writes with
 `scripts/newsletter-freeze.sql`, run the copy, deploy, and verify source rows

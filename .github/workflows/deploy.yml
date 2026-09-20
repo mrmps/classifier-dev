@@ -115,6 +115,11 @@ jobs:
           '
           npx wrangler deploy --secrets-file "$RUNNER_TEMP/classifier-secrets.json"
 
+      - name: Activate verified newsletter database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun scripts/check-newsletter-cutover.ts --activate
+
       # A deploy that uploads and then serves a broken Worker should fail here
       # rather than in somebody's terminal.
       - name: Check what is live
