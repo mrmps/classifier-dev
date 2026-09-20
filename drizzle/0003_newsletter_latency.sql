@@ -1,0 +1,2 @@
+ALTER TABLE "subscriber" ADD COLUMN "desired_latency_ms" integer;--> statement-breakpoint
+ALTER TABLE "subscriber" ADD CONSTRAINT "subscriber_faster_latency_check" CHECK (("subscriber"."desired_latency_ms" IS NULL AND NOT ('faster' = ANY("subscriber"."wants"))) OR ("subscriber"."desired_latency_ms" IS NOT NULL AND "subscriber"."desired_latency_ms" BETWEEN 1 AND 60000 AND 'faster' = ANY("subscriber"."wants")));

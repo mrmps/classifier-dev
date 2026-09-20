@@ -22,6 +22,13 @@
       "when": 1789910202661,
       "tag": "0002_unified_newsletter",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789911326499,
+      "tag": "0003_newsletter_latency",
+      "breakpoints": true
     }
   ]
 }
