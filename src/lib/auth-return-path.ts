@@ -7,7 +7,9 @@ export function authReturnPath(requested: unknown): string {
     if (url.origin !== "https://classifier.invalid" ||
         (url.pathname !== "/app" && !url.pathname.startsWith("/app/")))
       return "/app";
-    return url.pathname + url.search + url.hash;
+    // AuthKit's callback treats fragments as pathname text; workspace screens
+    // don't use anchors, so never carry one into the authorization state.
+    return url.pathname + url.search;
   } catch {
     return "/app";
   }
