@@ -26,7 +26,8 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   let body: Record<string, unknown>;
   try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
-  const inputs = body.inputs ?? body.items;
+  const rawInputs = body.inputs ?? body.items ?? body.input;
+  const inputs = typeof rawInputs === "string" ? [rawInputs] : rawInputs;
   if (!Array.isArray(inputs) || !inputs.length || inputs.length > 10_000 || inputs.some((input) => typeof input !== "string"))
     throw new AppError(400, "Provide a nonempty list of text inputs.");
   if (body.tier !== undefined && !["fast", "smart"].includes(String(body.tier))) throw new AppError(400, "Invalid classification tier.");
@@ -89,7 +90,12 @@ export async function accountClassification(request: Request, env: AppEnv & Part
     try { await settleTokenReservation(env.APP_DB, reservation.id, charge, tokens()); }
     catch {
       analytics(true, null);
-      throw new AppError(503, "Classification completed but billing confirmation is pending. Contact support with the request ID.");
+      return Response.json({
+        error: "Classification completed but billing confirmation is pending. Contact support with the request ID.",
+        requestId: reservation.id,
+      }, { status: 503, headers: {
+        "cache-control": "no-store", "x-request-id": reservation.id, "x-billing-status": "review",
+      } });
     }
     analytics(true, charge ? Number(charge.nanodollars) / 1e9 : null);
   }

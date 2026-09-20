@@ -2,7 +2,7 @@
 
 Users see dollars; classification usage is priced per token and accounted for with integer credits. The new Pro plan is **$20/month including $20 of usage**. Launch policy is Jev at published inference cost and Gemini escalation at 20% above its published token cost. Smart without escalation has no surcharge. The candidate versioned card and subsidy/margin analysis are in [pricing economics](pricing-economics.md); production activation remains gated on complete billing integration.
 
-This document distinguishes the agreed product behavior from the implemented local foundation. The new account billing flow remains a local simulation and is not ready to charge production customers.
+This document distinguishes implemented account metering from production activation. Token charging and account analytics have real-provider evidence; hosted sign-in, sandbox payments and customer migration still require end-to-end verification before charging production customers.
 
 ## Delivery plan and acceptance evidence
 
@@ -67,7 +67,7 @@ Autumn idempotency keys are not a permanent exactly-once guarantee. Its inspecte
 ## Product surfaces
 
 - **Billing (`/app/credits`):** dollar balance, selected subscription, included usage, renewal/cancellation information, and transaction history. No Add funds or auto-top-up flow. Local actions must be labeled simulated.
-- **Usage (`/app/usage`):** Spend / Tokens / Requests, date and credential filters, timeline, and full-ledger aggregates. Show unknown token counts as unavailable and distinguish actual retail charges from provider cost and demo arithmetic. Legacy Pro must not look newly billed.
+- **Usage (`/app/usage`):** Spend / Tokens / Requests, date and credential filters, timeline, and sampling-aware AE aggregates. Show unknown token counts as unavailable and distinguish estimated retail charges from exact wallet balances.
 - **Keys and agents:** credentials belong to the selected organization, and any optional spending cap uses the same dollar units and server-side policy as billing.
 - **Onboarding and team creation:** one personal signup allowance; teams start unfunded. UI navigation or successful checkout navigation is never payment proof.
 
@@ -75,15 +75,15 @@ Keep existing shared layout and formatting conventions. These requirements do no
 
 ## Implemented foundation and production boundary
 
-The local foundation includes the Postgres/Neon database adapter, account/organization/key data model, dollar display, one-time personal demo credit, zero initial team balance, subscription-only local billing actions, reservation/settlement scaffolding, and a bounded signed-in PostHog transport tested with mocked delivery. This is a foundation for validation, not evidence that production billing is complete.
+The implementation includes the Postgres/Neon account and key model, one-time personal signup credit, dollar balances, token reservations and settlement, Autumn paid-invoice reconciliation, and account-scoped AE dashboard/API queries. No PostHog transport remains. Local subscription actions are still explicitly simulated; hosted actions use Autumn.
 
-The existing account classification meter still reserves by item count and stores provider token counts as telemetry. It **does not yet calculate the agreed production retail token charge**. Local plan selection and renewal remain simulated. Legacy production checkout is separate; merely finding an existing Autumn customer does not establish a verified mapping to a new organization or authorize a balance grant.
+Account REST and MCP now reserve before each provider attempt and settle actual reported tokens using the versioned retail card. Direct Jev is pinned; unpriced fallback transports/models cannot spend account funds. Missing measurements retain a review hold instead of inventing a zero charge. Conservative provider-context bounds reserve $0.00276 per Jev attempt and approximately $0.953 per Gemini attempt until the whole request settles. Large Smart batches can therefore fail admission despite a low eventual charge: reservation sizing remains a launch limitation. Merely finding an existing Autumn customer does not establish a verified workspace mapping or authorize a grant.
 
 Production rollout is blocked until these are complete:
 
-1. Activate the versioned Jev/Gemini rate card only after resolving fallback pricing, pre-inference reservation bounds, missing-usage handling and new paid-tier limits. Implement and validate actual token-priced requests instead of item-credit demo charges.
+1. Validate the implemented versioned token charging on a regional deployment. Resolve conservative Smart reservation sizing and operational reconciliation of missing provider usage before exposing it to paying customers.
 2. Configure the correct Neon project, WorkOS identity, Autumn environment/customer mapping and webhook verification, and account-scoped AE bindings/read credentials. Publish the rich-data collection disclosure before enabling it.
-3. Test real provider sandbox checkout, renewal, cancellation, failed payment, duplicate/out-of-order billing hooks, grandfathered Pro mappings, ambiguous tracking outcomes, and the reporting-call budget. Local simulations or transport mocks do not satisfy this requirement.
+3. Test real provider sandbox checkout, renewal, cancellation, failed payment, duplicate/out-of-order billing hooks, existing customer mappings, ambiguous tracking outcomes, and the reporting-call budget. Local simulations or transport mocks do not satisfy this requirement.
 4. Run end-to-end request and account flows against the regional deployment, plus realistic burst/concurrency tests. Verify conservation of credits, one-time grants, team isolation, no surprise charges, and anonymous compatibility.
 5. Rehearse the database/customer migration and rollback, compare balances/entitlements, then migrate production. Do not retire existing storage or overwrite customer entitlements merely because the new build passes unit tests.
 

@@ -122,6 +122,34 @@ test("classification adapter uses provider credential, meters actual tokens, and
   expect(calls).toBe(1);
 });
 
+test.each(["input", "inputs"])("account billing accepts the public API's scalar %s field", async (field) => {
+  globalThis.fetch = (async (_url, init) => jevResponse(init, 41)) as typeof fetch;
+  const response = await accountClassification(request({ [field]: "Help with my invoice", labels: ["billing", "sales"] }), env);
+  expect(response?.status).toBe(200);
+  expect(response?.headers.get("x-billing-status")).toBe("settled");
+  const snapshot = await getSnapshot("local-demo", env);
+  expect(snapshot.usage[0].items).toBe(1);
+  expect(snapshot.usage[0].inputTokens).toBe(41);
+});
+
+test("settlement failure returns the held request ID for reconciliation", async () => {
+  globalThis.fetch = (async (_url, init) => jevResponse(init, 41)) as typeof fetch;
+  const db = env.APP_DB;
+  env.APP_DB = { ...db, prepare(sql) {
+    if (sql.includes("settle_token_reservation(")) throw new Error("Database unavailable");
+    return db.prepare(sql);
+  } };
+  const response = await accountClassification(request({ inputs: ["Invoice"], labels: ["billing", "sales"] }), env);
+  expect(response?.status).toBe(503);
+  const requestId = response?.headers.get("x-request-id");
+  expect(requestId).toBeTruthy();
+  expect(response?.headers.get("x-billing-status")).toBe("review");
+  expect(response?.headers.get("cache-control")).toBe("no-store");
+  expect(await response!.json()).toMatchObject({ requestId });
+  const usage = await db.prepare("SELECT status,actual_nano FROM app_usage WHERE id=?").bind(requestId).first();
+  expect(usage).toEqual({ status: "pending", actual_nano: null });
+});
+
 test("invalid inputs do not reserve; upstream errors return reserved credits", async () => {
   let calls = 0;
   globalThis.fetch = (async () => {
