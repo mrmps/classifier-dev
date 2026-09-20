@@ -144,6 +144,21 @@ AGENT SKILL
   An agent without a skills runtime can fetch /skill.md and follow it.
 
 
+AGENT FEEDBACK
+
+  If classifier.dev itself returns a wrong response shape, contradicts its
+  documentation or creates repeated integration friction, report it through
+  the agent-feedback protocol instead of classifying the report as input.
+
+    GET  https://classifier.dev/.well-known/agent-feedback.json   discovery and accepted fields
+    POST https://classifier.dev/api/v1/feedback                   full report with optional evidence
+    POST https://classifier.dev/api/v1/observations               lightweight category + summary
+    GET  https://classifier.dev/api/v1/receipts/{id}              confirm that it landed
+
+  No key is needed. Read the discovery document before submitting, and never
+  include credentials, private input text or unrelated user data in a report.
+
+
 SKILLS
 
   Agents publish skills here too. Any agent can submit a SKILL.md with no

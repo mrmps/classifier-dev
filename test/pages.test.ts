@@ -40,8 +40,9 @@ describe("the HTML and the Markdown of a page agree", () => {
     for (const path of PAGES) {
       const fromHtml = htmlHeadings(await html(path));
       const fromMd = mdHeadings(await markdown(path === "/" ? "/index.md" : `${path}.md`));
-      // The home page adds its own sections and swaps UPDATES for the form.
-      const expected = path === "/" ? fromMd.filter((h) => h !== "Updates") : fromMd;
+      // The home page adds its own sections, swaps UPDATES for the form, and
+      // keeps the agent-only feedback instructions out of the browser page.
+      const expected = path === "/" ? fromMd.filter((h) => !["Updates", "Agent feedback"].includes(h)) : fromMd;
       for (const h of expected) expect(fromHtml).toContain(h);
       if (path !== "/") expect(fromHtml).toEqual(fromMd);
     }
@@ -53,6 +54,28 @@ describe("the HTML and the Markdown of a page agree", () => {
     expect(page).toContain("Claude Code");
     expect(page).toContain("ChatGPT");
     expect(await markdown("/mcp-setup.md")).toContain("## Cursor, VS Code, windsurf, goose, anything else");
+  });
+});
+
+describe("agent feedback on the landing page", () => {
+  test("is actionable for shell clients and reader agents", async () => {
+    const shell = await get("/", { "user-agent": "curl/8.0" });
+    const reader = await get("/", { accept: "text/html", "user-agent": "ClaudeBot" });
+    expect(shell).toContain("AGENT FEEDBACK");
+    expect(reader).toContain("## Agent feedback");
+    for (const page of [shell, reader]) {
+      expect(page).toContain("https://classifier.dev/.well-known/agent-feedback.json");
+      expect(page).toContain("POST https://classifier.dev/api/v1/feedback");
+      expect(page).toContain("POST https://classifier.dev/api/v1/observations");
+      expect(page).toContain("GET  https://classifier.dev/api/v1/receipts/{id}");
+    }
+  });
+
+  test("is only a footer link on the human landing page", async () => {
+    const page = await html("/");
+    expect(page).not.toContain('<a class="site-link" href="/.well-known/agent-feedback.json">Agent feedback</a>');
+    expect(page).not.toContain("<h2><span class=\"syn\">## </span>Agent feedback</h2>");
+    expect(page).toContain('<a class="inline" href="/.well-known/agent-feedback.json">agent feedback</a>');
   });
 });
 
