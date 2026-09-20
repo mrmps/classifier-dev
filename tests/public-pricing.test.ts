@@ -4,6 +4,7 @@ import { CHAT_CSS } from "../src/chatui";
 import { BILLING_PLANS, formatCreditsUsd } from "../src/lib/billing";
 import { PRICING } from "../src/pages";
 import { pricingHtml } from "../src/pricingui";
+import { BASE_CSS } from "../src/ui";
 
 test("public navigation exposes pricing and the WorkOS entry points", () => {
   const html = homeHtml();
@@ -36,6 +37,14 @@ test("the open mobile menu removes the newsletter dock from view and interaction
     HOME_CSS.indexOf("@media(max-width:420px)"),
   );
   expect(mobileMenuCss).toMatch(/body:has\(\.site-menu\[open\]\)\s+\.dock\s*\{\s*display:\s*none\s*;?\s*\}/);
+});
+
+test("desktop navigation uses one compact control row and a wide-gamut purple accent", () => {
+  expect(HOME_CSS).toMatch(/\.site-link,\.site-action\{[^}]*min-height:36px[^}]*line-height:1/);
+  expect(HOME_CSS).toMatch(/\.site-action\.primary\{min-height:36px/);
+  expect(HOME_CSS).toMatch(/\.site-actions\{display:flex;align-items:center;gap:8px\}/);
+  expect(BASE_CSS).toContain("--accent:#aa63ff; --accent-hover:#bb82ff");
+  expect(BASE_CSS).toContain("--accent:color(display-p3 .63 .40 1)");
 });
 
 test("pricing renders current shared plan values and keeps legacy keys documented", () => {

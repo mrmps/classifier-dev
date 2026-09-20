@@ -23,17 +23,17 @@ export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
   text-decoration:none;white-space:nowrap}
 .site-mark{width:28px;height:28px;flex:none}
 .site-links{display:flex;align-items:center;gap:4px;flex:1}
-.site-link,.site-action{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 10px;
+.site-link,.site-action{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 10px;line-height:1;
   border-radius:var(--r-s);color:var(--muted);font-weight:600;text-decoration:none;white-space:nowrap;
   transition-property:background-color,color,scale;transition-duration:.1s}
 .site-link[aria-current=page]{color:var(--bright);background:var(--surface)}
-.site-actions{display:flex;align-items:center;gap:4px}
+.site-actions{display:flex;align-items:center;gap:8px}
 .site-action.signup{color:var(--fg);box-shadow:inset 0 0 0 1px var(--line)}
-.site-action.primary{min-height:40px;margin-inline-start:6px;padding-inline:14px;color:var(--ink);background:var(--accent)}
+.site-action.primary{min-height:36px;margin-inline-start:0;padding-inline:14px;color:var(--ink);background:var(--accent)}
 .site-link:active,.site-action:active,.site-menu summary:active{scale:.96}
 .site-menu,.site-resources{position:relative}
 .site-menu{display:none}
-.site-menu summary,.site-resources summary{display:flex;align-items:center;justify-content:center;min-height:40px;padding-inline:10px;
+.site-menu summary,.site-resources summary{display:flex;align-items:center;justify-content:center;min-height:36px;padding-inline:10px;line-height:1;
   border-radius:var(--r-s);color:var(--fg);font-weight:600;cursor:pointer;list-style:none}
 .site-menu summary::-webkit-details-marker,.site-resources summary::-webkit-details-marker{display:none}
 .site-menu summary::before,.site-resources summary::before{content:none}
@@ -135,7 +135,7 @@ h2{scroll-margin-top:24px}
    under it. The four colours are re-stated in Display P3 for the screens
    that can show them; sRGB gets the nearest it has. Hover lifts the light,
    press sinks the control. */
-.b.cta{--c:#a98cff;--c-hi:#cdbdff;--c-lo:#8d6bff;--c-edge:#6b34e2;--glow:rgba(169,140,255,.45);
+.b.cta{--c:#aa63ff;--c-hi:#d2acff;--c-lo:#9149ff;--c-edge:#6b2adc;--glow:rgba(170,99,255,.48);
   color:var(--ink);font-weight:600;font-size:15px;padding:10px 18px 10px 14px;border-radius:var(--r);
   background:var(--c);
   background:linear-gradient(to bottom in oklch,var(--c-hi),var(--c) 45%,var(--c-lo));
@@ -155,8 +155,8 @@ h2{scroll-margin-top:24px}
   box-shadow:0 0 0 1px var(--c-edge),inset 0 1px 2px rgba(25,7,39,.3),0 4px 12px -8px var(--glow)}
 .b.cta:focus-visible{outline:2px solid var(--bright);outline-offset:3px}
 @media (color-gamut:p3){
-  .b.cta{--c:color(display-p3 .66 .49 1);--c-hi:color(display-p3 .81 .73 1);--c-lo:color(display-p3 .55 .40 1);
-    --c-edge:color(display-p3 .39 .22 .85);--glow:color(display-p3 .66 .49 1/.5)}
+  .b.cta{--c:color(display-p3 .63 .40 1);--c-hi:color(display-p3 .80 .68 1);--c-lo:color(display-p3 .53 .30 .98);
+    --c-edge:color(display-p3 .39 .18 .83);--glow:color(display-p3 .63 .40 1/.52)}
 }
 @media (max-width:640px){.agent{--pad:14px;--inset:6px}}
 /* The updates list: the roadmap as a checklist, and one field. Still not a
