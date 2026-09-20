@@ -17,6 +17,10 @@ function mockApi() {
     req.on("end", () => {
       const body = JSON.parse(raw);
       requests.push(body);
+      if (body.labels.includes("cold") && requests.length <= 6) {
+        res.writeHead(503, { "content-type": "application/json", "retry-after": "0.001" });
+        return res.end(JSON.stringify({ error: "starting", code: "laya_unavailable" }));
+      }
       if (body.labels.length < 2) {
         res.writeHead(400, { "content-type": "application/json" });
         return res.end(JSON.stringify({ error: "Provide at least 2 labels" }));
@@ -83,6 +87,29 @@ test("newer: semver compare", () => {
   assert.equal(newer("0.2.0", "0.1.9"), true);
   assert.equal(newer("1.0.0", "1.0.0"), false);
   assert.equal(newer("0.1.0-beta.1", "0.1.0"), false);
+});
+
+test("Laya CLI selects the lane and keeps fast batches to one item", async () => {
+  const api = await mockApi();
+  try {
+    const fast = await run(["billing,tech", "--model", "laya", "--endpoint", api.url], "a\nb\n");
+    assert.equal(fast.code, 0, fast.err);
+    assert.equal(api.requests.length, 2);
+    assert.ok(api.requests.every(r => r.model === "laya" && r.processing === "fast" && r.inputs.length === 1));
+    const bulk = await run(["billing,tech", "--model", "laya", "--processing", "bulk", "--endpoint", api.url], "a\nb\n");
+    assert.equal(bulk.code, 0, bulk.err);
+    assert.equal(api.requests.at(-1).processing, "bulk");
+    assert.equal(api.requests.at(-1).inputs.length, 2);
+  } finally { api.server.close(); }
+});
+
+test("Laya CLI can outwait more than five cold-start responses", async () => {
+  const api = await mockApi();
+  try {
+    const result = await run(["cold,warm", "--model", "laya", "--processing", "bulk", "--endpoint", api.url, "warm"], "", {}, 5000);
+    assert.equal(result.code, 0, result.err);
+    assert.equal(api.requests.length, 7);
+  } finally { api.server.close(); }
 });
 
 test("end to end against a mock API: single text, stdin, batching, count, 429 retry", async () => {

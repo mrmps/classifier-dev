@@ -89,6 +89,16 @@ def test_options_reach_the_wire():
         srv.shutdown()
 
 
+def test_laya_options_reach_the_wire():
+    srv, url = serve()
+    try:
+        Client(base_url=url).classify(["a"], ["x", "y"], model="laya", processing="bulk")
+        assert REQUESTS[-1][2]["model"] == "laya"
+        assert REQUESTS[-1][2]["processing"] == "bulk"
+    finally:
+        srv.shutdown()
+
+
 def test_every_failure_is_a_classifier_error():
     """The README promises one exception type; a refused socket or a timeout used to escape as URLError."""
     try:

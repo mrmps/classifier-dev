@@ -108,7 +108,7 @@ const INSTRUCTIONS_SCHEMA = {
 const TIER_SCHEMA = {
   type: "string",
   enum: ["fast", "smart"],
-  description: "fast (default, ~1s per 1,000) or smart, which re-asks answers under 0.7 confidence of a reasoning model (slower, single-label only).",
+  description: "fast (default) or smart, which re-asks answers under 0.7 confidence of a reasoning model (slower, single-label only). Independent of the Laya processing lane.",
 };
 
 const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s).replace(/\s+/g, " ");
@@ -127,15 +127,17 @@ export function productServer(classify: ClassifyFn): McpServer {
       name: "classify_texts",
       title: "Classify texts into one label each",
       description:
-        "Sort up to 1,000 texts into exactly one of your own labels each, with a calibrated confidence per answer. " +
+        "Sort up to 1,000 texts into exactly one of your own labels each, with confidence per answer. " +
         "Use this when you have many items to triage, route, filter or bucket and do not want to read them all: " +
         "search results before opening them, tickets, log lines, changed files, feedback. " +
         "Do not use it for fewer than about five items you can already see — just decide. " +
-        "Confidence is calibrated (answers >= 0.9 are right ~82-92% of the time; < 0.5 about 30-60%), " +
+        "For default Jev, confidence is calibrated (answers >= 0.9 are right ~82-92% of the time; < 0.5 about 30-60%); these measurements do not apply to experimental Laya. " +
         "so act on the sure ones and look at the rest yourself, or pass tier \"smart\" to have the unsure ones re-asked of a reasoning model.",
       inputSchema: {
         type: "object",
-        properties: { inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA },
+        properties: { inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA,
+          model: { type: "string", enum: ["jev", "laya"], description: "Optional English Laya trial; Jev remains the default." },
+          processing: { type: "string", enum: ["fast", "bulk"], description: "Laya only: fast accepts one decision; bulk handles batches. Shared capacity limits can return 429." } },
         required: ["inputs", "labels"],
         additionalProperties: false,
       },
@@ -151,7 +153,7 @@ export function productServer(classify: ClassifyFn): McpServer {
               type: "object",
               properties: {
                 label: { type: "string" },
-                confidence: { type: ["number", "null"], description: "0-1, calibrated. Null when the provider returns no score or the smart tier replaces the scored answer." },
+                confidence: { type: ["number", "null"], description: "0-1; calibration measurements cover Jev, not experimental Laya. Null when the provider returns no score or the smart tier replaces the scored answer." },
                 scores: { type: ["object", "null"], additionalProperties: { type: "number" }, description: "Model preference per supplied label; sums to 1. Does not validate the input or guarantee correctness." },
                 escalated: { type: "boolean", description: "Smart tier only: this answer was re-asked of the reasoning model." },
               },
@@ -169,6 +171,8 @@ export function productServer(classify: ClassifyFn): McpServer {
           labels: strings(a.labels, "labels", 2, 100),
           instructions: str(a.instructions, "instructions", { optional: true, max: 2000 }),
           tier: tier(a.tier),
+          ...(a.model !== undefined ? { model: a.model } : {}),
+          ...(a.processing !== undefined ? { processing: a.processing } : {}),
         };
         const r = await classify(body, ctx.req);
         const err = classifyOrError(r.status, r.body);
@@ -184,12 +188,14 @@ export function productServer(classify: ClassifyFn): McpServer {
       description: "Classify each text by several named dimensions, such as team, urgency and kind, in one request. Returns a label, confidence, scores and model for each field. At most 1,000 item × dimension decisions; every field counts toward the quota. Use per-dimension instructions to define ambiguous categories.",
       inputSchema: {
         type: "object", required: ["items", "dimensions"], additionalProperties: false,
-        properties: { items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA },
+        properties: { items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA,
+          model: { type: "string", enum: ["jev", "laya"] }, processing: { type: "string", enum: ["fast", "bulk"], description: "Use bulk for multiple Laya decisions." } },
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       async run(a, ctx) {
         const r = await classify({ items: strings(a.items, "items", 1, 1000), dimensions: a.dimensions ?? null,
-          instructions: str(a.instructions, "instructions", { optional: true, max: 4000 }), tier: tier(a.tier) }, ctx.req);
+          instructions: str(a.instructions, "instructions", { optional: true, max: 4000 }), tier: tier(a.tier),
+          ...(a.model !== undefined ? { model: a.model } : {}), ...(a.processing !== undefined ? { processing: a.processing } : {}) }, ctx.req);
         return classifyOrError(r.status, r.body) ?? { text: JSON.stringify(r.body), structured: r.body };
       },
     },
@@ -207,6 +213,8 @@ export function productServer(classify: ClassifyFn): McpServer {
           labels: LABELS_SCHEMA,
           instructions: INSTRUCTIONS_SCHEMA,
           max_labels: { type: "integer", minimum: 1, maximum: 100, description: "At most this many labels per text, most likely first." },
+          model: { type: "string", enum: ["jev", "laya"] },
+          processing: { type: "string", enum: ["fast", "bulk"], description: "Laya fast accepts up to four labels on one text; bulk handles more." },
         },
         required: ["inputs", "labels"],
         additionalProperties: false,
@@ -238,6 +246,8 @@ export function productServer(classify: ClassifyFn): McpServer {
           labels: strings(a.labels, "labels", 2, 100),
           instructions: str(a.instructions, "instructions", { optional: true, max: 2000 }),
           multi: true,
+          ...(a.model !== undefined ? { model: a.model } : {}),
+          ...(a.processing !== undefined ? { processing: a.processing } : {}),
         };
         if (max !== undefined) body.max_labels = max;
         const r = await classify(body, ctx.req);

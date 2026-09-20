@@ -35,6 +35,8 @@ type Request struct {
 	Inputs       []string `json:"inputs"`
 	Labels       []string `json:"labels"`
 	Tier         string   `json:"tier,omitempty"`         // "fast" (default) or "smart"
+	Model        string   `json:"model,omitempty"`        // "jev" (default) or experimental "laya"
+	Processing   string   `json:"processing,omitempty"`   // Laya only: "fast" (default) or "bulk"
 	Instructions string   `json:"instructions,omitempty"` // extra criteria
 	Multi        bool     `json:"multi,omitempty"`        // every label that applies
 	MaxLabels    int      `json:"max_labels,omitempty"`   // cap for multi-label

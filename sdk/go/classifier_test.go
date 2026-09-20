@@ -40,6 +40,26 @@ func TestErrorShape(t *testing.T) {
 	}
 }
 
+func TestLayaOptions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["model"] != "laya" || body["processing"] != "bulk" || body["tier"] != "smart" {
+			t.Errorf("independent Laya options lost on wire: %#v", body)
+		}
+		_, _ = w.Write([]byte(`{"results":[{"label":"billing"}]}`))
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL}).Classify(context.Background(), Request{
+		Inputs: []string{"invoice"}, Labels: []string{"billing", "support"}, Model: "laya", Processing: "bulk", Tier: "smart",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResponseShapeAndMaxLabels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req Request

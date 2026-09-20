@@ -103,6 +103,26 @@ describe("mcp transport", () => {
 });
 
 describe("mcp tools", () => {
+  it("classification tools forward Laya lanes and single-label Smart selection", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const laneServer = productServer(async body => {
+      calls.push(body);
+      return { status: 503, body: { error: "fixture unavailable", code: "laya_unavailable" } };
+    });
+    for (const name of ["classify_texts", "classify_dimensions", "classify_multi_label"]) {
+      const args = { ...(name === "classify_dimensions"
+        ? { items: ["invoice"], dimensions: { team: ["billing", "support"] } }
+        : { inputs: ["invoice"], labels: ["billing", "support"] }),
+        model: "laya", processing: "bulk", ...(name !== "classify_multi_label" ? { tier: "smart" } : {}) };
+      const result = await handleMcp(new Request("https://classifier.dev/mcp", { method: "POST",
+        body: JSON.stringify(rpc("tools/call", { name, arguments: args })) }), laneServer);
+      expect((await result.json()).result.isError).toBe(true);
+      expect(calls.at(-1)).toMatchObject({ model: "laya", processing: "bulk",
+        ...(name !== "classify_multi_label" ? { tier: "smart" } : { multi: true }) });
+    }
+    expect(calls).toHaveLength(3);
+  });
+
   it("lists five well-formed, read-only tools", async () => {
     const { result } = await (await post(rpc("tools/list"))).json();
     expect(result.tools.map((t: { name: string }) => t.name)).toEqual(["classify_texts", "classify_dimensions", "classify_multi_label", "count_labels", "review_uncertain"]);

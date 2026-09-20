@@ -82,6 +82,8 @@ class Client:
         labels: Sequence[str],
         *,
         tier: Optional[str] = None,
+        model: Optional[str] = None,
+        processing: Optional[str] = None,
         instructions: Optional[str] = None,
         multi: bool = False,
         max_labels: Optional[int] = None,
@@ -106,6 +108,10 @@ class Client:
         body: Dict[str, Any] = {"inputs": input_values, "labels": label_values}
         if tier:
             body["tier"] = tier
+        if model is not None:
+            body["model"] = model
+        if processing is not None:
+            body["processing"] = processing
         if instructions:
             body["instructions"] = instructions
         if multi:

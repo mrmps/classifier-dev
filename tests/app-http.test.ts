@@ -280,3 +280,57 @@ test("Smart bills actual Jev and Gemini cached/input/output tokens and emits one
   expect(calls).toBe(2);
   expect(points).toHaveLength(1);
 });
+
+test.each(["fast", "bulk"])("account Laya %s settles explicitly free tokens without consuming balance", async processing => {
+  Object.assign(env, { LAYA_ENABLED: "true", LAYA_FAST_URL: "https://fast.example", LAYA_BULK_URL: "https://bulk.example",
+    LAYA_MODAL_KEY: "fixture", LAYA_MODAL_SECRET: "fixture", LIMITER: {
+      idFromName: (name: string) => name,
+      get: () => ({ fetch: async () => Response.json({ limited: false, remaining: 59 }) }),
+    } });
+  // A free inference must also work when the account has no paid or free credits.
+  await env.APP_DB.prepare("UPDATE app_accounts SET balance=0,paid_balance=0 WHERE id='local-demo'").run();
+  globalThis.fetch = (async (url, init) => {
+    expect(String(url)).toBe(`https://${processing}.example/predict`);
+    const { batch } = JSON.parse(String(init?.body));
+    return Response.json({ results: batch.map((row: { questions: Record<string, unknown> }) => ({
+      answers: Object.fromEntries(Object.keys(row.questions).map(id => [id, {
+        choice: "yes", confidence: .99, probabilities: { yes: .99, no: .01 },
+      }])), usage: { input_tokens: 41 },
+    })) });
+  }) as typeof fetch;
+  const response = await accountClassification(request({ input: "Hello", labels: ["yes", "no"], model: "laya", processing }), env);
+  expect(response?.status).toBe(200);
+  expect(response?.headers.get("x-billing-status")).toBe("settled");
+  const usage = await env.APP_DB.prepare("SELECT actual_nano::text,credits,status,input_tokens FROM app_usage WHERE account_id='local-demo'").first();
+  expect(usage).toEqual({ actual_nano: "0", credits: 0, status: "completed", input_tokens: 41 });
+  expect((await getSnapshot("local-demo", env)).credits.balance).toBe(0);
+});
+
+test("account Laya Smart charges only the actual review tokens", async () => {
+  Object.assign(env, { LAYA_ENABLED: "true", LAYA_FAST_URL: "https://fast.example", LAYA_MODAL_KEY: "fixture",
+    LAYA_MODAL_SECRET: "fixture", OPENROUTER_API_KEY: "fixture", LIMITER: {
+      idFromName: (name: string) => name,
+      get: () => ({ fetch: async () => Response.json({ limited: false, remaining: 59 }) }),
+    } });
+  let calls = 0;
+  globalThis.fetch = (async (url, init) => {
+    calls++;
+    if (String(url) === "https://fast.example/predict") {
+      const { batch } = JSON.parse(String(init?.body));
+      return Response.json({ results: batch.map((row: { questions: Record<string, unknown> }) => ({
+        answers: Object.fromEntries(Object.keys(row.questions).map(id => [id, {
+          choice: "yes", confidence: .6, probabilities: { yes: .6, no: .4 },
+        }])), usage: { input_tokens: 41 },
+      })) });
+    }
+    expect(String(url)).toBe("https://openrouter.ai/api/v1/chat/completions");
+    return Response.json({ model: "google/gemini-3.8-flash", choices: [{ message: { content: "B" } }],
+      usage: { prompt_tokens: 1000, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 100 }, cost: 0.0007575 } });
+  }) as typeof fetch;
+  const response = await accountClassification(request({ input: "Hello", labels: ["yes", "no"], model: "laya", tier: "smart" }), env);
+  expect(response?.status).toBe(200);
+  expect((await response!.json()).results[0].label).toBe("no");
+  expect(await env.APP_DB.prepare("SELECT actual_nano::text,credits,status FROM app_usage WHERE account_id='local-demo'").first())
+    .toEqual({ actual_nano: "909000", credits: 91, status: "completed" });
+  expect(calls).toBe(2);
+});

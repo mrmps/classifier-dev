@@ -43,6 +43,10 @@ binding = "ACCOUNT_AE"
 dataset = "classifier_account_events"
 
 [vars]
+LAYA_ENABLED = "true"
+LAYA_FAST_URL = "https://miryaboy--classifier-laya-trial-fast.us-east.modal.direct"
+LAYA_BULK_URL = "https://miryaboy--classifier-laya-trial-bulk.us-east.modal.direct"
+# LAYA_MODAL_KEY and LAYA_MODAL_SECRET are Worker secrets, never plaintext vars.
 # Enable only after account migration, pricing and Autumn reconciliation checks.
 APP_ACCOUNTS_ENABLED = "true"
 ACCOUNT_ANALYTICS_CONTENT_ENABLED = "false"

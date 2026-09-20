@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-20-launch-v1",
+  "version": "2026-09-20-laya-trial-v1",
   "models": [
     {
       "provider": "typesafe",
@@ -14,6 +14,8 @@
       "inputUsdPerMillion": "0.900",
       "outputUsdPerMillion": "4.500",
       "cachedInputUsdPerMillion": "0.090"
-    }
+    },
+    { "provider": "modal", "model": "laya-0.3.4-english-fast", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" },
+    { "provider": "modal", "model": "laya-0.3.4-english-bulk", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" }
   ]
 }

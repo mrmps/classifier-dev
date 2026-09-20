@@ -19,6 +19,7 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
+import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, type LayaEnv, type LayaPlan, type Processing } from "./laya";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, addTokens, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -30,7 +31,7 @@ export { BillingAccount } from "./billing";
 import { authenticatePro, handleBilling, BillingError, type BillingEnv } from "./billing";
 import { proHtml } from "./proui";
 
-export interface Env extends BillingEnv {
+export interface Env extends BillingEnv, LayaEnv {
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
   /**
@@ -167,7 +168,7 @@ type Tier = keyof typeof TIERS;
 export function primaryModels(): string[] {
   // Jev answers as a versioned id ("jev-1.13.0") while we ask for "jev-latest",
   // so the digest matches it by prefix.
-  const out: string[] = ["jev"];
+  const out: string[] = ["jev", "laya"];
   for (const tier of Object.keys(TIERS) as Tier[]) {
     const t = TIERS[tier] as { chain: readonly ModelCfg[]; multiChain?: readonly ModelCfg[] };
     out.push(t.chain[0].model);
@@ -908,14 +909,16 @@ async function classifyMany(
   instructions?: string,
   multi?: MultiOpts,
   meter?: Meter,
+  layaPlan?: LayaPlan,
 ): Promise<{ results: Result[]; escalationFailed: number }> {
   const keys = jevKeys(env);
-  if (keys) {
+  if (keys || layaPlan) {
     const started = Date.now();
     let jev: Awaited<ReturnType<typeof jevClassify>> | null = null;
     try {
-      jev = await jevClassify(keys, inputs, labels, instructions, !!multi, meter);
+      jev = layaPlan ? await runLaya(env, layaPlan, meter) : await jevClassify(keys!, inputs, labels, instructions, !!multi, meter);
     } catch (e) {
+      if (layaPlan) throw e;
       console.warn(`jev failed, falling back: ${(e as Error).message}`);
     }
     if (jev) {
@@ -957,11 +960,14 @@ async function classifyMany(
 }
 
 /** Keep each field independent, including smart escalation and the bounded LLM fallback. */
-async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter) {
+async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter, layaPlan?: LayaPlan) {
   const started = Date.now();
   let jev: Awaited<ReturnType<typeof classifyDimensions>> | undefined;
   const keys = jevKeys(env);
-  if (keys) {
+  if (layaPlan) {
+    const flat = await runLaya(env, layaPlan, meter);
+    jev = inputs.map((_, i) => flat.slice(i * dimensions.length, (i + 1) * dimensions.length));
+  } else if (keys) {
     try { jev = await classifyDimensions(keys, batches, meter); }
     catch (e) { console.warn(`dimensions Jev failed: ${(e as Error).message}`); }
   }
@@ -1701,6 +1707,10 @@ const worker = {
     let inputs: string[] = [];
     let labels: string[] = [];
     let tier: Tier = "fast";
+    let selectedModel: "jev" | "laya" = "jev";
+    let processing: Processing = "fast";
+    let layaPlan: LayaPlan | undefined;
+    let layaRemaining = -1;
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
     let dimensions: Dimension[] | undefined;
@@ -1716,13 +1726,17 @@ const worker = {
     // key if the caller sent one — classification has no side effects, so the
     // echo is all a retrying client needs.
     const apiHeaders = (remaining = -1): Record<string, string> => {
-      const limit = TIERS[tier].rpm * multiplier;
+      const isLaya = selectedModel === "laya";
+      const limit = isLaya ? Math.min(LAYA_LIMITS[processing].rpm, TIERS[tier].rpm * multiplier) : TIERS[tier].rpm * multiplier;
+      const daily = isLaya ? Math.min(LAYA_LIMITS[processing].daily, TIERS[tier].daily * multiplier) : TIERS[tier].daily * multiplier;
       const h: Record<string, string> = {
         "x-api-version": API_VERSION,
-        "ratelimit-limit": enterprise ? "unlimited" : String(limit),
-        "ratelimit-policy": enterprise ? "unlimited" : `${limit};w=60, ${TIERS[tier].daily * multiplier};w=86400`,
-        "x-ratelimit-limit": enterprise ? "unlimited" : `${limit}/min`,
+        "ratelimit-limit": enterprise && !isLaya ? "unlimited" : String(limit),
+        "ratelimit-policy": enterprise && !isLaya ? "unlimited" : `${limit};w=60, ${daily};w=86400`,
+        "x-ratelimit-limit": enterprise && !isLaya ? "unlimited" : `${limit}/min`,
       };
+      if (isLaya) h["x-classifier-processing"] = processing;
+      if (layaRemaining >= 0) remaining = remaining < 0 ? layaRemaining : Math.min(remaining, layaRemaining);
       if (remaining >= 0) {
         h["ratelimit-remaining"] = String(remaining);
         h["x-ratelimit-remaining"] = String(remaining);
@@ -1732,7 +1746,7 @@ const worker = {
       return h;
     };
     const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, string> = {}) => {
-      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: "",
+      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "laya" ? layaModel(processing) : "",
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
@@ -1760,6 +1774,11 @@ const worker = {
         return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
       }
       const b = body as Record<string, unknown>;
+      if (b.model !== undefined && b.model !== "jev" && b.model !== "laya") return fail('model must be "jev" or "laya"', 400, "bad_model");
+      selectedModel = b.model === "laya" ? "laya" : "jev";
+      if (b.processing !== undefined && (selectedModel !== "laya" || (b.processing !== "fast" && b.processing !== "bulk")))
+        return fail('processing must be "fast" or "bulk" and requires model: "laya"', 400, "bad_processing");
+      processing = b.processing === "bulk" ? "bulk" : "fast";
       if (Object.hasOwn(b, "dimensions")) mode = "dimensions";
       if (mode === "dimensions" && ["items", "inputs", "input"].filter((k) => Object.hasOwn(b, k)).length > 1) return fail("Use only one of items, inputs or input", 400, "bad_dimensions");
       if (mode === "dimensions" && Object.hasOwn(b, "items")) {
@@ -1793,6 +1812,7 @@ const worker = {
         multi = { max: max && max > 0 ? max : undefined };
       }
     } else {
+      if (url.searchParams.has("model") || url.searchParams.has("processing")) return fail("Model and processing selection require POST /v1/classify", 400, "bad_model");
       // GET /{labels}/{text}, GET /?labels=a,b&text=..., or a mix of the two.
       // The path goes in undecoded so a %2C, %2F or %2B inside a label survives.
       getReq = readGet(CLASSIFY_ALIASES.has(path) ? "" : rawPath, url);
@@ -1833,10 +1853,24 @@ const worker = {
 
     if (dimensions) {
       if (inputs.length * dimensions.length > MAX_DECISIONS) return fail(`Maximum ${MAX_DECISIONS} decisions (items × dimensions) per request`, 400, "too_many_decisions");
-      try { dimensionBatches = packDimensions(inputs, dimensions, instructions); }
+      try { if (selectedModel !== "laya") dimensionBatches = packDimensions(inputs, dimensions, instructions); }
       catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
     } else mode = multi ? "multi" : "single";
     const decisions = inputs.length * (dimensions?.length ?? 1);
+    if (selectedModel === "laya") {
+      if (env.LAYA_ENABLED !== "true") return fail("Laya trial is currently unavailable", 503, "laya_unavailable");
+      try {
+        layaPlan = planLaya(dimensions
+          ? inputs.flatMap(input => dimensions!.map(d => ({ input, labels: d.labels, instructions: dimensionInstructions(d, instructions) })))
+          : inputs.map(input => ({ input, labels, instructions, multi: !!multi })), processing);
+        layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost);
+      } catch (error) {
+        if (error instanceof LayaError) return fail(error.message, error.status,
+          error.status === 400 ? "laya_input" : error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
+          error.status === 400 ? {} : { "retry-after": String(error.retryAfter) });
+        throw error;
+      }
+    }
     const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
     if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : pro ? "Pro" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
@@ -1875,13 +1909,16 @@ const worker = {
     let escalationFailed = 0;
     try {
       if (dimensions) {
-        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter);
+        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan);
         matrix = r.results;
         results = matrix.flat();
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
-      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter));
+      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan));
     } catch (e) {
+      if (e instanceof LayaError) return fail(e.message, e.status,
+        e.status === 400 ? "laya_input" : e.status === 429 ? "laya_rate_limit" : "laya_unavailable",
+        e.status === 400 ? {} : { "retry-after": String(e.retryAfter) }, Date.now() - started);
       const msg = (e as Error).message;
       return fail(`upstream: ${msg}`, 502, upstreamReason(msg), {}, Date.now() - started);
     }

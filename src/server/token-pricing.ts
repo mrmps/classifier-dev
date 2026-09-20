@@ -44,7 +44,7 @@ export function parseTokenRateCard(json: string | undefined): TokenRateCard | nu
   const seen = new Set<string>();
   const models = data.models.map(value => {
     const row = object(value);
-    if (!row || !["typesafe", "vercel", "openrouter"].includes(String(row.provider)) || typeof row.model !== "string" || !row.model.trim() || row.model.length > 200) {
+    if (!row || !["typesafe", "vercel", "openrouter", "modal"].includes(String(row.provider)) || typeof row.model !== "string" || !row.model.trim() || row.model.length > 200) {
       throw new Error("Invalid provider or model in token rate card.");
     }
     const key = `${row.provider}:${row.model}`;

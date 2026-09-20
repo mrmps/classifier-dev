@@ -10,6 +10,7 @@ import { ROADMAP, ROADMAP_KEYS } from "./newsletter";
  * carry the upstream HTTP status and are described by the pattern below.
  */
 export const ERROR_CODES = [
+  "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
   "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid",
@@ -55,9 +56,9 @@ const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
   "401": err("Invalid or replaced Pro API key. Create a replacement at https://classifier.dev/pro."),
   "403": err("Pro subscription is not active. Manage billing at https://classifier.dev/pro."),
-  "503": err("Pro subscription verification is temporarily unavailable. Retry later."),
+  "503": err("Subscription verification or Laya inference is temporarily unavailable. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
-  "429": err("Free per-IP or Pro per-account limit reached. Wait `Retry-After` seconds. `code` is rate_limit_minute or rate_limit_day; a free-tier 429 also carries `upgrade`, the URL of the plan that lifts it.", {
+  "429": err("Quota or shared Laya capacity reached. Wait Retry-After seconds. Laya trial caps also apply to paid keys and cannot be lifted by upgrading; code laya_rate_limit identifies that lane's admission limit. Daily limits use rate_limit_day.", {
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
     ...RATE_LIMIT_HEADERS,
   }, plain),
@@ -846,6 +847,8 @@ export const OPENAPI = {
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
+          model: { type: "string", enum: ["jev", "laya"], default: "jev", description: "Opt into the experimental English Laya model; existing Jev behavior is unchanged. Laya has a 512-token combined context, 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Jev calibration claims do not apply to Laya." },
+          processing: { type: "string", enum: ["fast", "bulk"], default: "fast", description: "Laya only. Fast accepts one decision, up to 4 yes/no questions, 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
           dimensions: DIMENSIONS_SCHEMA,
           items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 32000 }, description: "Alias for inputs in dimensions mode. Do not combine with input or inputs." },
           input: { type: "string", description: "A single text. Provide this or inputs; a string under `inputs` is read as one text too." },

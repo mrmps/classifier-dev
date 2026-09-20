@@ -13,6 +13,46 @@ Agents: the OpenAPI 3.1 description is at https://classifier.dev/openapi.json
 and a short index at https://classifier.dev/llms.txt
 
 
+LAYA TRIAL
+
+  Existing calls still use Jev. To try Laya, send a POST with model: "laya"
+  and processing: "fast" or "bulk". Both lanes use the same English model;
+  processing changes batching and capacity, not intelligence.
+
+    {"model":"laya","processing":"fast","input":"Please refund this charge",
+     "labels":["billing","technical"]}
+
+  Fast: one decision per call, 60 questions/minute and 2,000/day per caller.
+  Bulk: up to 1,000 questions per call, 1,000/minute and 20,000/day. Large
+  calls are chunked internally and results retain input order. A single-label
+  decision is one question; multi-label uses one question per label. Fast
+  accepts at most four questions. Multiple dimensions normally need bulk.
+  Trial limits also apply to paid and operator keys; existing Smart quotas
+  still apply. Shared GPU capacity can return 429 even with quota remaining.
+  Quotas count attempted questions, including failed inference and retries.
+
+  Laya accepts short English text: at most 2,000 characters, 2–16 labels of
+  at most 100 characters each, and instructions up to 400 characters. The
+  text, question and labels must also fit the model's 512-token context;
+  oversized content is rejected, not silently shortened. Jev's published
+  accuracy and calibration measurements do not describe Laya.
+
+  Fast stays warm. Bulk starts on demand and can return 503 while starting.
+  On 429 or 503, respect Retry-After and use bounded retries with backoff.
+  The repository CLI retries Laya for up to three minutes per batch.
+  Global GPU placement is not a replica in every region or a latency promise.
+  Accepted work is held only in memory; there is no durable batch-job service.
+  Overload never silently switches the model or processing lane.
+
+  Laya inference has no retail charge during this trial. Optional tier: "smart"
+  reviews remain separately priced as before and can be slower. GPU hosting
+  costs are separate from the API's provider-reported spend totals.
+
+  From this repository's CLI:
+    node cli/classify.js billing,technical --model laya "Please refund this"
+    node cli/classify.js billing,technical --model laya --processing bulk < tickets.txt
+
+
 AGAINST THE MODEL IT RUNS ON
 
 ${vsJevText(false)}

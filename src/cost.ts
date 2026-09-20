@@ -26,7 +26,7 @@ export type TokenCounts = {
 };
 
 export type ModelTokenUsage = TokenCounts & {
-  provider: "typesafe" | "vercel" | "openrouter";
+  provider: "typesafe" | "vercel" | "openrouter" | "modal";
   model: string;
   calls: number;
 };
