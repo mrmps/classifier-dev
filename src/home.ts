@@ -16,7 +16,7 @@ import { headingTitle, isCommandBlock, isHeading, isPreBlock } from "./pages";
 import { chatPanel, CHAT_CSS, CHAT_SCRIPT } from "./chatui";
 
 export const HOME_CSS = `${HL_CSS}${CHAT_CSS}
-.site-header{position:sticky;inset-block-start:0;z-index:30;background:color-mix(in srgb,var(--bg) 92%,transparent);
+.site-header{position:sticky;inset-block-start:0;z-index:10;background:color-mix(in srgb,var(--bg) 92%,transparent);
   border-block-end:1px solid var(--rule);backdrop-filter:blur(16px)}
 .site-nav{max-width:1180px;min-height:72px;margin:0 auto;padding-inline:24px;display:flex;align-items:center;gap:28px}
 .site-brand{display:inline-flex;align-items:center;gap:10px;color:var(--bright);font-size:15px;font-weight:700;

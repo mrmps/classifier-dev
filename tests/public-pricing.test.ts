@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { homeHtml } from "../src/home";
+import { HOME_CSS, homeHtml } from "../src/home";
+import { CHAT_CSS } from "../src/chatui";
 import { BILLING_PLANS, formatCreditsUsd } from "../src/lib/billing";
 import { PRICING } from "../src/pages";
 import { pricingHtml } from "../src/pricingui";
@@ -16,6 +17,14 @@ test("public navigation exposes pricing and the WorkOS entry points", () => {
   expect(html).toContain('href="/skill.md"');
   expect(html).toContain('href="/llms.txt"');
   expect(html).not.toContain('href="/pro"');
+});
+
+test("public navigation and its menus stay above content but below the chat controls", () => {
+  const headerLayer = Number(/\.site-header\{[^}]*z-index:(\d+)/.exec(HOME_CSS)?.[1]);
+  const chatLayer = Number(/\.chat\{[^}]*z-index:(\d+)/.exec(CHAT_CSS)?.[1]);
+  expect(headerLayer).toBeGreaterThan(0);
+  expect(headerLayer).toBeLessThan(chatLayer);
+  expect(homeHtml({chat: true})).toContain('class="chat" id="chat" aria-label="Chat">');
 });
 
 test("pricing renders current shared plan values and keeps legacy keys documented", () => {

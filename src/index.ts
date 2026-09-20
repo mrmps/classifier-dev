@@ -1192,7 +1192,9 @@ const worker = {
     if (path === "pro" && req.method === "GET") {
       return new Response(null, {
         status: 308,
-        headers: { Location: `${origin}/pricing`, ...SECURITY },
+        // Old email links carry a token in the fragment. An explicit empty
+        // fragment prevents it being inherited by the new account login flow.
+        headers: { Location: `${origin}/app/plans#`, ...SECURITY },
       });
     }
     const billing = await handleBilling(req, env);
