@@ -1,10 +1,16 @@
 import { expect, test } from "bun:test";
-import { HOME_CSS, homeHtml } from "../src/home";
+import { HOME_CSS, NAV, homeHtml } from "../src/home";
 import { CHAT_CSS } from "../src/chatui";
 import { BILLING_PLANS, formatCreditsUsd } from "../src/lib/billing";
 import { PRICING } from "../src/pages";
 import { pricingHtml } from "../src/pricingui";
 import { BASE_CSS } from "../src/ui";
+import worker, { type Env } from "../src/index";
+
+const ctx = {
+  waitUntil() {},
+  passThroughOnException() {},
+} as unknown as ExecutionContext;
 
 test("public navigation exposes pricing and the WorkOS entry points", () => {
   const html = homeHtml();
@@ -21,6 +27,28 @@ test("public navigation exposes pricing and the WorkOS entry points", () => {
   expect(html).toContain('class="site-menu-actions"');
   expect(html).toContain('<span class="sr">Menu</span>');
   expect(html).not.toContain('href="/pro"');
+});
+
+test("authenticated navigation replaces account entry points with the dashboard", () => {
+  const html = NAV("home", true);
+  expect(html).toContain('href="/app">Dashboard</a>');
+  expect(html).not.toContain('href="/login"');
+  expect(html).not.toContain('href="/auth/sign-up"');
+});
+
+test("the public worker renders authenticated navigation as a cookie variant", async () => {
+  const response = await worker.fetch(
+    new Request("https://classifier.dev/", {
+      headers: { Accept: "text/html" },
+    }),
+    {} as Env,
+    ctx,
+    { viewer: { signedIn: true } },
+  );
+  const html = await response.text();
+
+  expect(html).toContain('href="/app">Dashboard</a>');
+  expect(response.headers.get("Vary")).toContain("cookie");
 });
 
 test("public navigation and its menus stay above content but below the chat controls", () => {

@@ -19,7 +19,7 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
-import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
+import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, readQuotaTiming, type QuotaTiming, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, addTokens, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -425,7 +425,7 @@ const html = async (body: string, status = 200, extra: Record<string, string> = 
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=300",
       // Representations depend on Accept and agent-specific User-Agent handling.
-      vary: "accept, user-agent",
+      vary: "accept, user-agent, cookie",
       "content-security-policy": await pagePolicy(body),
       ...CORS,
       ...SECURITY,
@@ -1125,13 +1125,14 @@ export function record(env: Env, ctx: ExecutionContext, d: {
 }
 
 /** Ask the IP or Pro account Durable Object whether the batch fits. */
-async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1) {
+async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplier = 1, timing?: QuotaTiming) {
   const rpm = TIERS[tier].rpm * multiplier;
   try {
     const id = env.LIMITER.idFromName(`${tier}:${ip}`);
     const res = await env.LIMITER.get(id).fetch(
       `https://limiter/?limit=${rpm}&daily=${TIERS[tier].daily * multiplier}&cost=${cost}`,
     );
+    readQuotaTiming(res, timing);
     return (await res.json()) as {
       limited: boolean;
       remaining: number;
@@ -1148,12 +1149,14 @@ async function limited(env: Env, tier: Tier, ip: string, cost: number, multiplie
 export type ClassificationExecution = {
   meter?: Meter;
   account?: { id: string; multiplier: number };
+  viewer?: { signedIn: boolean };
 };
 
 const worker = {
   async fetch(req: Request, env: Env, ctx: ExecutionContext, execution?: ClassificationExecution): Promise<Response> {
     const workerStarted = performance.now();
     const account = execution?.account;
+    const signedIn = execution?.viewer?.signedIn === true;
     if (account && (!account.id.trim() || !Number.isSafeInteger(account.multiplier) || account.multiplier < 1)) {
       throw new Error("Invalid internal classification account context");
     }
@@ -1365,13 +1368,14 @@ const worker = {
       if (pageWantsHtml)
         return html(
           pageKey === "pricing"
-            ? pricingHtml()
+            ? pricingHtml(signedIn)
             : docHtml({
                 title: pg.title,
                 desc: pg.desc,
                 doc: pg.doc,
                 path: `/${pageKey}`,
                 here: pageKey,
+                signedIn,
               }),
         );
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
@@ -1385,7 +1389,7 @@ const worker = {
       const items = await skills.list(env);
       const dynamic = { "cache-control": "public, max-age=60", vary: "accept, user-agent" };
       if (path.endsWith(".md") || wantsMarkdown) return markdown(skills.skillsMarkdown(items, origin), 200, dynamic);
-      if (pageWantsHtml) return html(skills.skillsHtml(items), 200, dynamic);
+      if (pageWantsHtml) return html(skills.skillsHtml(items, signedIn), 200, dynamic);
       return text(skills.skillsDoc(items), 200, dynamic);
     }
     const skillPage = req.method === "GET" && path.match(/^skills\/([a-z0-9-]{1,64})(\.md)?$/);
@@ -1396,7 +1400,7 @@ const worker = {
       if (skillPage[2] || wantsMarkdown) {
         return new Response(r.content, { headers: { "content-type": "text/markdown; charset=utf-8", "content-disposition": 'inline; filename="SKILL.md"', ...dynamic, ...CORS, ...SECURITY } });
       }
-      if (pageWantsHtml) return html(skills.skillHtml(r), 200, dynamic);
+      if (pageWantsHtml) return html(skills.skillHtml(r, signedIn), 200, dynamic);
       return text(skills.skillDoc(r), 200, dynamic);
     }
     if (path === skills.API_PATH || path.startsWith(`${skills.API_PATH}/`)) {
@@ -1594,12 +1598,12 @@ const worker = {
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
         return html(unfurlHtml(), 200, { "cache-control": "public, max-age=3600", ...link });
       }
-      if (wantsHtml) return html(homeHtml(), 200, link);
+      if (wantsHtml) return html(homeHtml({ signedIn }), 200, link);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
     // The front page with the sidebar already open. curl gets told where the chat is.
     if (req.method === "GET" && path === "chat") {
-      if (wantsHtml) return html(homeHtml({ chat: true }), 200, { link: LINKS(origin) });
+      if (wantsHtml) return html(homeHtml({ chat: true, signedIn }), 200, { link: LINKS(origin) });
       return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
     }
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
@@ -1609,7 +1613,7 @@ const worker = {
       if (path === "benchmark.md" || wantsMarkdown) {
         return markdown(toMarkdown(BENCHMARK, { title: "classifier.dev benchmark", canonical: `${origin}/benchmark`, description: "Measured accuracy, calibration, cost and latency." }));
       }
-      if (wantsHtml) return html(benchmarkHtml());
+      if (wantsHtml) return html(benchmarkHtml(signedIn));
       return text(BENCHMARK, 200, { vary: "accept" });
     }
     if (path === "robots.txt") return text(robotsTxt(origin), 200, CACHE_HOUR);
@@ -1738,6 +1742,7 @@ const worker = {
     let layaRemaining = -1;
     let layaTiming: LayaRequestTiming | undefined;
     let regularQuotaMs = 0, layaQuotaMs = 0;
+    const regularQuotaTiming: QuotaTiming = {}, laneQuotaTiming: QuotaTiming = {};
     let instructions: string | undefined;
     let multi: MultiOpts | undefined;
     let dimensions: Dimension[] | undefined;
@@ -1906,7 +1911,7 @@ const worker = {
     const regularQuotaStarted = performance.now();
     const gate = enterprise
       ? { limited: false, remaining: -1 }
-      : await limited(env, tier, quotaOwner, decisions, multiplier);
+      : await limited(env, tier, quotaOwner, decisions, multiplier, layaTiming ? regularQuotaTiming : undefined);
     regularQuotaMs = performance.now() - regularQuotaStarted;
     if (gate.limited) {
       const perDay = gate.scope === "day";
@@ -1936,7 +1941,7 @@ const worker = {
     // the separate, deliberately small Laya allowance.
     if (layaPlan) {
       const layaQuotaStarted = performance.now();
-      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost); }
+      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost, layaTiming ? laneQuotaTiming : undefined); }
       catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
           error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -1986,6 +1991,8 @@ const worker = {
       const durations: Record<string, number | undefined> = {
         worker_total: performance.now() - workerStarted,
         quota_regular: regularQuotaMs, quota_laya: layaQuotaMs,
+        regular_handler: regularQuotaTiming.handler, regular_read: regularQuotaTiming.read, regular_write: regularQuotaTiming.write,
+        lane_handler: laneQuotaTiming.handler, lane_read: laneQuotaTiming.read, lane_write: laneQuotaTiming.write,
         laya_run: layaTiming.runMs, modal_fetch: layaTiming.fetchMs,
         modal_headers: layaTiming.headersMs, backend: layaTiming.backendMs,
       };

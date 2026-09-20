@@ -5,7 +5,7 @@ import { esc, page } from "./ui";
 
 const feature = (text: string) => `<li>${esc(text)}</li>`;
 
-export function pricingHtml() {
+export function pricingHtml(signedIn = false) {
   const pro = BILLING_PLANS.pro;
   const tokenRows = retailRates.models
     .map(
@@ -54,7 +54,7 @@ export function pricingHtml() {
 @media(max-width:760px){.pricing>*+*{margin-top:44px}.plan-grid{grid-template-columns:1fr}.plan{min-height:0;padding:24px 20px}.plan+.plan{border-inline-start:0;border-block-start:1px solid var(--line)}.plan-kicker{min-height:0}.plan-price{margin-top:24px}.plan-action{margin-top:8px}}
 @media(max-width:480px){.pricing-intro{padding-block-start:8px}}
 `,
-    body: `${NAV("pricing")}<div class="page"><main class="doc pricing" id="main">
+    body: `${NAV("pricing", signedIn)}<div class="page"><main class="doc pricing" id="main">
   <header class="pricing-intro"><h1>pricing</h1><p>simple plans with upfront usage</p></header>
   <section class="plan-grid" aria-label="Plans">
     <article class="plan"><h2>Free</h2><p class="plan-kicker">for trying the API and shipping a first integration</p><p class="plan-price">$0 <small>always free</small></p>
