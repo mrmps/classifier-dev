@@ -21,7 +21,7 @@ beforeEach(() => {
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 
-test.each(["classifier_pro_invalid", `classifier_pro_${"a".repeat(64)}.${"b".repeat(64)}`, "unknown-key", "classifier_agent_unverified"])("unsupported credential %s cannot fall through to free inference", async token => {
+test.each(["classifier_pro_invalid", `classifier_pro_${"a".repeat(64)}.${"b".repeat(64)}`, "unknown-key"])("unsupported credential %s cannot fall through to free inference", async token => {
   const f = fixture();
   const response = await classify(f.env, { token });
   expect(response.status).toBe(401);

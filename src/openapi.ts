@@ -13,7 +13,7 @@ export const ERROR_CODES = [
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
-  "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid",
+  "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid", "account_route_required",
   // 401: invalid classification credentials
   "invalid_api_key",
   // 404
@@ -312,7 +312,7 @@ export const OPENAPI = {
       post: {
         operationId: "classifySandbox",
         summary: "Sandbox: identical to POST /v1/classify. Exists for tooling that requires a sandbox URL.",
-        description: "There is no separate test environment because production stores nothing and costs nothing; this alias answers exactly like /v1/classify and adds an `x-sandbox` header so integrations can point a sandbox setting somewhere real.",
+        description: "This alias runs real inference with the same authentication, quotas and billing as /v1/classify, and adds an `x-sandbox` header. Request content is not stored; account usage and billing metadata are recorded. It is not a free or simulated billing environment.",
         tags: ["classify"],
         parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } } },
@@ -851,7 +851,7 @@ export const OPENAPI = {
         ],
         properties: {
           model: { type: "string", enum: ["jev", "laya"], description: "When omitted, uses Jev unless processing is supplied, which implies Laya. Opt into experimental Laya with automatic English/multilingual routing. Context is 512 tokens for English or 1,024 for multilingual, with 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Results identify the actual checkpoint and lane. Jev calibration claims do not apply to Laya." },
-          processing: { type: "string", enum: ["fast", "bulk"], description: "Implies Laya when model is omitted; incompatible with explicit model jev. When omitted for Laya, automatically selects fast for one decision with up to 4 yes/no questions, otherwise bulk. Explicit lanes are honored. Fast allows 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
+          processing: { type: "string", enum: ["fast", "bulk"], description: "Implies Laya when model is omitted. Accepted but has no effect with explicit model jev, which handles batching automatically. When omitted for Laya, automatically selects fast for one decision with up to 4 yes/no questions, otherwise bulk. Explicit Laya lanes are honored. Fast allows 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
           dimensions: DIMENSIONS_SCHEMA,
           items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 32000 }, description: "Alias for inputs in dimensions mode. Do not combine with input or inputs." },
           input: { type: "string", description: "A single text. Provide this or inputs; a string under `inputs` is read as one text too." },
@@ -1078,7 +1078,7 @@ export const OPENAPI = {
             type: "string",
             description:
               "Stable machine-readable code: one of the listed values, or typesafe_<status> / openrouter_<status> carrying the upstream HTTP status. " +
-              "400: bad_dimensions, too_many_decisions, dimension_context_too_large, bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission, skill_invalid. " +
+              "400: bad_dimensions, too_many_decisions, dimension_context_too_large, bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission, skill_invalid, account_route_required (use POST /v1/classify with a workspace key). " +
               "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable.",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },

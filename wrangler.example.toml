@@ -49,7 +49,6 @@ LAYA_BULK_URL = "https://miryaboy--classifier-laya-router-trial-bulk.us-east.mod
 # LAYA_MODAL_KEY and LAYA_MODAL_SECRET are Worker secrets, never plaintext vars.
 # Enable only after account migration, pricing and Autumn reconciliation checks.
 APP_ACCOUNTS_ENABLED = "true"
-ACCOUNT_ANALYTICS_CONTENT_ENABLED = "false"
 # Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.
 AI_GATEWAY_DISABLED = "true"
 CLOUDFLARE_ACCOUNT_ID = "YOUR_CLOUDFLARE_ACCOUNT_ID"

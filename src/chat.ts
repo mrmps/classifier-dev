@@ -192,6 +192,7 @@ export function systemPrompt(server: McpServer, now = new Date()) {
     "About the classify tools: " +
     "Omit model and processing unless the visitor requests a particular model or lane. " +
     "The default handles batches. For Laya, omit processing to choose fast or bulk automatically from the workload. " +
+    "Jev already supports batches and does not need a processing hint. " +
     server.instructions
   );
 }

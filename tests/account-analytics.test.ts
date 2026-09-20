@@ -9,21 +9,24 @@ const event: AccountAnalyticsEvent = { accountId: "account_a", requestId: "reque
 const now = new Date("2026-09-20T00:00:00Z");
 const env = { CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CF_ANALYTICS_TOKEN: "private" };
 describe("account analytics", () => {
-  test("one bounded event, missing measurements explicit, content off by default", () => {
+  test("one bounded metadata event with explicit missing measurements", () => {
     const points: any[] = [];
-    expect(writeAccountAnalytics({ ACCOUNT_AE: { writeDataPoint: (p) => points.push(p) } }, { ...event, content: { password: "secret" } })).toBe(true);
+    expect(writeAccountAnalytics({ ACCOUNT_AE: { writeDataPoint: (p) => points.push(p) } }, event)).toBe(true);
     expect(points).toHaveLength(1);
     expect(points[0].indexes).toEqual(["account_a"]);
     expect(points[0].blobs[8]).toBe("");
     expect(points[0].doubles[10]).toBe(1);
   });
-  test("content is redacted and remains below AE byte budget", () => {
+  test("request content cannot be enabled through deployment configuration", () => {
     let point: any;
-    writeAccountAnalytics({ ACCOUNT_ANALYTICS_CONTENT_ENABLED: "true", ACCOUNT_AE: { writeDataPoint: (p) => { point = p; } } },
-      { ...event, content: { password: "secret", text: "Bearer topsecret", huge: Array(20).fill("😀".repeat(2000)) } });
+    const bindings = { ACCOUNT_ANALYTICS_CONTENT_ENABLED: "true", ACCOUNT_AE: { writeDataPoint: (p: unknown) => { point = p; } } };
+    const requestEvent = { ...event, content: { inputs: ["Customer Jane has a confidential billing dispute"], labels: ["billing", "support"], instructions: "Route the customer's case" } };
+    writeAccountAnalytics(bindings, requestEvent);
+    expect(point.blobs[8]).toBe("");
     expect(new TextEncoder().encode(point.blobs.join("")).length).toBeLessThan(16384);
-    expect(JSON.stringify(point)).not.toContain("topsecret");
-    expect(point.doubles[13]).toBe(1);
+    expect(JSON.stringify(point)).not.toContain("Customer Jane");
+    expect(JSON.stringify(point)).not.toContain("billing");
+    expect(point.doubles[13]).toBe(0);
   });
   test("writer never breaks inference and rejects invalid tenant indexes", () => {
     expect(writeAccountAnalytics({ ACCOUNT_AE: { writeDataPoint() { throw Error("offline"); } } }, event)).toBe(false);

@@ -121,7 +121,6 @@ test.each(["fast", "bulk"])("processing %s implies Laya when model is omitted", 
 
 test("explicit model and lane choices are not silently overridden", async () => {
   const calls = mockLaya();
-  expect((await request({ model: "jev", processing: "bulk", input: task.input, labels: task.labels })).status).toBe(400);
   expect((await request({ processing: "fast", inputs: ["a", "b"], labels: task.labels })).status).toBe(400);
   expect(calls).toHaveLength(0);
 });
@@ -140,6 +139,24 @@ test("chat's MCP batch succeeds with omitted model or omitted lane", async () =>
     expect(body.result.structuredContent.results).toHaveLength(30);
   }
   expect(calls.every(call => call.url === "https://bulk.example/predict")).toBe(true);
+});
+
+test.each([undefined, "fast", "bulk"])("explicit Jev batches accept processing hint %s without selecting Laya", async processing => {
+  const urls: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    urls.push(String(url));
+    const sent = JSON.parse(String(init?.body));
+    return Response.json({ model: "jev-test", answers: Object.fromEntries(Object.keys(sent.questions).map(id =>
+      [id, { choice: "billing", confidence: .9, probabilities: { billing: .9, tech: .1 } }])) });
+  }) as typeof fetch;
+  const response = await request({ model: "jev", processing, inputs: Array(30).fill("headline"), labels: task.labels },
+    { ...env, TYPESAFE_API_KEY: "test" });
+  expect(response.status).toBe(200);
+  const body = await response.json() as { results: { model: string }[] };
+  expect(body.results).toHaveLength(30);
+  expect(body.results.every(row => row.model === "jev-test")).toBe(true);
+  expect(urls.every(url => url === "https://api.typesafe.ai/v1/systemone")).toBe(true);
+  expect(response.headers.has("x-classifier-processing")).toBe(false);
 });
 
 test.each([429, 503, 400, 500])("upstream %s never falls back or retries", async status => {

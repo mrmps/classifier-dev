@@ -507,7 +507,7 @@ function scoresFrom(top: { token: string; logprob: number }[] | undefined, n: nu
     const token = (t as { token?: unknown }).token;
     const logprob = (t as { logprob?: unknown }).logprob;
     if (typeof token !== "string" || typeof logprob !== "number" || !Number.isFinite(logprob) || logprob > 0) continue;
-    const c = token.trim().toUpperCase()[0];
+    const c = token.trim().toUpperCase();
     if (valid.includes(c)) {
       const e = Math.exp(logprob);
       p[c] += e;
@@ -685,7 +685,7 @@ async function callModel(
       return {
         label,
         labels: undefined as string[] | undefined,
-        confidence: scores ? Number(Math.max(...Object.values(scores)).toFixed(4)) : null,
+        confidence: scores ? scores[label] : null,
         scores,
         unscored: undefined as string | undefined,
         ms: Date.now() - started,
@@ -756,9 +756,15 @@ async function classifyOne(
 
   const started = Date.now();
   // No per-chunk cap: a chunk cannot know what the others found.
-  const parts = await Promise.all(
+  // Every chunk shares the request's meter. Wait for all admitted calls before
+  // propagating a failure so settlement cannot run ahead of sibling usage.
+  const completed = await Promise.allSettled(
     chunks.map((chunk) => runChain(env, input, chunk, "fast", instructions, {}, meter)),
   );
+  const parts = completed.map((part) => {
+    if (part.status === "rejected") throw part.reason;
+    return part.value;
+  });
 
   const hit = new Set<string>();
   for (const part of parts) for (const l of part.labels ?? []) hit.add(l);
@@ -1336,12 +1342,11 @@ const worker = {
         CACHE_HOUR,
       );
     }
-    // A sandbox for tooling that insists on one: identical to production, which
-    // stores nothing and costs nothing, so there is no data to protect.
+    // Sandbox URLs run real inference with normal authentication and billing.
     if (path === "v1/sandbox/classify" || path === "sandbox/classify") {
       const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, req), env, ctx, execution);
       const h = new Headers(r.headers);
-      h.set("x-sandbox", "true; identical to production, nothing is stored");
+      h.set("x-sandbox", "true; identical to production; normal billing applies; request content is not stored");
       return new Response(r.body, { status: r.status, headers: h });
     }
 
@@ -1710,6 +1715,10 @@ const worker = {
       return notFound(req, origin);
     }
 
+    if (!account && /^Bearer\s+classifier_agent_/i.test(req.headers.get("authorization") || "")) {
+      return json({ error: "Account classification supports POST /v1/classify.", code: "account_route_required" }, 400,
+        { "cache-control": "no-store" });
+    }
     if (!enterprise && !account && req.headers.has("authorization")) {
       return json({ error: "Invalid API key. Create a workspace key at /app/keys.", code: "invalid_api_key" }, 401, { "cache-control": "no-store", "x-api-version": API_VERSION });
     }
@@ -1792,8 +1801,8 @@ const worker = {
       const b = body as Record<string, unknown>;
       if (b.model !== undefined && b.model !== "jev" && b.model !== "laya") return fail('model must be "jev" or "laya"', 400, "bad_model");
       selectedModel = b.model === "laya" || (b.model === undefined && b.processing !== undefined) ? "laya" : "jev";
-      if (b.processing !== undefined && (selectedModel !== "laya" || (b.processing !== "fast" && b.processing !== "bulk")))
-        return fail('processing must be "fast" or "bulk"; omit model or use model: "laya"', 400, "bad_processing");
+      if (b.processing !== undefined && b.processing !== "fast" && b.processing !== "bulk")
+        return fail('processing must be "fast" or "bulk"', 400, "bad_processing");
       processing = b.processing === "bulk" ? "bulk" : "fast";
       automaticProcessing = b.processing === undefined;
       if (Object.hasOwn(b, "dimensions")) mode = "dimensions";
