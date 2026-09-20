@@ -14,8 +14,9 @@ Verified on 2026-09-20; production account activation remains disabled.
   local PostgreSQL-compatible database, not the deployed account endpoint.
 - Native PostgreSQL tests cover twenty simultaneous paid-period reconciliations
   producing one grant and transaction, concurrent fractional settlements, and
-  settlement/refund contention. Focused HTTP/reservation/native tests: 13 passed,
-  70 assertions before the extra live test.
+  settlement/refund contention. A remote run against an isolated schema on the
+  Oregon Neon project passed all five native tests (33 assertions); the tests use
+  a 30-second bound because cold remote contention exceeds Bun's 5-second default.
 - Account analytics/access/query-budget tests: 15 passed, 51 assertions. Hosted
   queries enforce tenant and global budgets before provider reads and fail closed.
 - Final combined check after parallel edits froze: 662 passed, 13 skipped, zero
@@ -28,23 +29,30 @@ Verified on 2026-09-20; production account activation remains disabled.
 
 ## Deployment prerequisites
 
-The deploy workflow now requires the GitHub Actions `DATABASE_URL` secret. The
-repository secret-name inventory on 2026-09-20 did not contain it. Merging this PR
-will not complete deployment until an approved production Neon database is
-configured and its migrations/rollback have been rehearsed. Do not substitute
-the local development branch URL. The workflow also provisions that URL as a
-Worker secret; account access still remains disabled independently.
+The production `classification_api` Neon project is in Oregon. Its default
+`main` branch was snapshotted as `pre-account-dashboard-2026-09-20`; migration
+was first rehearsed twice on a disposable clone, then applied twice to `main`.
+All six checksummed migrations are present and the 107 legacy
+`classification_requests` rows remain intact. GitHub Actions now has a pooled
+`DATABASE_URL` for the Worker and a direct `DATABASE_URL_UNPOOLED` for
+migrations; the Worker has the pooled URL and a dedicated API-key encryption
+secret. Account access remains disabled independently until the hosted billing
+lifecycle is verified.
 
 ## Activation blockers
 
-Real WorkOS sign-in and Autumn sandbox checkout/webhook lifecycle have not been
-verified: their credentials are not configured locally. Existing customer/key
-migration and production rollback have not been rehearsed. Hosted organization
-management remains disabled pending its full membership lifecycle. Stricter
-free-tier datacenter policy and aggregated Autumn usage outbox are not implemented.
-No 100M-request load/cost claim is proven. Exact per-request Neon accounting needs
-capacity measurement. Conservative Smart holds may reject large batches; missing
-token measurements require explicit reconciliation. Autumn paid-invoice support
-is deliberately narrow; see `autumn-integration.md`.
+Production Worker secrets now include the WorkOS credentials, Autumn API key,
+the verified `pro` plan ID, database URL, and API-key encryption key. Hosted
+WorkOS sign-in and Autumn checkout/webhook lifecycle are still unverified. The
+Autumn production workspace has the `pro` plan and five existing customers but
+no webhook endpoint; creating `/webhooks/autumn` and storing its generated Svix
+secret remain activation blockers. Existing customer/key mapping and a final
+snapshot-restore cutover remain unrehearsed. Hosted organization management
+remains disabled pending its full membership lifecycle. Stricter free-tier
+datacenter policy and aggregated Autumn usage outbox are not implemented. No
+100M-request load/cost claim is proven. Exact per-request Neon accounting still
+needs capacity measurement. Conservative Smart holds may reject large batches;
+missing token measurements require explicit reconciliation. Autumn paid-invoice
+support is deliberately narrow; see `autumn-integration.md`.
 
 These limitations prohibit describing the full migration as production-ready.

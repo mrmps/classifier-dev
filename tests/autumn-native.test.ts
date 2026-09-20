@@ -29,7 +29,7 @@ describe.skipIf(!url)("native PostgreSQL subscription contention", () => {
     }));
     await db.prepare("INSERT INTO app_accounts(id,email,name,balance,reset_at,created_at) VALUES('a','a@example.test','Test',500000,'2026-01-01','2026-01-01')").run();
     await db.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
-  });
+  }, 30_000);
   afterAll(async () => {
     globalThis.fetch = originalFetch;
     if (sql) { await sql.unsafe(`DROP SCHEMA ${schema} CASCADE`); await sql.close(); }
@@ -47,5 +47,5 @@ describe.skipIf(!url)("native PostgreSQL subscription contention", () => {
     expect(await db.prepare("SELECT balance::integer AS balance FROM app_accounts WHERE id='a'").first()).toEqual({ balance: 2000000 });
     expect(await db.prepare("SELECT COUNT(*)::integer AS count FROM app_autumn_grants").first()).toEqual({ count: 1 });
     expect(await db.prepare("SELECT COUNT(*)::integer AS count FROM app_transactions").first()).toEqual({ count: 1 });
-  });
+  }, 30_000);
 });

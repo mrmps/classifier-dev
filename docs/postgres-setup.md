@@ -40,16 +40,18 @@ or a separately supplied test database; they do not substitute SQLite for PG.
 
 ## Production
 
-Set the repository Actions secret `DATABASE_URL` to the production Neon URL.
-CI uses it for `npm run db:migrate` and passes the same value to Wrangler's
-`--secrets-file` during deployment. It is never rendered into `wrangler.toml` or
-printed. Other existing Worker secrets remain configured in Cloudflare.
+Set the repository Actions secret `DATABASE_URL` to the production Neon's pooled
+URL and `DATABASE_URL_UNPOOLED` to its direct URL. CI migrates through the direct
+URL and passes only the pooled URL to Wrangler's `--secrets-file`. Neither is
+rendered into `wrangler.toml` or printed. Other existing Worker secrets remain
+configured in Cloudflare.
 
-For a manual deployment, configure the Worker with `npx wrangler secret put
-DATABASE_URL` and supply `DATABASE_URL` to `npm run db:migrate` through your
-secret manager or environment. Do not paste connection strings into commands
-that will remain in shell history. Migrations are transactional, ordered, and
-checksum-verified; editing an already-applied migration is rejected.
+For a manual deployment, configure the Worker with the pooled URL using `npx
+wrangler secret put DATABASE_URL` and supply the direct URL as `DATABASE_URL` to
+`npm run db:migrate` through your secret manager or environment. Do not paste
+connection strings into commands that will remain in shell history. Migrations
+are transactional, ordered, and checksum-verified; editing an already-applied
+migration is rejected.
 
 The production template targets `aws:us-west-2`, supported by Wrangler 4.122's
 placement schema. Cloudflare runs fetch handlers in a nearby Cloudflare data

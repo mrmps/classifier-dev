@@ -1,6 +1,6 @@
 # Billing migration verification — 2026-09-20
 
-This is an un-deployed foundation, not a completed production billing migration.
+This remains a gated production foundation, not an activated billing migration.
 Existing production anonymous and Pro routes were not changed by a deployment.
 
 ## Observed behavior
@@ -26,22 +26,24 @@ Existing production anonymous and Pro routes were not changed by a deployment.
   $0.042/million input rate produced 13,104 nanoUSD and a conservative two-credit
   wallet debit; actual counts appeared in the PostgreSQL-backed snapshot.
   This uses isolated PGlite, not hosted Neon or Autumn.
-- Native PostgreSQL contention suites: four passed, including 20 concurrent
+- Native PostgreSQL contention suites: five passed against an isolated schema on
+  the Oregon Neon project, including 20 concurrent
   reservations, 20 token settlements, and competing settlement/refund commands.
-  Temporary test schemas were removed. Schema migration apply/reapply passed.
+  Temporary test schemas were removed. Production-main migration apply/reapply
+  passed after the same operation was rehearsed on a clone and a snapshot taken.
 - CLI: 25 passed. Production Vite build and typecheck passed before subsequent
   concurrent key/agent UI edits.
-- Latest whole-repository run: 619 passed, nine gated tests/hooks skipped, two
-  failures in `tests/api-key-interface.test.ts` after those UI edits. Latest
-  typecheck likewise reported the stale `Connections.onCreate` prop and missing
-  `agent-catalog` import. These unrelated edits were preserved, not reverted.
+- Latest whole-repository run: 662 passed, 13 opt-in tests/hooks skipped, zero
+  failures (3,550 assertions). Typecheck and production build passed; CLI tests
+  passed 25/25. The remote native run separately exercised the gated tests.
 
 ## Not yet verified or implemented
 
-Hosted Neon runtime and browser account E2E need the selected development branch's
-`DATABASE_URL`. Real Autumn checkout/webhooks, customer mapping, aggregation,
-report reconciliation/call budgets, signup/renewal grants, and production cutover
-remain unfinished. The signed-in HTTP/MCP demo still uses item-credit accounting.
+The production Neon schema and deployment secrets are configured, with pooled
+runtime and direct migration URLs kept separate. Real Autumn checkout/webhooks,
+customer mapping, aggregation, report reconciliation/call budgets,
+signup/renewal grants, and production cutover remain unfinished. The signed-in
+HTTP/MCP demo still uses item-credit accounting.
 Production token billing also needs approved retail rates and a proven
 pre-inference reservation bound, plus a missing-usage recovery policy.
 

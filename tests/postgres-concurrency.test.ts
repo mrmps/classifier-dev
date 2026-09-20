@@ -45,14 +45,14 @@ describe.skipIf(!url)("PostgreSQL concurrent account reservations", () => {
       .bind(new Date().toISOString()).run();
     await env.APP_DB.prepare("INSERT INTO app_agents(id,account_id,name,client,token_hash,prefix,created_at) VALUES('key','customer','Key','API',?,'classifier_agent',?)")
       .bind(await hashToken(token), new Date().toISOString()).run();
-  });
+  }, 30_000);
 
   afterAll(async () => {
     if (sql) {
       await sql.unsafe(`DROP SCHEMA ${schema} CASCADE`);
       await sql.close();
     }
-  });
+  }, 30_000);
 
   test("concurrent debit cannot overspend, duplicate refunds restore funds exactly once", async () => {
     const attempts = await Promise.allSettled(Array.from({ length: 20 }, () => authorizeAndReserve(request(), env, 3)));
@@ -67,7 +67,7 @@ describe.skipIf(!url)("PostgreSQL concurrent account reservations", () => {
     expect(await env.APP_DB.prepare("SELECT used::integer AS used FROM app_agents WHERE id='key'").first()).toEqual({ used: 6 });
     await completeReservation(accepted[0], env, true);
     expect(await env.APP_DB.prepare("SELECT status FROM app_usage WHERE id=?").bind(accepted[0].id).first()).toEqual({ status: "refunded" });
-  });
+  }, 30_000);
 
   test("failed transaction rolls back preceding account writes", async () => {
     const before = await env.APP_DB.prepare("SELECT balance::integer AS balance FROM app_accounts WHERE id='customer'").first();
@@ -76,5 +76,5 @@ describe.skipIf(!url)("PostgreSQL concurrent account reservations", () => {
       env.APP_DB.prepare("INSERT INTO app_sessions(token_hash,account_id,expires_at) VALUES('broken','missing','tomorrow')"),
     ])).rejects.toThrow();
     expect(await env.APP_DB.prepare("SELECT balance::integer AS balance FROM app_accounts WHERE id='customer'").first()).toEqual(before);
-  });
+  }, 30_000);
 });

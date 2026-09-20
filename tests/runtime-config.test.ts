@@ -35,6 +35,7 @@ test("production rendering uses PostgreSQL secrets and preserves closed account 
   expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("false");
   expect(config.vars.DATABASE_URL).toBeUndefined();
   expect(config.secrets.required).toContain("DATABASE_URL");
+  expect(config.secrets.required).not.toContain("DATABASE_URL_UNPOOLED");
   expect(config.placement).toEqual({ region: "aws:us-west-2" });
   const schema = JSON.parse(readFileSync(new URL("node_modules/wrangler/config-schema.json", root), "utf8"));
   const validate = new Ajv({ strict: false }).compile(schema.definitions.RawConfig.properties.placement);
@@ -56,4 +57,12 @@ test("local dev uses the same SQL runtime without a fake D1 database", () => {
   expect(config.vars.APP_DEMO).toBe("true");
   expect(config.vars.APP_ACCOUNTS_ENABLED).toBe("false");
   expect(config.vars.DATABASE_URL).toBeUndefined();
+});
+
+test("deployment migrates directly and gives the Worker only the pooled URL", () => {
+  const workflow = readFileSync(new URL(".github/workflows/deploy.yml", root), "utf8");
+  expect(workflow).toContain("DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}");
+  expect(workflow).toContain("DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}\n        run: npm run db:migrate");
+  expect(workflow).toContain("JSON.stringify({ DATABASE_URL: process.env.DATABASE_URL })");
+  expect(workflow).not.toContain("JSON.stringify({ DATABASE_URL_UNPOOLED:");
 });

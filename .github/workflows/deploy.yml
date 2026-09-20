@@ -2,8 +2,8 @@
 #
 # Squash-merging a pull request pushes to main, so a merge deploys. Secrets set
 # with `wrangler secret put` are stored separately from the script and survive a
-# deploy. DATABASE_URL is also held in Actions for the PostgreSQL migration;
-# deploy supplies that same value as a Worker secret, never as a plaintext var.
+# deploy. Actions keeps a pooled runtime URL and a direct migration URL; only the
+# pooled DATABASE_URL is supplied to the Worker.
 name: deploy
 
 on:
@@ -61,10 +61,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           STATS_KV_ID: ${{ secrets.STATS_KV_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
           REPORT_TO: ${{ secrets.REPORT_TO }}
         run: |
           missing=
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STATS_KV_ID DATABASE_URL REPORT_TO; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STATS_KV_ID DATABASE_URL DATABASE_URL_UNPOOLED REPORT_TO; do
             [ -n "${!name}" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -92,7 +93,7 @@ jobs:
 
       - name: Migrate account database
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}
         run: npm run db:migrate
 
       - name: Deploy
