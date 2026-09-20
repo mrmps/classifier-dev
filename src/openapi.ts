@@ -55,7 +55,7 @@ const RATE_LIMIT_HEADERS = {
 const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
   "401": err("Invalid or replaced legacy Pro API key. Create a workspace key at /app/keys or contact support for a legacy account."),
-  "403": err("Legacy Pro subscription is not active. Contact contact@classifier.dev for legacy account help."),
+  "403": err("Legacy Pro subscription is not active. Log in with your billing email at https://classifier.dev/app/plans to manage it."),
   "503": err("Subscription verification or Laya inference is temporarily unavailable. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
   "429": err("Quota or shared Laya capacity reached. Wait Retry-After seconds. Laya trial caps also apply to paid keys and cannot be lifted by upgrading; code laya_rate_limit identifies that lane's admission limit. Daily limits use rate_limit_day.", {

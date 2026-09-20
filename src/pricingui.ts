@@ -91,7 +91,7 @@ export function pricingHtml() {
     <p>Classify with your own labels through REST, MCP or the CLI. Inputs are not stored, and billing data stays separate from classification analytics.</p>
   </section>
   <section class="pricing-section" aria-label="Legacy Pro"><h2>Legacy pro</h2>
-    <p>Existing <code>classifier_pro_</code> keys keep their 10× public rate limits. New workspaces use the plans above; email <a class="inline" href="mailto:contact@classifier.dev">contact@classifier.dev</a> for help with a legacy subscription.</p>
+    <p>Existing <code>classifier_pro_</code> keys keep their 10× public rate limits. <a class="inline" href="/login?returnTo=/app/plans">Log in with your billing email</a> to manage your existing subscription in your workspace. You don’t need to subscribe again.</p>
   </section>
   ${FOOT}
 </main></div>`,

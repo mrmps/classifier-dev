@@ -3,11 +3,7 @@ import { getSignUpUrl } from "@workos/authkit-tanstack-react-start";
 import { env } from "cloudflare:workers";
 import { workosConfigured } from "../server/auth";
 import type { AppEnv } from "../server/db";
-
-function returnPath(request: Request) {
-  const requested = new URL(request.url).searchParams.get("returnTo");
-  return requested && /^\/app(?:\/|$)/.test(requested) ? requested : "/app";
-}
+import { authReturnPath } from "../lib/auth-return-path";
 
 export const Route = createFileRoute("/auth/sign-up")({
   server: {
@@ -21,7 +17,7 @@ export const Route = createFileRoute("/auth/sign-up")({
           status: 302,
           headers: {
             Location: await getSignUpUrl({
-              data: { returnPathname: returnPath(request) },
+              data: { returnPathname: authReturnPath(new URL(request.url).searchParams.get("returnTo")) },
             }),
           },
         });

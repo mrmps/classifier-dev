@@ -439,8 +439,9 @@ INCLUDED ON EVERY PLAN
 LEGACY PRO
 
   Existing classifier_pro_ keys keep their 10x public rate limits. New
-  workspaces use the plans above. Email ${SITE.email} for help with a legacy
-  subscription.
+  workspaces use the plans above. Log in with your billing email at
+  https://classifier.dev/login?returnTo=/app/plans to manage your existing
+  subscription. You do not need to subscribe again.
 `;
 
 export const ABOUT = `About classifier.dev
@@ -718,7 +719,7 @@ SUBSCRIPTIONS
   checkout and renew monthly until you cancel from your workspace at
   https://classifier.dev/app/plans. Cancelling stops the next charge; included
   usage stays available through the paid month. Existing legacy Pro subscribers
-  can contact ${SITE.email} for account help. Prices can change with notice on
+  can log in with their billing email to manage the same subscription. Prices can change with notice on
   https://classifier.dev/pricing before a renewal. Your API keys are yours to
   keep secret; requests made with one count against its workspace or legacy
   allowance whoever sends them.

@@ -368,7 +368,7 @@ an API credential. Existing partner keys continue to work.
 
 - 401 — the key is invalid; create a replacement in your workspace.
 - 403 — the subscription does not grant Pro access, including past-due,
-  suspended or expired legacy access. Contact contact@classifier.dev.
+  suspended or expired legacy access. Manage billing at https://classifier.dev/app/plans.
 - 429 — quota reached; wait the Retry-After seconds. RateLimit headers describe
   the allowance. The code is rate_limit_minute or rate_limit_day.
 - 400 — invalid classification parameters; the message says what to change.
@@ -382,6 +382,7 @@ remains available within free limits without a Pro credential.
 
 Rotate workspace keys at /app/keys; rotating replaces the
 old key. Existing legacy Pro keys remain valid while their subscription is
-active. Partner keys are rotated through their issuing contact. There is no
+active. Log in with your billing email at /app/plans to manage the same
+subscription. Partner keys are rotated through their issuing contact. There is no
 OAuth revocation or token exchange endpoint.
 `;
