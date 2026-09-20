@@ -57,6 +57,7 @@ describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
   test("typed Drizzle bigint reads preserve values above Number.MAX_SAFE_INTEGER", async () => {
     const accountDb = neonDatabase(url!);
     expect(await accountDb.prepare("SELECT 42::bigint AS value").first()).toEqual({ value: 42 });
+    expect((await accountDb.batch([accountDb.prepare("SELECT SUM(v) AS value FROM (VALUES (20::bigint),(22::bigint)) AS t(v)")]))[0].results).toEqual([{ value: 42 }]);
     await expect(accountDb.prepare("SELECT 9007199254740993::bigint AS value").first()).rejects.toThrow("safe range");
     const value = 9007199254740993n;
     const result = await db.select({ value: sql`9007199254740993::bigint`.mapWith(app_usage.actual_nano) }).from(sql`(SELECT 1) AS proof`);
@@ -87,5 +88,24 @@ describe.skipIf(!url)("production Drizzle/Neon migration transport", () => {
     await expect(consolidateNewsletter(url!, url!, { sourceSchema, destinationSchema: schema })).rejects.toThrow("verification failed");
     const result = await db.execute(sql`SELECT count(*)::integer AS count FROM ${sql.identifier(schema)}.subscriber WHERE email='must-not-copy@example.invalid'`);
     expect(result.rows[0].count).toBe(0);
+  });
+  test("cutover freeze rejects writes without changing rows and can be reversed", async () => {
+    for (const file of ["newsletter-freeze.sql", "newsletter-unfreeze.sql"]) {
+      const client = await pool.connect();
+      try {
+        await client.query(`SET search_path TO "${sourceSchema}"`);
+        await client.query(readFileSync(new URL(`../scripts/${file}`, import.meta.url), "utf8"));
+        if (file.includes("unfreeze")) {
+          expect((await client.query("UPDATE subscriber SET source=source")).rowCount).toBe(3);
+        } else {
+          await expect(client.query("UPDATE subscriber SET source=source")).rejects.toThrow("Newsletter storage moved");
+          await expect(client.query("TRUNCATE subscriber")).rejects.toThrow("Newsletter storage moved");
+        }
+        expect((await client.query("SELECT count(*)::integer AS count FROM subscriber")).rows[0].count).toBe(3);
+      } finally {
+        await client.query("RESET search_path");
+        client.release();
+      }
+    }
   });
 });
