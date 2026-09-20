@@ -219,7 +219,7 @@ describe("what the page tells the browser", () => {
     expect(res.status).toBe(200);
     const nonce = res.headers.get("content-security-policy")!.match(/script-src 'nonce-([^']+)'/)![1];
     const body = await res.text();
-    expect(body).toContain(`<script nonce="${nonce}">`);
+    expect(body).toContain(`<script nonce="${nonce}" src="/admin-assets/admin.js"`);
     expect(body.match(/<script/g)!.length).toBe(1);
   });
 

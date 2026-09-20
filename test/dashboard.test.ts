@@ -45,12 +45,13 @@ async function dashboard() {
 }
 
 describe("a dashboard with data on it", () => {
-  test("renders the figures and draws the charts", async () => {
+  test("renders the report and supplies authenticated chart data", async () => {
     const { res, body } = await dashboard();
     expect(res.status).toBe(200);
-    expect(body).toContain("classifier.dev admin");
+    expect(body).toContain("API analytics");
     expect(body).toContain("jev-1.13.0");
-    expect(body).toContain("<path d=");            // the area chart has a line
+    expect(body).toContain('src="/admin-assets/admin.js"');
+    expect(body).toContain('&quot;series&quot;:');
     expect(body).toContain("last 7 days");
     expect(body).not.toContain("no data in this range yet");
     expect(body).not.toContain("some panels are empty");
@@ -59,7 +60,7 @@ describe("a dashboard with data on it", () => {
   test("shows classifiers as fingerprints, and calls callers callers", async () => {
     const { body } = await dashboard();
     expect(body).toContain(FINGERPRINT);
-    expect(body).toContain("unique callers");
+    expect(body).toContain("observed caller-days");
     expect(body).not.toContain("unique IPs");
     expect(body).not.toContain("Top label sets");
   });

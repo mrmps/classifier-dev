@@ -17,7 +17,10 @@
     "preview": "vite preview --host 127.0.0.1 --port 3000",
     "db:migrate": "bun scripts/migrate-postgres.ts",
     "db:local": "bun --env-file=.dev.vars scripts/migrate-postgres.ts",
-    "db:generate": "drizzle-kit generate --config drizzle.config.ts"
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "build:admin": "vite build --config vite.admin.config.ts",
+    "prebuild": "npm run build:admin",
+    "predev": "npm run build:admin"
   },
   "keywords": [],
   "author": "Michael Ryaboy",
@@ -50,6 +53,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "motion": "^13.4.0",
     "nucleo-core-essential-outline-24": "^1.1.7",
     "nucleo-ui-essential-outline-18": "^1.1.8",
     "nuqs": "^2.10.1",

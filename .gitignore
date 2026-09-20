@@ -23,3 +23,7 @@ skills-lock.json
 dist/
 .tanstack/
 .output/
+
+# Vite-built operator dashboard
+public/admin-assets/
+captures/
