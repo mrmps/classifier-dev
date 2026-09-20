@@ -23,7 +23,7 @@ function render(env: Record<string, string | undefined>) {
 
 const values = { CLOUDFLARE_ACCOUNT_ID: "cloudflare-account", STATS_KV_ID: "stats-namespace", REPORT_TO: "reports@example.test" };
 
-test("production rendering uses PostgreSQL secrets and preserves closed account access", () => {
+test("production rendering uses PostgreSQL secrets and activates verified account access", () => {
   const databaseUrl = "postgresql://fake:test-secret@example.neon.tech/app";
   const result = render({ ...values, DATABASE_URL: databaseUrl });
   expect(result.status).toBe(0);

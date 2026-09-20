@@ -1,6 +1,10 @@
 # Account integration evidence
 
-Verified on 2026-09-20; production account activation remains disabled.
+Historical foundation checks from 2026-09-20 are recorded below. The later
+[customer-continuity verification](existing-customer-migration.md#production-verification--2026-09-20)
+supersedes the activation blockers: hosted sign-in, existing customer linkage,
+paid/free API paths, checkout, payment portal and signed webhook handling have
+now been checked in production. Account activation is intentional in this release.
 
 - `RUN_LIVE_AE=1 bun --env-file=.secrets.env tests/live/account-analytics.live.ts`:
   actual Cloudflare writes and all four SQL query shapes passed. One synthetic
@@ -36,18 +40,17 @@ All six checksummed migrations are present and the 107 legacy
 `classification_requests` rows remain intact. GitHub Actions now has a pooled
 `DATABASE_URL` for the Worker and a direct `DATABASE_URL_UNPOOLED` for
 migrations; the Worker has the pooled URL and a dedicated API-key encryption
-secret. Account access remains disabled independently until the hosted billing
-lifecycle is verified.
+secret. The later customer-continuity rollout also applied migration 0007 and
+verified the hosted billing paths before enabling account access.
 
-## Activation blockers
+## Historical activation blockers and remaining limitations
 
-Production Worker secrets now include the WorkOS credentials, Autumn API key,
-the verified `pro` plan ID, database URL, and API-key encryption key. Hosted
-WorkOS sign-in and Autumn checkout/webhook lifecycle are still unverified. The
-Autumn production workspace has the `pro` plan and five existing customers but
-no webhook endpoint; creating `/webhooks/autumn` and storing its generated Svix
-secret remain activation blockers. Existing customer/key mapping and a final
-snapshot-restore cutover remain unrehearsed. Hosted organization management
+Production Worker secrets include the WorkOS credentials, restricted Autumn
+customer/billing key, verified `pro` plan ID, database URL, API-key encryption key,
+and webhook signing secret. The configured webhook passed direct signed and
+duplicate-delivery checks; a natural provider delivery and a real new purchase
+or cancellation were not exercised. Existing customer mapping was rehearsed
+and applied after a snapshot; snapshot restoration was not tested. Hosted organization management
 remains disabled pending its full membership lifecycle. Stricter free-tier
 datacenter policy and aggregated Autumn usage outbox are not implemented. No
 100M-request load/cost claim is proven. Exact per-request Neon accounting still
@@ -55,4 +58,5 @@ needs capacity measurement. Conservative Smart holds may reject large batches;
 missing token measurements require explicit reconciliation. Autumn paid-invoice
 support is deliberately narrow; see `autumn-integration.md`.
 
-These limitations prohibit describing the full migration as production-ready.
+These limits remain explicit; activation does not claim untested payment
+lifecycle events, organization management, disaster recovery or high-volume capacity.

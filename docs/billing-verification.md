@@ -1,7 +1,9 @@
 # Billing migration verification — 2026-09-20
 
-This remains a gated production foundation, not an activated billing migration.
-Existing production anonymous and Pro routes were not changed by a deployment.
+These are historical foundation checks. The later
+[customer-continuity verification](existing-customer-migration.md#production-verification--2026-09-20)
+records the production activation checks. This release intentionally activates
+hosted accounts while preserving legacy anonymous and Pro key behavior.
 
 ## Observed behavior
 
@@ -13,8 +15,8 @@ Existing production anonymous and Pro routes were not changed by a deployment.
   included/paid refund sources are retained. Token and old item-credit settlement
   cannot be mixed. Grandfathered accounts cannot enter either reservation mode.
 - Personal signup credit does not replenish, teams start unfunded, and returning
-  to Free grants nothing. Pro's local simulator is $20 with $20 included. Copy
-  tests verify these promises. The demo signup amount is still provisional.
+  to Free grants nothing. Hosted Pro is $20/month with $20 included; personal
+  Free signup grants $5 once. Runtime demo billing has been removed.
 
 ## Checks run
 
@@ -39,17 +41,18 @@ Existing production anonymous and Pro routes were not changed by a deployment.
 
 ## Not yet verified or implemented
 
-The production Neon schema and deployment secrets are configured, with pooled
-runtime and direct migration URLs kept separate. Real Autumn checkout/webhooks,
-customer mapping, aggregation, report reconciliation/call budgets,
-signup/renewal grants, and production cutover remain unfinished. The signed-in
-HTTP/MCP demo still uses item-credit accounting.
-Production token billing also needs approved retail rates and a proven
-pre-inference reservation bound, plus a missing-usage recovery policy.
+The production Neon schema and secrets are configured, with pooled runtime and
+direct migration URLs kept separate. Customer linkage, signup/current-paid-period
+grants, checkout session creation, payment portal access, signed webhook
+idempotency, and hosted Fast/Smart/MCP settlement were verified in the later
+rollout. No real new charge, cancellation, future renewal or natural provider
+webhook delivery was exercised. Aggregated Autumn usage reporting remains
+unimplemented; missing token measurements require explicit reconciliation.
 
 Datacenter-specific authenticated-free limits and optional key budgets are not
 yet implemented. Rich PostHog transport is tested but disconnected: enable it
 only with classifier.dev credentials and updated collection disclosures. Current
 PostHog CLI credentials belong to a different project. No live payment test,
-100M-request capacity guarantee, zero-cost guarantee, or successful migration is
-claimed. See [the billing plan](billing-plan.md) for rollout gates.
+100M-request capacity guarantee or zero-cost guarantee is claimed. See
+[customer continuity](existing-customer-migration.md) for the verified migration
+and [the billing plan](billing-plan.md) for broader rollout goals.

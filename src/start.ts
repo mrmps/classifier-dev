@@ -5,6 +5,10 @@ export const startInstance = createStart(() => ({
     createCsrfMiddleware({
       filter: (context) => context.handlerType === "serverFn",
     }),
-    authkitMiddleware(),
+    // nodejs_compat exposes Worker bindings here. This module also participates
+    // in the client build, so it must not import cloudflare:workers directly.
+    ...(process.env.WORKOS_API_KEY && process.env.WORKOS_CLIENT_ID &&
+    process.env.WORKOS_REDIRECT_URI && (process.env.WORKOS_COOKIE_PASSWORD?.length ?? 0) >= 32
+      ? [authkitMiddleware()] : []),
   ],
 }));
