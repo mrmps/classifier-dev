@@ -235,10 +235,12 @@ test("invalid inputs do not reserve; upstream errors return reserved credits", a
     accountClassification(request({ inputs: [] }), env),
   ).rejects.toThrow();
   expect(calls).toBe(0);
-  await expect(accountClassification(
+  const response = await accountClassification(
     request({ inputs: ["Hello"], labels: ["a", "b"] }),
     env,
-  )).rejects.toThrow("not configured for account billing");
+  );
+  expect(response?.status).toBe(503);
+  expect(await response?.json()).toMatchObject({ code: "inference_unavailable" });
   const snapshot = await getSnapshot("local-demo", env);
   expect(snapshot.credits.balance).toBe(500000);
   expect(snapshot.onboarding.completed).toBe(false);
@@ -348,7 +350,13 @@ test("Smart bills actual Jev and Gemini cached/input/output tokens and emits one
   expect(points).toHaveLength(1);
 });
 
-test.each(["fast", "bulk"])("account Laya %s settles explicitly free tokens without consuming balance", async processing => {
+test.each([
+  { model: "laya", processing: "fast" },
+  { model: "laya", processing: "bulk" },
+  { processing: "fast" },
+  { processing: "bulk" },
+])("account Laya %j settles free inference without a Jev credential", async selection => {
+  const { processing } = selection;
   delete env.TYPESAFE_API_KEY;
   Object.assign(env, { LAYA_ENABLED: "true", LAYA_FAST_URL: "https://fast.example", LAYA_BULK_URL: "https://bulk.example",
     LAYA_MODAL_KEY: "fixture", LAYA_MODAL_SECRET: "fixture", LIMITER: {
@@ -366,12 +374,24 @@ test.each(["fast", "bulk"])("account Laya %s settles explicitly free tokens with
       }])), usage: { input_tokens: 41 }, routing: { model: "english" },
     })) });
   }) as typeof fetch;
-  const response = await accountClassification(request({ input: "Hello", labels: ["yes", "no"], model: "laya", processing }), env);
+  const response = await accountClassification(request({ input: "Hello", labels: ["yes", "no"], ...selection }), env);
   expect(response?.status).toBe(200);
   expect(response?.headers.get("x-billing-status")).toBe("settled");
   const usage = await env.APP_DB.prepare("SELECT actual_nano::text,credits,status,input_tokens FROM app_usage WHERE account_id='local-demo'").first();
   expect(usage).toEqual({ actual_nano: "0", credits: 0, status: "completed", input_tokens: 41 });
   expect((await getSnapshot("local-demo", env)).credits.balance).toBe(0);
+});
+
+test.each(["fast", "smart"])("unconfigured %s Jev inference fails before spending and refunds", async tier => {
+  delete env.TYPESAFE_API_KEY;
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; return Response.json({ error: "Invalid credential" }, { status: 401 }); }) as typeof fetch;
+  const response = await accountClassification(request({ input: "Invoice", labels: ["billing", "sales"], model: "jev", tier }), env);
+  expect(response?.status).toBe(503);
+  expect(response?.headers.get("x-billing-status")).toBe("refunded");
+  expect(calls).toBe(0);
+  expect((await getSnapshot("local-demo", env)).credits.balance).toBe(500000);
+  expect(await env.APP_DB.prepare("SELECT status,credits FROM app_usage").first()).toEqual({ status: "refunded", credits: 0 });
 });
 
 test("account Laya Smart charges only the actual review tokens", async () => {
