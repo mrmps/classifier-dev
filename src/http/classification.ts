@@ -24,7 +24,6 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   let body: Record<string, unknown>;
   try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
-  if (body.model !== "laya" && !env.TYPESAFE_API_KEY) throw new AppError(503, "Account inference is not configured.");
   const rawInputs = body.inputs ?? body.items ?? body.input;
   const inputs = typeof rawInputs === "string" ? [rawInputs] : rawInputs;
   if (!Array.isArray(inputs) || !inputs.length || inputs.length > 10_000 || inputs.some((input) => typeof input !== "string"))
