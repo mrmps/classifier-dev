@@ -414,3 +414,16 @@ test("member analytics remain scoped and secrets and billing require management"
       performWorkspaceAction(memberId, id, input as never, env),
     ).rejects.toThrow("Only workspace owners and admins");
 });
+
+ test("a committed organization is recovered when the database response is lost", async () => {
+  const batch = env.APP_DB.batch.bind(env.APP_DB);
+  env.APP_DB.batch = async statements => {
+    const result = await batch(statements);
+    if (statements.length === 3) throw new Error("Connection lost after commit");
+    return result;
+  };
+  const id = await create();
+  expect((await getOrganizationContext("workos:user_owner", id, env)).active.role).toBe("owner");
+  expect(organizations).toHaveLength(1);
+  expect(calls.filter(call => call.method === "DELETE")).toHaveLength(0);
+ });

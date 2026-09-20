@@ -275,8 +275,8 @@ export async function performOrganizationAction(
       )
         .bind(id)
         .first();
-      if (!persisted)
-        await client.organizations.deleteOrganization(organization.id);
+      if (persisted) return getOrganizationContext(identityId, id, env);
+      await client.organizations.deleteOrganization(organization.id);
       throw error;
     }
     return getOrganizationContext(identityId, id, env);
