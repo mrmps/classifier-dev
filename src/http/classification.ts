@@ -65,7 +65,6 @@ export async function accountClassification(request: Request, env: AppEnv & Part
     model: meter.tokens.map((row) => row.model).join(","), providerCostUsd: meter.tokens.length && !meter.tokens.some(row => row.provider === "modal") ? meter.usd : null,
     retailCostUsd, latencyMs: Date.now() - started,
     escalations: meter.tokens.filter((row) => row.provider === "openrouter").reduce((total, row) => total + row.calls, 0),
-    content: { inputs, labels: body.labels, instructions: body.instructions },
   });
   let response: Response;
   try {

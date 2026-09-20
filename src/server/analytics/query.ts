@@ -31,7 +31,7 @@ export function accountAnalyticsSql(accountId: string, kind: AnalyticsKind, para
       throw new AppError(400, "Invalid analytics filter.");
     where.push(`${column} = ${quote(value)}`);
   }
-  const aggregate = Object.entries(doubles).filter(([name]) => !["latencyMs", "truncatedContent"].includes(name))
+  const aggregate = Object.entries(doubles).filter(([name]) => name !== "latencyMs")
     .map(([name, column]) => `SUM(_sample_interval * ${column}) AS ${name}`);
   aggregate.push(`SUM(_sample_interval * ${doubles.latencyMs}) / SUM(_sample_interval) AS latencyMs`,
     `SUM(IF(${blobs.status} = 'error', _sample_interval, 0)) AS errors`,
@@ -50,7 +50,7 @@ export function accountAnalyticsSql(accountId: string, kind: AnalyticsKind, para
     select = `${dimensions[group as keyof typeof dimensions]} AS dimension, ${select}`;
     suffix = " GROUP BY dimension ORDER BY requests DESC LIMIT 50";
   } else if (kind === "activity") {
-    select = ["timestamp", ...Object.entries(blobs).filter(([name]) => !["version", "content"].includes(name)).map(([name, column]) => `${column} AS ${name}`),
+    select = ["timestamp", ...Object.entries(blobs).filter(([name]) => name !== "version").map(([name, column]) => `${column} AS ${name}`),
       ...Object.entries(doubles).map(([name, column]) => `${column} AS ${name}`), "_sample_interval AS sampleInterval", "timestamp AS latestEventAt"].join(", ");
     suffix = " ORDER BY timestamp DESC LIMIT 100";
   }

@@ -14,7 +14,6 @@ export interface AccountAnalyticsEnv {
   LIMITER?: DurableObjectNamespace;
   APP_ACCOUNTS_ENABLED?: string;
   ACCOUNT_AE?: { writeDataPoint(point: { indexes: string[]; blobs: string[]; doubles: number[] }): void };
-  ACCOUNT_ANALYTICS_CONTENT_ENABLED?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CF_ANALYTICS_TOKEN?: string;
 }
@@ -35,5 +34,4 @@ export interface AccountAnalyticsEvent {
   retailCostUsd: number | null;
   latencyMs: number;
   escalations?: number;
-  content?: unknown;
 }
