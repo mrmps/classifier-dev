@@ -275,8 +275,8 @@ const agentView = (origin: string) => ({
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
     subscribe: {
       method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
-      content_type: "application/json", body: { email: "agent@example.com", wants: ["private", "trained"] },
-      description: "Subscribe your own inbox to product updates. Use an address you control, or one whose owner explicitly requested updates. No API key or browser needed. `wants` is optional: the roadmap items the subscriber would use first.",
+      content_type: "application/json", body: { email: "agent@example.com", wants: ["faster"], desired_latency_ms: 100 },
+      description: "Subscribe your own inbox to product updates. Use an address you control, or one whose owner explicitly requested updates. No API key or browser needed. `wants` is optional: the roadmap items the subscriber would use first. `desired_latency_ms` is required when `wants` includes `faster`.",
       wants: Object.fromEntries(newsletter.ROADMAP.map((r) => [r.key, `${r.name}: ${r.what}`])),
       confirmation_required: true,
       confirm: { method: "POST", url: `${origin}/${newsletter.CONFIRM_PATH}`, body: { token: "token from the confirmation email" } },
@@ -1483,12 +1483,12 @@ const worker = {
         if (!claim) return req.method === "GET" || form
           ? html(newsletter.resultPage(false, "This confirmation link is invalid or expired. Subscribe again for a new link."), 400, privateHeaders)
           : json({ error: "invalid or expired confirmation token; subscribe again" }, 400, privateHeaders);
-        if (req.method === "GET") return html(newsletter.confirmationPage(token as string, claim.wants), 200, privateHeaders);
-        const { email, wants } = claim;
-        const added = await newsletter.subscribe(env, email, form ? "form" : "api", wants);
-        if (added) ctx.waitUntil(newsletter.notify(env, email, form ? "form" : "api", wants).catch(() => console.error("subscription notification failed")));
+        if (req.method === "GET") return html(newsletter.confirmationPage(token as string, claim.wants, claim.desiredLatencyMs), 200, privateHeaders);
+        const { email, wants, desiredLatencyMs } = claim;
+        const added = await newsletter.subscribe(env, email, form ? "form" : "api", wants, desiredLatencyMs);
+        if (added) ctx.waitUntil(newsletter.notify(env, email, form ? "form" : "api", wants, desiredLatencyMs).catch(() => console.error("subscription notification failed")));
         return form ? html(newsletter.resultPage(true, "Email confirmed. Your request has been recorded."), 200, privateHeaders)
-          : json({ ok: true, status: "confirmed", wants }, 200, privateHeaders);
+          : json({ ok: true, status: "confirmed", wants, ...(desiredLatencyMs !== null ? { desired_latency_ms: desiredLatencyMs } : {}) }, 200, privateHeaders);
       } catch {
         return req.method === "GET" || form
           ? html(newsletter.resultPage(false, "Could not confirm just now. Try this link again shortly."), 503, privateHeaders)
@@ -1509,15 +1509,26 @@ const worker = {
       // it is read with getAll and not folded into an object.
       const form = (req.headers.get("content-type") ?? "").includes("form-");
       const body: Record<string, unknown> = form
-        ? await req.formData().then((data) => ({ email: data.get("email"), wants: data.getAll("wants") })).catch(() => ({}))
+        ? await req.formData().then((data) => ({
+            email: data.get("email"),
+            wants: data.getAll("wants"),
+            desired_latency_ms: data.get("desired_latency_ms"),
+          })).catch(() => ({}))
         : await readJsonObject(req).catch(() => ({}));
       const email = newsletter.normalise(body.email);
       const wants = newsletter.wanted(body.wants);
+      const desiredLatencyMs = wants.includes(newsletter.FASTER_INFERENCE_KEY)
+        ? newsletter.desiredLatency(body.desired_latency_ms)
+        : null;
 
       if (!email) {
         return form
           ? html(newsletter.resultPage(false, "That does not look like an email address."), 400)
           : json({ error: "that does not look like an email address" }, 400);
+      }
+      if (wants.includes(newsletter.FASTER_INFERENCE_KEY) && desiredLatencyMs === null) {
+        const message = `choose a desired latency from ${newsletter.MIN_DESIRED_LATENCY_MS} to ${newsletter.MAX_DESIRED_LATENCY_MS} ms`;
+        return form ? html(newsletter.resultPage(false, message), 400) : json({ error: message }, 400);
       }
 
       // Enough to stop a script filling the table, loose enough that a shared
@@ -1540,7 +1551,7 @@ const worker = {
       }
 
       try {
-        await newsletter.requestConfirmation(env, email, wants);
+        await newsletter.requestConfirmation(env, email, wants, desiredLatencyMs);
       } catch (e) {
         console.error(e instanceof newsletter.Unavailable ? e.message : "confirmation email failed");
         return form
@@ -1550,7 +1561,7 @@ const worker = {
 
       return form
         ? html(newsletter.resultPage(true, "Check your inbox to confirm your subscription."), 202, { "cache-control": "no-store" })
-        : json({ ok: true, status: "pending_confirmation", wants }, 202, { "cache-control": "no-store" });
+        : json({ ok: true, status: "pending_confirmation", wants, ...(desiredLatencyMs !== null ? { desired_latency_ms: desiredLatencyMs } : {}) }, 202, { "cache-control": "no-store" });
     }
 
     if (req.method === "GET" && !classifyByQuery && (path === "" || path === "index.html" || path === "index.md")) {

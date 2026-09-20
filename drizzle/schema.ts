@@ -6,10 +6,13 @@ export const subscriber = pgTable("subscriber", {
   email: text().notNull().unique(),
   source: text().notNull().default("site"),
   wants: text().array().notNull().default(sql`'{}'`),
+  desired_latency_ms: integer(),
   created_at: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
   confirmed_at: timestamp({ withTimezone: true, mode: "string" }),
   unsubscribed_at: timestamp({ withTimezone: true, mode: "string" }),
-});
+}, (table) => [
+  check("subscriber_faster_latency_check", sql`(${table.desired_latency_ms} IS NULL AND NOT ('faster' = ANY(${table.wants}))) OR (${table.desired_latency_ms} IS NOT NULL AND ${table.desired_latency_ms} BETWEEN 1 AND 60000 AND 'faster' = ANY(${table.wants}))`),
+]);
 
 
 export const app_schema_migrations = pgTable("app_schema_migrations", {

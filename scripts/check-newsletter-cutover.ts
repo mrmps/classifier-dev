@@ -27,7 +27,7 @@ export async function checkNewsletterCutover(url: string, schema?: string, activ
         return;
       }
       const snapshot = await tx.execute<{ payload: string }>(sql`
-        SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY id), '[]'::jsonb)::text AS payload FROM subscriber s
+        SELECT coalesce(jsonb_agg(to_jsonb(s) - 'desired_latency_ms' ORDER BY id), '[]'::jsonb)::text AS payload FROM subscriber s
       `);
       if (createHash("sha256").update(snapshot.rows[0].payload).digest("hex") !== copied.sha256) {
         throw new Error("Newsletter destination differs from its verified snapshot.");

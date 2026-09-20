@@ -11,7 +11,7 @@ import { esc, btn, page, codeLang, COPY_ICON, HL_HEAD, HL_SCRIPT, HL_CSS } from 
 import { DOCS, BENCHMARK } from "./docs";
 import { VS_JEV, vsJevHtml, smartWins, smartGain, noiseFloor, pct, accuracy } from "./vsjev";
 import { SITE, SITE_UPDATED } from "./wellknown";
-import { ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
+import { FASTER_INFERENCE_KEY, MAX_DESIRED_LATENCY_MS, MIN_DESIRED_LATENCY_MS, ROADMAP, SUBSCRIBE_PATH } from "./newsletter";
 import { headingTitle, isCommandBlock, isHeading, isPreBlock } from "./pages";
 import { chatPanel, CHAT_CSS, CHAT_SCRIPT } from "./chatui";
 
@@ -117,7 +117,7 @@ h2{scroll-margin-top:24px}
 #updates .pick legend{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%)}
 .opt{display:grid;grid-template-columns:16px auto 1fr;column-gap:10px;padding:6px 0;cursor:pointer;
   color:var(--bright)}
-.opt+.opt{border-top:1px solid var(--rule)}
+.choice+.choice{border-top:1px solid var(--rule)}
 .opt .what{color:var(--muted)}
 .opt input{appearance:none;margin:3px 0 0;width:16px;height:16px;flex:none;position:relative;cursor:pointer;
   background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-s);
@@ -130,6 +130,13 @@ h2{scroll-margin-top:24px}
 .opt input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media (hover:hover){.opt:hover input:not(:checked){border-color:var(--fg)}}
 @media (max-width:640px){.opt{grid-template-columns:16px 1fr}.opt .what{grid-column:2}}
+.latency{display:flex;align-items:center;gap:8px;margin:0 0 8px 26px;color:var(--muted)}
+.latency[hidden]{display:none}
+.latency label{cursor:pointer}
+.latency .latency-field{display:inline-flex;align-items:center;gap:6px;color:var(--dim)}
+.latency input{width:7ch;height:32px;padding:0 8px;background:var(--surface);color:var(--fg);
+  border:1px solid var(--line-strong);border-radius:var(--r-s);font:inherit;font-size:max(16px,1em)}
+.latency input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sub{--h:38px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}
 /* The field matches the button it sits beside: same corners, same height.
    16px is a floor, not a preference — iOS Safari zooms the page on focus
@@ -180,9 +187,11 @@ h2{scroll-margin-top:24px}
 .dock form.open .more>div{opacity:1;translate:none;visibility:visible;transition-delay:.06s,.06s,0s}
 .dock .pick{display:flex;flex-wrap:wrap;gap:0 4px;align-items:center;padding:2px 4px 8px}
 .dock .pick legend{padding:4px 4px 0;color:var(--dim)}
+.dock .choice{display:contents}
 .dock .opt{display:inline-flex;gap:8px;align-items:center;padding:6px 8px 6px 0;border:0}
 .dock .opt input{margin:0}
 .dock .opt .what{display:none}
+.dock .latency{margin:0 8px 0 0}
 /* Whatever the server said, on its own line under the field so a long message
    is read in full. Empty is gone, so nothing has to toggle it. */
 .dock .said{flex:1 0 100%;padding:0 4px;text-wrap:pretty}
@@ -192,6 +201,7 @@ h2{scroll-margin-top:24px}
    reachable without pushing the email field or subscribe button offscreen. */
 @media (max-width:640px){.dock{padding-left:12px;padding-right:12px}.dock .head{display:none}
   .dock .more>div{max-height:max(80px,calc(100dvh - 160px));overflow-y:auto;overscroll-behavior:contain}
+  .dock .latency{flex-basis:100%;margin-inline-start:24px}
   .dock form{--pad:6px}.dock .sub{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
   .dock input[type=email]{grid-column:1/-1;width:100%}
   .dock .b.cta{grid-column:1;font-size:inherit;padding-left:12px;padding-right:12px}
@@ -208,11 +218,17 @@ h2{scroll-margin-top:24px}
  */
 function roadmapPick(prefix: string, legend: string) {
   const items = ROADMAP.map(
-    (r) => `<label class="opt" for="${prefix}-${r.key}">
+    (r) => `<div class="choice"><label class="opt" for="${prefix}-${r.key}">
         <input id="${prefix}-${r.key}" type="checkbox" name="wants" value="${r.key}">
         <span class="name">${esc(r.name)}</span>
         <span class="what">${esc(r.what)}</span>
-      </label>`,
+      </label>${r.key === FASTER_INFERENCE_KEY ? `
+        <div class="latency" data-latency>
+          <label for="${prefix}-desired-latency">Desired latency</label>
+          <span class="latency-field"><input id="${prefix}-desired-latency" type="number"
+            name="desired_latency_ms" min="${MIN_DESIRED_LATENCY_MS}" max="${MAX_DESIRED_LATENCY_MS}"
+            step="1" inputmode="numeric" aria-describedby="${prefix}-latency-unit"><span id="${prefix}-latency-unit">ms</span></span>
+        </div>` : ""}</div>`,
   ).join("");
   return `<fieldset class="pick"><legend>${esc(legend)}</legend>${items}</fieldset>`;
 }
@@ -699,6 +715,17 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
   const lbl = f.querySelector("[type=submit] .lbl");
   const input = f.querySelector("input[type=email]");
   const idle = lbl.textContent;
+  const faster = f.querySelector('input[name="wants"][value="faster"]');
+  const latency = f.querySelector('input[name="desired_latency_ms"]');
+  const latencyRow = f.querySelector("[data-latency]");
+  const syncLatency = () => {
+    const selected = faster.checked;
+    latencyRow.hidden = !selected;
+    latency.disabled = !selected;
+    latency.required = selected;
+  };
+  faster.addEventListener("change", syncLatency);
+  syncLatency();
   let busy = false;
 
   f.addEventListener("submit", async (e) => {
@@ -713,7 +740,11 @@ for (const f of document.querySelectorAll("[data-subscribe]")) {
       const res = await fetch(f.action, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: input.value, wants }),
+        body: JSON.stringify({
+          email: input.value,
+          wants,
+          ...(faster.checked ? { desired_latency_ms: Number(latency.value) } : {}),
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok) {

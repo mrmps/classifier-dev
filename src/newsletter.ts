@@ -14,6 +14,7 @@
  *     email text not null unique,
  *     source text not null default 'site',
  *     wants text[] not null default '{}',      -- ROADMAP keys, in ROADMAP order
+ *     desired_latency_ms integer,
  *     created_at timestamptz not null default now(),
  *     confirmed_at timestamptz,
  *     unsubscribed_at timestamptz
@@ -40,6 +41,7 @@ import { btn, esc, page } from "./ui";
  */
 export const ROADMAP: ReadonlyArray<{ key: string; name: string; what: string }> = [
   { key: "private", name: "Private inference", what: "your text never reaches a shared provider" },
+  { key: "faster", name: "Faster inference", what: "lower response time for latency-sensitive paths" },
   { key: "dedicated", name: "Dedicated endpoints", what: "capacity that is yours, at your own latency" },
   { key: "trained", name: "Trained endpoints", what: "tuned on your labelled data, not just your labels" },
   { key: "api", name: "A self-serve API", what: "keys and higher limits without booking a call" },
@@ -48,6 +50,9 @@ export const ROADMAP: ReadonlyArray<{ key: string; name: string; what: string }>
 
 /** The keys a `wants` may hold, in the order they are printed and stored. */
 export const ROADMAP_KEYS: ReadonlyArray<string> = ROADMAP.map((r) => r.key);
+export const FASTER_INFERENCE_KEY = "faster";
+export const MIN_DESIRED_LATENCY_MS = 1;
+export const MAX_DESIRED_LATENCY_MS = 60_000;
 
 /** The names behind a list of keys, for a person reading mail. */
 export const wantedNames = (wants: ReadonlyArray<string>) => ROADMAP.filter((r) => wants.includes(r.key)).map((r) => r.name);
@@ -84,6 +89,14 @@ export function wanted(raw: unknown): string[] {
   return ROADMAP_KEYS.filter((k) => asked.has(k));
 }
 
+/** A whole-millisecond target, bounded so accidental years or fractions are rejected. */
+export function desiredLatency(raw: unknown): number | null {
+  const value = typeof raw === "number" ? raw
+    : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim())
+    : NaN;
+  return Number.isSafeInteger(value) && value >= MIN_DESIRED_LATENCY_MS && value <= MAX_DESIRED_LATENCY_MS ? value : null;
+}
+
 /** The plain-text section, rendered into DOCS. Widths match the pricing tables. */
 export function roadmapDoc(): string {
   const rows = ROADMAP.map((r) => `    ${r.name.padEnd(24)}${r.what}`).join("\n");
@@ -101,6 +114,8 @@ ${rows}
 
   "wants" is optional. It takes any of:
     ${ROADMAP_KEYS.join(", ")}
+
+  When "wants" includes faster, also send desired_latency_ms (1–60000).
 
   Confirm from the email before updates start; an agent can POST the emailed
   token as {"token":"..."} to /subscribe/confirm instead. Links last 24
@@ -126,7 +141,7 @@ async function tokenKey(env: Env): Promise<CryptoKey> {
 }
 
 /** A claim the token carries: the address, and what its owner ticked. */
-export interface Claim { email: string; wants: string[] }
+export interface Claim { email: string; wants: string[]; desiredLatencyMs: number | null }
 
 /**
  * The ticks ride in the token. No row exists until the inbox owner confirms,
@@ -134,9 +149,22 @@ export interface Claim { email: string; wants: string[] }
  * signed, what comes back is what was asked for. A different list is a
  * different token, so it is a different confirmation email.
  */
-export async function confirmationToken(env: Env, email: string, now = Date.now(), wants: ReadonlyArray<string> = []): Promise<string> {
+export async function confirmationToken(
+  env: Env,
+  email: string,
+  now = Date.now(),
+  wants: ReadonlyArray<string> = [],
+  desiredLatencyMs: number | null = null,
+): Promise<string> {
+  const latency = desiredLatency(desiredLatencyMs);
+  if (wants.includes(FASTER_INFERENCE_KEY) && latency === null) throw new RangeError("faster inference requires a desired latency");
   const expires = Math.floor(now / 3_600_000) * 3_600_000 + 86_400_000;
-  const payload = encode(utf8.encode(JSON.stringify({ email, expires, ...(wants.length ? { wants } : {}) })));
+  const payload = encode(utf8.encode(JSON.stringify({
+    email,
+    expires,
+    ...(wants.length ? { wants } : {}),
+    ...(wants.includes(FASTER_INFERENCE_KEY) ? { desired_latency_ms: latency } : {}),
+  })));
   const signature = await crypto.subtle.sign("HMAC", await tokenKey(env), utf8.encode(payload));
   return `${payload}.${encode(new Uint8Array(signature))}`;
 }
@@ -150,14 +178,23 @@ export async function verifyToken(env: Env, token: unknown, now = Date.now()): P
     const claims = JSON.parse(new TextDecoder().decode(decode(payload)));
     if (!Number.isSafeInteger(claims.expires) || claims.expires <= now || claims.expires > now + 86_400_000) return null;
     const email = normalise(claims.email);
-    return email ? { email, wants: wanted(claims.wants) } : null;
+    const wants = wanted(claims.wants);
+    const desiredLatencyMs = wants.includes(FASTER_INFERENCE_KEY) ? desiredLatency(claims.desired_latency_ms) : null;
+    return email && (!wants.includes(FASTER_INFERENCE_KEY) || desiredLatencyMs !== null)
+      ? { email, wants, desiredLatencyMs }
+      : null;
   } catch { return null; }
 }
 
 /** No database row exists until the inbox owner confirms. */
-export async function requestConfirmation(env: Env, email: string, wants: ReadonlyArray<string> = []): Promise<void> {
+export async function requestConfirmation(
+  env: Env,
+  email: string,
+  wants: ReadonlyArray<string> = [],
+  desiredLatencyMs: number | null = null,
+): Promise<void> {
   if (!env.NEWSLETTER_RESEND_API_KEY || !env.NEWSLETTER_FROM || !env.DATABASE_URL) throw new Unavailable("newsletter is not configured");
-  const token = await confirmationToken(env, email, Date.now(), wants);
+  const token = await confirmationToken(env, email, Date.now(), wants, desiredLatencyMs);
   const names = wantedNames(wants);
   const link = `https://classifier.dev/${CONFIRM_PATH}?token=${encodeURIComponent(token)}`;
   const res = await fetch("https://api.resend.com/emails", {
@@ -174,6 +211,7 @@ export async function requestConfirmation(env: Env, email: string, wants: Readon
       text: [
         "Confirm that you want classifier.dev product updates:", link, "",
         ...(names.length ? [`You ticked: ${names.join(", ")}.`, ""] : []),
+        ...(desiredLatencyMs !== null ? [`Desired latency: ${desiredLatencyMs} ms.`, ""] : []),
         "Open the link and press Confirm subscription. The link lasts 24 hours.",
         "If you did not ask for this, ignore it. You are not on the list.", "",
         "Agents can confirm without a browser:",
@@ -207,20 +245,27 @@ export async function requestConfirmation(env: Env, email: string, wants: Readon
  * the whole statement, so a row whose confirmed_at equals it was confirmed
  * by this call.
  */
-export async function subscribe(env: Env, email: string, source: string, wants: ReadonlyArray<string> = []): Promise<boolean> {
+export async function subscribe(
+  env: Env,
+  email: string,
+  source: string,
+  wants: ReadonlyArray<string> = [],
+  desiredLatencyMs: number | null = null,
+): Promise<boolean> {
   const conn = env.DATABASE_URL;
   if (!conn) throw new Unavailable("DATABASE_URL is not set");
   const res = await fetch(`https://${new URL(conn).host}/sql`, {
     method: "POST",
     headers: { "content-type": "application/json", "neon-connection-string": conn },
     body: JSON.stringify({
-      query: `insert into subscriber (email, source, confirmed_at, wants) values ($1, $2, now(), $3::text[])
+      query: `insert into subscriber (email, source, confirmed_at, wants, desired_latency_ms) values ($1, $2, now(), $3::text[], $4::integer)
         on conflict (email) do update set
           confirmed_at = coalesce(subscriber.confirmed_at, now()),
-          wants = case when cardinality(excluded.wants) > 0 then excluded.wants else subscriber.wants end
+          wants = case when cardinality(excluded.wants) > 0 then excluded.wants else subscriber.wants end,
+          desired_latency_ms = case when cardinality(excluded.wants) > 0 then excluded.desired_latency_ms else subscriber.desired_latency_ms end
         where subscriber.unsubscribed_at is null
         returning (confirmed_at = now()) as added`,
-      params: [email, source.slice(0, 32), `{${wants.join(",")}}`],
+      params: [email, source.slice(0, 32), `{${wants.join(",")}}`, desiredLatencyMs],
     }),
   });
   if (!res.ok) throw new Unavailable(`neon returned ${res.status}`);
@@ -229,7 +274,7 @@ export async function subscribe(env: Env, email: string, source: string, wants: 
 }
 
 /** GET is read-only: scanners must not activate subscriptions by opening a link. */
-export function confirmationPage(token: string, wants: ReadonlyArray<string> = []): string {
+export function confirmationPage(token: string, wants: ReadonlyArray<string> = [], desiredLatencyMs: number | null = null): string {
   const names = wantedNames(wants);
   return page({
     title: "confirm subscription · classifier.dev",
@@ -237,6 +282,7 @@ export function confirmationPage(token: string, wants: ReadonlyArray<string> = [
       <header><h1>Confirm your subscription</h1></header>
       <p>Get one email when a classifier.dev roadmap item ships.</p>
       ${names.length ? `<p class="quote">You ticked: ${esc(names.join(", "))}.</p>` : ""}
+      ${desiredLatencyMs !== null ? `<p class="quote">Desired latency: ${desiredLatencyMs} ms.</p>` : ""}
       <form method="post" action="/${CONFIRM_PATH}">
         <input type="hidden" name="token" value="${esc(token)}">
         ${btn("Confirm subscription", { cls: "cta", type: "submit" })}
@@ -255,7 +301,13 @@ export { Unavailable };
  * outage never makes a confirmation fail. This means the response to the subscriber
  * is sent even if the notification email never arrives.
  */
-export async function notify(env: Env, email: string, source: string, wants: ReadonlyArray<string> = []): Promise<void> {
+export async function notify(
+  env: Env,
+  email: string,
+  source: string,
+  wants: ReadonlyArray<string> = [],
+  desiredLatencyMs: number | null = null,
+): Promise<void> {
   if (!env.RESEND_API_KEY || !env.REPORT_TO) return;
 
   const date = new Date().toISOString();
@@ -264,6 +316,7 @@ export async function notify(env: Env, email: string, source: string, wants: Rea
     `Subscriber: ${email}`,
     `Source: ${source}`,
     `Wants: ${names.length ? names.join(", ") : "(nothing ticked)"}`,
+    ...(desiredLatencyMs !== null ? [`Desired latency: ${desiredLatencyMs} ms`] : []),
     `Date: ${date}`,
     "",
     "The subscriber list is in the application's subscriber table.",

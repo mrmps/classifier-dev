@@ -6,7 +6,7 @@
 // parameter, never as text in a statement — an apostrophe in a name is enough
 // to matter, and the same hole is how a table gets read back out.
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { ROADMAP, ROADMAP_KEYS, normalise, wanted, roadmapDoc, subscribe, notify, Unavailable, confirmationToken, verifyToken, requestConfirmation } from "../src/newsletter";
+import { ROADMAP, ROADMAP_KEYS, desiredLatency, normalise, wanted, roadmapDoc, subscribe, notify, Unavailable, confirmationToken, verifyToken, requestConfirmation } from "../src/newsletter";
 import worker, { type Env } from "../src/index";
 import { OPENAPI } from "../src/openapi";
 
@@ -87,6 +87,20 @@ describe("wanted", () => {
   });
 });
 
+describe("desiredLatency", () => {
+  it("accepts whole milliseconds inside the supported range", () => {
+    expect(desiredLatency(1)).toBe(1);
+    expect(desiredLatency("100")).toBe(100);
+    expect(desiredLatency(" 60000 ")).toBe(60_000);
+  });
+
+  it("rejects missing, fractional, non-numeric and out-of-range targets", () => {
+    for (const value of [undefined, null, "", "10.5", 10.5, 0, 60_001, "fast"]) {
+      expect(desiredLatency(value)).toBeNull();
+    }
+  });
+});
+
 describe("the printed roadmap", () => {
   it("prints every item and every key, so the page and the plain text cannot drift", () => {
     const doc = roadmapDoc();
@@ -136,6 +150,14 @@ describe("subscribe", () => {
     expect(seen[1].body.params[2]).toBe("{}");
   });
 
+  it("stores the desired latency with faster inference and clears it with a replacement list", async () => {
+    const seen = capture();
+    await subscribe(env, "someone@example.com", "form", ["faster"], 100);
+    expect(seen[0].body.params).toEqual(["someone@example.com", "form", "{faster}", 100]);
+    expect(seen[0].body.query).toContain("desired_latency_ms");
+    expect(seen[0].body.query).toContain("cardinality(excluded.wants) > 0 then excluded.desired_latency_ms");
+  });
+
   it("reports whether this confirmation was the one that added the address", async () => {
     globalThis.fetch = (async () => Response.json({ rowCount: 1, rows: [{ added: false }] })) as typeof fetch;
     expect(await subscribe(env, "again@example.com", "api", ["api"])).toBe(false);
@@ -146,7 +168,7 @@ describe("subscribe", () => {
     await subscribe(env, "someone@example.com", "form");
 
     const { query, params } = seen[0].body;
-    expect(params).toEqual(["someone@example.com", "form", "{}"]);
+    expect(params).toEqual(["someone@example.com", "form", "{}", null]);
     // No column that could tie the row to a request.
     for (const forbidden of ["ip", "user_agent", "request_id", "country"]) {
       expect(query).not.toContain(forbidden);
@@ -192,7 +214,7 @@ describe("notify", () => {
       REPORT_TO: "owner@example.com",
     } as Env;
 
-    await notify(env, "subscriber@example.com", "form", ["private", "api"]);
+    await notify(env, "subscriber@example.com", "form", ["private", "faster", "api"], 100);
 
     expect(seen).toHaveLength(1);
     expect(seen[0].url).toBe("https://api.resend.com/emails");
@@ -202,7 +224,8 @@ describe("notify", () => {
     expect(String(seen[0].body.text)).toContain("subscriber@example.com");
     expect(String(seen[0].body.text)).toContain("form");
     // The owner reads names, not keys.
-    expect(String(seen[0].body.text)).toContain("Wants: Private inference, A self-serve API");
+    expect(String(seen[0].body.text)).toContain("Wants: Private inference, Faster inference, A self-serve API");
+    expect(String(seen[0].body.text)).toContain("Desired latency: 100 ms");
 
     globalThis.fetch = realFetch;
   });
@@ -265,14 +288,16 @@ describe("agent subscription API", () => {
 
   it("advertises an unauthenticated subscription in agent discovery and OpenAPI", async () => {
     const res = await worker.fetch(new Request("https://classifier.dev/agent.json"), env, ctx);
-    const discovery = await res.json() as { api: { subscribe: { url: string; body: { email: string; wants: string[] }; wants: Record<string, string>; confirmation_required: boolean } } };
+    const discovery = await res.json() as { api: { subscribe: { url: string; body: { email: string; wants: string[]; desired_latency_ms: number }; wants: Record<string, string>; confirmation_required: boolean } } };
     expect(discovery.api.subscribe.url).toBe("https://classifier.dev/subscribe");
-    expect(discovery.api.subscribe.body).toEqual({ email: "agent@example.com", wants: ["private", "trained"] });
+    expect(discovery.api.subscribe.body).toEqual({ email: "agent@example.com", wants: ["faster"], desired_latency_ms: 100 });
     expect(Object.keys(discovery.api.subscribe.wants)).toEqual([...ROADMAP_KEYS]);
     expect(discovery.api.subscribe.confirmation_required).toBe(true);
     expect(OPENAPI.paths["/subscribe"].post.security).toEqual([]);
-    const schema = OPENAPI.paths["/subscribe"].post.requestBody.content["application/json"].schema as { properties: { wants: { items: { enum: string[] } } } };
+    const schema = OPENAPI.paths["/subscribe"].post.requestBody.content["application/json"].schema as { properties: { wants: { items: { enum: string[] } }; desired_latency_ms: { minimum: number; maximum: number } } };
     expect(schema.properties.wants.items.enum).toEqual([...ROADMAP_KEYS]);
+    expect(schema.properties.desired_latency_ms).toMatchObject({ minimum: 1, maximum: 60_000 });
+    expect(OPENAPI.paths["/subscribe/confirm"].post.responses["200"].content["application/json"].schema.properties).toHaveProperty("desired_latency_ms");
   });
 
   it("accepts an agent inbox through JSON without credentials and permits retries", async () => {
@@ -291,6 +316,21 @@ describe("agent subscription API", () => {
       expect(call.body.text).toContain("You ticked: Private inference, Trained endpoints.");
     }
     await Promise.all(pending.splice(0));
+  });
+
+  it("requires a whole desired latency when faster inference is selected", async () => {
+    const seen = capture();
+    for (const desired_latency_ms of [undefined, 0, 10.5, 60_001, "fast"]) {
+      const res = await request({ email: "agent@example.com", wants: ["faster"], desired_latency_ms });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "choose a desired latency from 1 to 60000 ms" });
+    }
+    expect(seen).toHaveLength(0);
+
+    const res = await request({ email: "agent@example.com", wants: ["faster"], desired_latency_ms: 85 });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ ok: true, status: "pending_confirmation", wants: ["faster"], desired_latency_ms: 85 });
+    expect(seen[0].body.text).toContain("Desired latency: 85 ms.");
   });
 
   it("rejects invalid addresses before writing", async () => {
@@ -331,7 +371,7 @@ describe("email confirmation", () => {
   it("verifies ownership only with an unmodified, unexpired token", async () => {
     const now = 1_800_000_000_000;
     const token = await confirmationToken(env, "agent@example.com", now);
-    expect(await verifyToken(env, token, now)).toEqual({ email: "agent@example.com", wants: [] });
+    expect(await verifyToken(env, token, now)).toEqual({ email: "agent@example.com", wants: [], desiredLatencyMs: null });
     expect(await verifyToken(env, token, now + 86_400_000)).toBeNull();
     expect(await verifyToken(env, token, now - 86_400_000)).toBeNull();
     expect(await verifyToken({ ...env, NEWSLETTER_CONFIRMATION_SECRET: "another-key" }, token, now)).toBeNull();
@@ -343,7 +383,7 @@ describe("email confirmation", () => {
   it("carries the ticks in the token, so they survive until the row exists", async () => {
     const now = 1_800_000_000_000;
     const token = await confirmationToken(env, "agent@example.com", now, ["trained", "private"]);
-    expect(await verifyToken(env, token, now)).toEqual({ email: "agent@example.com", wants: ["trained", "private"].sort((a, b) => ROADMAP_KEYS.indexOf(a) - ROADMAP_KEYS.indexOf(b)) });
+    expect(await verifyToken(env, token, now)).toEqual({ email: "agent@example.com", wants: ["trained", "private"].sort((a, b) => ROADMAP_KEYS.indexOf(a) - ROADMAP_KEYS.indexOf(b)), desiredLatencyMs: null });
     // A different list is a different token, and so a different email.
     expect(token).not.toBe(await confirmationToken(env, "agent@example.com", now, ["api"]));
     // Confirming writes what the token carried, not what the request says.
@@ -353,7 +393,21 @@ describe("email confirmation", () => {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: live, wants: ["accuracy"] }),
     }), env, ctx);
     expect(await res.json()).toEqual({ ok: true, status: "confirmed", wants: ["private", "trained"] });
-    expect(seen[0].body.params).toEqual(["agent@example.com", "api", "{private,trained}"]);
+    expect(seen[0].body.params).toEqual(["agent@example.com", "api", "{private,trained}", null]);
+  });
+
+  it("carries a faster-inference latency through confirmation and into storage", async () => {
+    const now = 1_800_000_000_000;
+    const token = await confirmationToken(env, "agent@example.com", now, ["faster"], 75);
+    expect(await verifyToken(env, token, now)).toEqual({ email: "agent@example.com", wants: ["faster"], desiredLatencyMs: 75 });
+
+    const seen = capture();
+    const live = await confirmationToken(env, "agent@example.com", Date.now(), ["faster"], 75);
+    const preview = await confirm(live, "GET");
+    expect(await preview.text()).toContain("Desired latency: 75 ms.");
+    const res = await confirm(live);
+    expect(await res.json()).toEqual({ ok: true, status: "confirmed", wants: ["faster"], desired_latency_ms: 75 });
+    expect(seen[0].body.params).toEqual(["agent@example.com", "api", "{faster}", 75]);
   });
 
   it("deduplicates emails for the same inbox within an hour, with a fresh token next hour", async () => {
@@ -379,7 +433,7 @@ describe("email confirmation", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, status: "confirmed", wants: [] });
     expect(seen).toHaveLength(1);
-    expect(seen[0].body.params).toEqual(["agent@example.com", "api", "{}"]);
+    expect(seen[0].body.params).toEqual(["agent@example.com", "api", "{}", null]);
   });
 
   it("rejects forged tokens without writing", async () => {
@@ -401,19 +455,24 @@ describe("email confirmation", () => {
     const data = new URLSearchParams({ email: "agent@example.com" });
     data.append("wants", "accuracy");
     data.append("wants", "dedicated");
+    data.append("wants", "faster");
+    data.set("desired_latency_ms", "90");
     const signup = await worker.fetch(new Request("https://classifier.dev/subscribe", { method: "POST", body: data }), env, ctx);
     expect(signup.status).toBe(202);
     expect(await signup.text()).toContain("Check your inbox");
     expect(seen[0].url).toBe("https://api.resend.com/emails");
-    expect(seen[0].body.text).toContain("You ticked: Dedicated endpoints, Better classification.");
-    const token = await confirmationToken(env, "agent@example.com", Date.now(), ["dedicated", "accuracy"]);
+    expect(seen[0].body.text).toContain("You ticked: Faster inference, Dedicated endpoints, Better classification.");
+    expect(seen[0].body.text).toContain("Desired latency: 90 ms.");
+    const token = await confirmationToken(env, "agent@example.com", Date.now(), ["faster", "dedicated", "accuracy"], 90);
     expect(seen[0].body.text).toContain(token);
     const preview = await worker.fetch(new Request(`https://classifier.dev/subscribe/confirm?token=${encodeURIComponent(token)}`), env, ctx);
-    expect(await preview.text()).toContain("You ticked: Dedicated endpoints, Better classification.");
+    const previewHtml = await preview.text();
+    expect(previewHtml).toContain("You ticked: Faster inference, Dedicated endpoints, Better classification.");
+    expect(previewHtml).toContain("Desired latency: 90 ms.");
     const result = await worker.fetch(new Request("https://classifier.dev/subscribe/confirm", { method: "POST", body: new URLSearchParams({ token }) }), env, ctx);
     expect(result.status).toBe(200);
     expect(await result.text()).toContain("Email confirmed");
-    expect(seen[1].body.params).toEqual(["agent@example.com", "form", "{dedicated,accuracy}"]);
+    expect(seen[1].body.params).toEqual(["agent@example.com", "form", "{faster,dedicated,accuracy}", 90]);
   });
 
   it("returns unchanged state for duplicate or unsubscribed addresses", async () => {
@@ -433,6 +492,8 @@ describe("the checklist on the page", () => {
       expect(html).toContain(`id="dock-${r.key}" type="checkbox" name="wants" value="${r.key}"`);
       expect(html).toContain(r.what);
     }
+    expect(html).toContain('id="want-desired-latency" type="number"');
+    expect(html).toContain('id="dock-desired-latency" type="number"');
   });
 
   it("says what is kept, the same way the plain text does", async () => {

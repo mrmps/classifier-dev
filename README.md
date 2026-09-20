@@ -182,8 +182,9 @@ is the reply address and receives notifications only for newly confirmed rows.
 
 The subscriber table holds email, source, signup/confirmation/unsubscribe dates, which
 roadmap items were ticked (`wants text[]`, holding `ROADMAP` keys; the ticks
-ride in the confirmation token and are written on confirmation), and an
-internal id. It holds no IP, request id, or classification traffic. Pending
+ride in the confirmation token and are written on confirmation), the requested
+latency when faster inference is selected, and an internal id. It holds no IP,
+request id, or classification traffic. Pending
 signups are not stored. Tokens and mail-provider error bodies must not be logged.
 `migrations/postgres/0007_newsletter.sql` defines the table; a repeat confirmation
 replaces the ticks only when it ticked something, and never clears an
@@ -191,7 +192,7 @@ unsubscribe or moves the first confirmation date.
 
 Read only confirmed, active recipients when sending updates:
 
-    SELECT email, wants FROM subscriber
+    SELECT email, wants, desired_latency_ms FROM subscriber
     WHERE confirmed_at IS NOT NULL AND unsubscribed_at IS NULL;
 
 What people asked for first, to order the work by:
