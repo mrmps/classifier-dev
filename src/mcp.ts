@@ -137,7 +137,7 @@ export function productServer(classify: ClassifyFn): McpServer {
         type: "object",
         properties: { inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA,
           model: { type: "string", enum: ["jev", "laya"], description: "Optional Laya trial with automatic English/multilingual checkpoint routing; Jev remains the default." },
-          processing: { type: "string", enum: ["fast", "bulk"], description: "Laya only: fast accepts one decision; bulk handles batches. Shared capacity limits can return 429." } },
+          processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted. With Laya, omit to select fast for one decision or bulk for batches automatically. Explicit fast accepts one decision. Shared capacity limits can return 429." } },
         required: ["inputs", "labels"],
         additionalProperties: false,
       },
@@ -189,7 +189,7 @@ export function productServer(classify: ClassifyFn): McpServer {
       inputSchema: {
         type: "object", required: ["items", "dimensions"], additionalProperties: false,
         properties: { items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA,
-          model: { type: "string", enum: ["jev", "laya"] }, processing: { type: "string", enum: ["fast", "bulk"], description: "Use bulk for multiple Laya decisions." } },
+          model: { type: "string", enum: ["jev", "laya"] }, processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted. Omit for automatic fast/bulk selection based on item × dimension decisions." } },
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       async run(a, ctx) {
@@ -214,7 +214,7 @@ export function productServer(classify: ClassifyFn): McpServer {
           instructions: INSTRUCTIONS_SCHEMA,
           max_labels: { type: "integer", minimum: 1, maximum: 100, description: "At most this many labels per text, most likely first." },
           model: { type: "string", enum: ["jev", "laya"] },
-          processing: { type: "string", enum: ["fast", "bulk"], description: "Laya fast accepts up to four labels on one text; bulk handles more." },
+          processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted. Omit to select fast for up to four labels on one text, or bulk for larger work automatically." },
         },
         required: ["inputs", "labels"],
         additionalProperties: false,
