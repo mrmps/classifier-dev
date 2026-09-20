@@ -1,5 +1,4 @@
-import { callerId, type PrivacyEnv } from "./privacy";
-import { billingCustomerId } from "./billing-identity";
+import type { PrivacyEnv } from "./privacy";
 import type { ErrorCode } from "./openapi";
 
 export interface BillingEnv extends PrivacyEnv {
@@ -76,10 +75,6 @@ function safeUrl(value: unknown): string {
     return url.href;
   } catch { throw unavailable(); }
 }
-async function accountId(email: string, env: BillingEnv) {
-  if (!env.BILLING_SIGNING_KEY) throw unavailable();
-  return billingCustomerId(email, env.BILLING_SIGNING_KEY);
-}
 async function accountCall(env: BillingEnv, id: string, action: string, data: Record<string, unknown>) {
   if (!env.BILLING) throw unavailable();
   try {
@@ -94,16 +89,7 @@ async function accountCall(env: BillingEnv, id: string, action: string, data: Re
     throw unavailable();
   }
 }
-function cookie(value: string, seconds = SESSION_SECONDS) {
-  return `${COOKIE}=${value}; Path=/v1/billing; HttpOnly; Secure; SameSite=Strict; Max-Age=${seconds}`;
-}
-function session(req: Request) {
-  const raw = req.headers.get("Cookie")?.split(";").map(x => x.trim()).find(x => x.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
-  if (!raw) throw unauthorized();
-  return parseCredential(raw);
-}
-
-/** All public billing mutations are same-origin; credentials never occur in query strings. */
+/** Retire the separate billing login without changing stored accounts or existing API keys. */
 export async function handleBilling(req: Request, env: BillingEnv): Promise<Response | null> {
   const url = new URL(req.url);
   if (!url.pathname.startsWith("/v1/billing/")) return null;
@@ -114,28 +100,10 @@ export async function handleBilling(req: Request, env: BillingEnv): Promise<Resp
     if (!["login", "session", "account", "key", "checkout", "portal", "logout"].includes(action)) return json({error: "Not found."}, 404);
     if (req.method !== (action === "account" ? "GET" : "POST")) return json({error: "Method not allowed."}, 405);
     if (req.method === "POST" && req.headers.get("Origin") !== url.origin) throw new BillingError(403, "Open billing on this site to continue.");
-    if (!env.BILLING || !env.BILLING_SIGNING_KEY || !env.AUTUMN_SECRET_KEY) throw unavailable();
-    if (action === "login") {
-      const caller = await callerId(env, req.headers.get("CF-Connecting-IP") || "anon");
-      const limit = await env.LIMITER.get(env.LIMITER.idFromName(`billing-login:${caller}`)).fetch(new Request("https://limit/?limit=3&daily=20"));
-      if (!limit.ok) throw unavailable();
-      if ((await limit.json() as {limited: boolean}).limited) throw new BillingError(429, "Too many sign-in requests. Try again later.");
-      const input = await body(req);
-      const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
-      if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BillingError(400, "Enter a valid email address.");
-      const id = await accountId(email, env);
-      await accountCall(env, id, "login", {email, origin: url.origin});
-      return json({sent: true});
-    }
-    if (action === "session") {
-      const input = await body(req);
-      const credential = parseCredential(typeof input.token === "string" ? input.token : "");
-      const result = await accountCall(env, credential.customerId, "session", {secret: credential.secret});
-      return json({authenticated: true}, 200, {"Set-Cookie": cookie(`${credential.customerId}.${result.session}`)});
-    }
-    const credential = session(req);
-    const result = await accountCall(env, credential.customerId, action, {secret: credential.secret, origin: url.origin});
-    return json(result, 200, action === "logout" ? {"Set-Cookie": cookie("", 0)} : {});
+    return json({
+      error: "Billing has moved to your account. Log in with your existing billing email to manage your plan.",
+      login_url: "/login?returnTo=/app/plans",
+    }, 410, {"Set-Cookie": `${COOKIE}=; Path=/v1/billing; HttpOnly; Secure; SameSite=Strict; Max-Age=0`});
   } catch (error) {
     const failure = error instanceof BillingError ? error : unavailable();
     return json({error: failure.message}, failure.status);
@@ -224,7 +192,7 @@ export class BillingAccount implements DurableObject {
       }
       if (action === "authenticate") {
         if (account.apiKeyHash !== digest) throw new BillingError(401, "Invalid Pro API key.");
-        if (!await this.active(customerId)) throw new BillingError(403, "Your Pro subscription is not active. Manage billing at /pro.");
+        if (!await this.active(customerId)) throw new BillingError(403, "Your Pro subscription is not active. Manage billing at /app/plans.");
         return json({active: true});
       }
       if (!account.session || account.session.expires <= Date.now() || account.session.hash !== digest) throw unauthorized();

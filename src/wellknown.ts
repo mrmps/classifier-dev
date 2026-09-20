@@ -302,7 +302,7 @@ export function apiCatalog(origin: string) {
 
 /**
  * RFC 9728 protected-resource metadata. Truthful: no authorization server,
- * no scopes, anonymous classification; optional Pro and partner bearer keys.
+ * no scopes, anonymous classification; optional workspace, legacy Pro and partner keys.
  */
 export function oauthProtectedResource(origin: string) {
   return {
@@ -316,7 +316,7 @@ export function oauthProtectedResource(origin: string) {
     resource_tos_uri: `${origin}/terms`,
     // Not part of RFC 9728; states in plain words what the empty lists mean.
     anonymous_access: true,
-    note: "Classification and docs support anonymous access. Optional Pro bearer keys give 10x rate limits per billing account. Partner keys remain supported. Billing endpoints require a signed-in session.",
+    note: "Classification and docs support anonymous access. Workspace bearer keys use the workspace credit balance. Existing legacy Pro keys retain 10x rate limits per billing account. Partner keys remain supported. Billing endpoints require a signed-in session.",
   };
 }
 
@@ -324,9 +324,10 @@ export const AUTH_MD = `# Agent authentication on classifier.dev
 
 Canonical: https://classifier.dev/auth.md · Last updated ${SITE_UPDATED}
 
-Classification and documentation work without a key. Pro is $20/month for
-10x classification rate limits. Send a Pro API key as a bearer credential on
-REST or MCP requests. Billing uses a separate browser sign-in session.
+Classification and documentation work without a key. Workspace API keys use
+the workspace credit balance; current plans are at https://classifier.dev/pricing.
+Existing legacy Pro keys keep their 10x public rate limits. Send API keys as
+bearer credentials on REST or MCP. Billing uses a separate browser sign-in session.
 This file follows the discovery path from https://github.com/workos/auth.md;
 classifier.dev does not implement that spec's agent registration or token exchange.
 
@@ -342,7 +343,10 @@ classifier.dev does not implement that spec's agent registration or token exchan
 
 - **anonymous** — free, per IP: fast 3,000/minute and 20,000/day;
   smart 200/minute and 2,000/day. No account or card.
-- **service_auth (Pro key)** — $20/month, per billing account across IPs and keys:
+- **service_auth (workspace key)** — classifier_agent_ keys charge the workspace
+  credit balance. Create and manage keys in /app/keys.
+- **service_auth (existing legacy Pro key)** — classifier_pro_ keys retain their
+  legacy limits per billing account across IPs and keys:
   fast 30,000/minute and 200,000/day; smart 2,000/minute and 20,000/day.
   Up to 1,000 inputs per request on either tier.
 - **service_auth (partner key)** — separately arranged limits;
@@ -357,12 +361,12 @@ registration.
 
 ## Use the key
 
-    Authorization: Bearer classifier_pro_...
+    Authorization: Bearer classifier_agent_...
 
 Use the same header on REST and MCP. For the CLI, use --api-key or set
 CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). Keep keys out of URLs.
 No token exchange or refresh is needed. Your browser billing session is not
-an API credential. Existing partner keys continue to work.
+an API credential. Existing classifier_pro_ and partner keys continue to work.
 
 ## Errors
 
@@ -375,8 +379,8 @@ an API credential. Existing partner keys continue to work.
 - 502 — classification provider failure; retry with backoff.
 - 503 — billing verification is unavailable; retry later.
 
-Subscription access is cached for at most 60 seconds. Anonymous classification
-remains available within free limits without a Pro credential.
+Legacy Pro subscription access is cached for at most 60 seconds. Anonymous
+classification remains available within public limits without a credential.
 
 ## Revocation and billing
 

@@ -12,6 +12,7 @@ import worker from "../src/index";
 import type { Env } from "../src/index";
 import { PROTOCOL_VERSIONS, SERVER_VERSION } from "../src/mcp";
 import { SERVER_CARD_SCHEMA, SERVER_CARD_TYPE, AI_CATALOG_TYPE, API_CATALOG_TYPE } from "../src/wellknown";
+import { isAppRequest } from "../src/http/dispatch";
 
 const env = {} as Env;
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
@@ -75,11 +76,13 @@ describe("every discovery document", () => {
 
   /**
    * A discovery file that points at a path this worker does not serve is
-   * worse than none. Every on-origin URL in every file is fetched through the
-   * worker; the two MCP endpoints answer GET with 405 by design, and the
-   * classify endpoint is POST-only, so those are proved the way they are used.
+   * worse than none. Public URLs are fetched through the legacy worker.
+   * Protected application URLs must instead be claimed by the application
+   * dispatcher and exist in the generated router; they are not public 200s.
+   * The two MCP endpoints answer GET with 405 by design, and the classify
+   * endpoint is POST-only, so those are proved the way they are used.
    */
-  test("every on-origin URL any of them names answers", async () => {
+  test("every on-origin URL answers publicly or belongs to a registered application route", async () => {
     const seen = new Map<string, Set<string>>();
     for (const path of [...JSON_DOCS, ...TEXT_DOCS]) {
       const body = await (await get(path)).text();
@@ -94,8 +97,19 @@ describe("every discovery document", () => {
       }
     }
     expect(seen.size).toBeGreaterThan(20);
+    const routeTree = readFileSync(new URL("../src/routeTree.gen.ts", import.meta.url), "utf8");
+    const fullPathRegistry = routeTree.match(/export interface FileRoutesByFullPath \{([\s\S]*?)\n\}/)?.[1];
+    expect(fullPathRegistry).toBeDefined();
+    const registeredAppPaths = new Set(
+      [...fullPathRegistry!.matchAll(/'([^']+)': typeof /g)].map((match) => match[1]),
+    );
     const failures: string[] = [];
     for (const [p, from] of seen) {
+      if (p === "/app" || p.startsWith("/app/")) {
+        expect(isAppRequest(new Request(`${ORIGIN}${p}`))).toBe(true);
+        expect(registeredAppPaths.has(p)).toBe(true);
+        continue;
+      }
       let status: number;
       if (p === "/v1/classify" || p === "/subscribe" || p === "/subscribe/confirm") {
         const res = await worker.fetch(
@@ -112,6 +126,17 @@ describe("every discovery document", () => {
       if (status !== 200) failures.push(`${status} ${p} (named by ${[...from].join(", ")})`);
     }
     expect(failures).toEqual([]);
+  });
+
+  test("authentication docs distinguish workspace credits from existing legacy Pro limits", async () => {
+    const auth = await (await get("/auth.md")).text();
+    expect(auth).toContain("service_auth (workspace key)");
+    expect(auth).toContain("service_auth (existing legacy Pro key)");
+    expect(auth).toContain("Authorization: Bearer classifier_agent_");
+    expect(auth).not.toContain("Pro is $20/month for");
+    const docs = await (await get("/")).text();
+    expect(docs).toContain("Existing legacy Pro keys allow 30,000/minute and 200,000/day");
+    expect(docs).toContain("New workspace keys use the workspace credit balance.");
   });
 });
 
