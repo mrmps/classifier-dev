@@ -423,6 +423,8 @@ TOKEN PRICES
   Gemini cached input     $${Number(retailRates.models[1].cachedInputUsdPerMillion)}
   Gemini output           $${Number(retailRates.models[1].outputUsdPerMillion)}
 
+  Laya trial lanes        free during the trial, subject to shared capacity
+
   Smart requests without escalation cost the same as Fast. Gemini output
   includes reasoning tokens. Usage stops when your balance reaches zero.
 

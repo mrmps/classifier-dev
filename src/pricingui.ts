@@ -11,7 +11,7 @@ export function pricingHtml() {
   const pro = BILLING_PLANS.pro;
   const tokenRows = retailRates.models
     .map(
-      (rate) => `<tr><th scope="row">${rate.provider === "typesafe" ? "Jev" : "Gemini escalation"}</th>
+      (rate) => `<tr><th scope="row">${rate.provider === "typesafe" ? "Jev" : rate.provider === "openrouter" ? "Gemini escalation" : esc(rate.model)}</th>
         <td>${Number(rate.inputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.inputUsdPerMillion)}`}</td>
         <td>${Number(rate.cachedInputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.cachedInputUsdPerMillion)}`}</td>
         <td>${Number(rate.outputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.outputUsdPerMillion)}`}</td></tr>`,
@@ -85,7 +85,7 @@ export function pricingHtml() {
   <section class="pricing-section" aria-label="Token prices"><h2>Token prices</h2>
     <p>Prices per million tokens. Fast uses Jev at cost. Smart adds Gemini at cost plus 20% only when it escalates.</p>
     <div class="pricing-table"><table><thead><tr><th scope="col">Model</th><th scope="col">Input</th><th scope="col">Cached input</th><th scope="col">Output</th></tr></thead><tbody>${tokenRows}</tbody></table></div>
-    <p class="pricing-note">Smart requests without escalation cost the same as Fast. Gemini output includes reasoning tokens. Usage stops when your balance reaches zero.</p>
+    <p class="pricing-note">Smart requests without escalation cost the same as Fast. Gemini output includes reasoning tokens. Metered usage stops when your balance reaches zero. Laya lanes are free during the trial, subject to shared capacity limits.</p>
   </section>
   <section class="pricing-section" aria-label="Included on every plan"><h2>Included on every plan</h2>
     <p>Classify with your own labels through REST, MCP or the CLI. Inputs are not stored, and billing data stays separate from classification analytics.</p>
