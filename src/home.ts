@@ -835,7 +835,7 @@ const navLinks = (here: string, opensChat = true) =>
   `${navLink("Home", "/", here, "home")}${navLink("Benchmark", "/benchmark", here, "benchmark")}${navLink("Docs", "/docs", here, "developers")}${navLink("Pricing", "/pricing", here, "pricing")}<a class="site-link" href="/chat"${here === "chat" ? ' aria-current="page"' : ""}${opensChat ? ' data-chat-open aria-controls="chat" aria-expanded="false"' : ""}>Chat</a>`;
 
 const resourceLinks = (here: string) =>
-  `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}${navLink("Skills", "/skills", here, "skills")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/.well-known/agent-feedback.json">Agent feedback</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
+  `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}${navLink("Skills", "/skills", here, "skills")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
 
 const resourceMenu = (here: string) => {
   const active = ["mcp-setup", "skills"].includes(here);
@@ -861,7 +861,7 @@ export const NAV = (here: string, signedIn = false) => {
 </nav></header>`;
 };
 
-export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/terms">terms</a> · <a class="inline" href="/developers">developers</a></p></footer>`;
+export const FOOT = `<footer><p class="foot">built by <a class="inline" href="${SITE.author.x}">@${SITE.author.handle}</a> · <a class="inline" href="${SITE.author.cal}">book a call</a> · <a class="inline" href="/about">about</a> · <a class="inline" href="/contact">contact</a> · <a class="inline" href="/pricing">pricing</a> · <a class="inline" href="/privacy">privacy</a> · <a class="inline" href="/terms">terms</a> · <a class="inline" href="/developers">developers</a> · <a class="inline" href="/.well-known/agent-feedback.json">agent feedback</a></p></footer>`;
 
 export function homeHtml(o: { chat?: boolean; signedIn?: boolean } = {}): string {
   const desc = "Zero-shot text classification over plain HTTP. No API key, no account.";
@@ -930,7 +930,7 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt</code>   <span c
     })}</p></div>
   </section>
 
-  ${renderDoc(DOCS, true, { UPDATES: updatesSection(), LIMITS: limitsSection })}
+  ${renderDoc(DOCS, true, { "AGENT FEEDBACK": "", UPDATES: updatesSection(), LIMITS: limitsSection })}
 
   ${FOOT}
 </article></main></div>
