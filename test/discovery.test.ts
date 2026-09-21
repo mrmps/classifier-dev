@@ -111,7 +111,20 @@ describe("every discovery document", () => {
         continue;
       }
       let status: number;
-      if (p === "/v1/classify" || p === "/subscribe" || p === "/subscribe/confirm") {
+      if (p === "/v1/systemone" || p === "/v1/models") {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: string | URL | Request) => String(input).endsWith("/v1/models")
+          ? Response.json({ models: [{ name: "jev-latest", description: "test", release_date: "2026-09-15" }] })
+          : Response.json({ model: "jev-test", answers: { urgent: { type: "noul", noul: 0.9 } }, usage: { input_tokens: 10, output_tokens: 1 } })) as typeof fetch;
+        try {
+          const request = p === "/v1/models"
+            ? new Request(`${ORIGIN}${p}`)
+            : new Request(`${ORIGIN}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ state: "ticket", model: "jev-latest", questions: { urgent: { type: "noul" } } }) });
+          status = (await worker.fetch(request, { ...env, TYPESAFE_API_KEY: "test" }, ctx)).status;
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      } else if (p === "/v1/classify" || p === "/subscribe" || p === "/subscribe/confirm") {
         const res = await worker.fetch(
           new Request(`${ORIGIN}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ inputs: ["x"], labels: ["only"] }) }),
           env,

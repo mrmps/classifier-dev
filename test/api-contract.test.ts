@@ -29,11 +29,25 @@ function fakeJev(seen: { calls: number } = { calls: 0 }) {
     const url = String(input instanceof Request ? input.url : input);
     if (!url.includes("api.typesafe.ai")) throw new Error(`unexpected fetch ${url}`);
     seen.calls++;
+    if (url.endsWith("/v1/models")) {
+      return Response.json({ models: [{ name: "jev-latest", description: "test", release_date: "2026-09-15" }] });
+    }
     const body = JSON.parse(String(init?.body)) as {
-      state: { id: string; text: string }[];
-      questions: Record<string, { type: string; criteria?: Record<string, null> }>;
+      state: string | { id: string; text: string }[];
+      questions: Record<string, { type: string; instructions?: string; criteria?: Record<string, null> | string[] }>;
     };
     const answers: Record<string, unknown> = {};
+    if (!Array.isArray(body.state)) {
+      for (const [qid, q] of Object.entries(body.questions)) {
+        if (q.type === "noul") answers[qid] = { type: "noul", noul: 0.9 };
+        else if (q.type === "score") answers[qid] = { type: "score", score: 1, confidence: 0.9, legend: { "0": "low", "1": "high" }, probabilities: { "0": 0.1, "1": 0.9 } };
+        else {
+          const choices = Object.keys(q.criteria ?? {});
+          answers[qid] = { type: "choice", choice: choices[0], confidence: 0.9, probabilities: Object.fromEntries(choices.map((choice, index) => [choice, index ? 0.1 : 0.9])) };
+        }
+      }
+      return Response.json({ model: "jev-test", answers, usage: { input_tokens: 10, output_tokens: 1 } });
+    }
     for (const [qid, q] of Object.entries(body.questions)) {
       const itemId = q.type === "noul" ? qid.slice(0, qid.lastIndexOf("_")) : qid;
       const item = body.state.find((s) => s.id === itemId)!;
@@ -287,7 +301,9 @@ describe("openapi.json", () => {
           expect((methods[method] as { security: unknown }).security).toEqual([{ accountKey: [] }]);
           continue;
         }
-        if (method === "post") init.body = route.startsWith("/api/") ? "{}" : '{"input":"b please","labels":["a","b"]}';
+        if (method === "post") init.body = route === "/v1/systemone"
+          ? '{"state":"b please","model":"jev-latest","questions":{"category":{"type":"choice","criteria":{"a":null,"b":null}}}}'
+          : route.startsWith("/api/") ? "{}" : '{"input":"b please","labels":["a","b"]}';
         const res = await worker.fetch(new Request(`https://classifier.dev${fill(route)}`, init), env, ctx);
         // A 404 would mean the spec names a path the worker does not serve;
         // the receipt and skill lookups are the paths whose 404 is the documented answer for an unknown id.
@@ -295,7 +311,7 @@ describe("openapi.json", () => {
         else expect([200, 202, 400]).toContain(res.status);
       }
     }
-    for (const route of ["/v1/classify", "/v1/classify/batch", "/v1/sandbox/classify", "/", "/{labels}/{text}", "/v1/health", "/v1/docs", "/api",
+    for (const route of ["/v1/classify", "/v1/classify/batch", "/v1/systemone", "/v1/models", "/v1/sandbox/classify", "/", "/{labels}/{text}", "/v1/health", "/v1/docs", "/api",
       "/api/v1/feedback", "/api/v1/observations", "/api/v1/feedback/{id}/attachments", "/api/v1/receipts/{id}", "/api/v1/policy", "/benchmark"]) {
       expect(Object.keys(OPENAPI.paths)).toContain(route);
     }

@@ -184,6 +184,23 @@ QUICKSTART
   a calibrated confidence and a score per label. Full reference: https://classifier.dev
   (the same document as \`curl classifier.dev\`).
 
+  Existing TypeSafe code can use the same official SDK and call shape. Change
+  only the API root; the placeholder key satisfies the SDK's local check and is
+  never sent upstream:
+
+    import { choice, TypeSafeClient } from "@typesafe-ai/sdk";
+
+    const client = new TypeSafeClient({
+      apiKey: "unused",
+      baseURL: "https://classifier.dev",
+    });
+    const result = await client.systemOne({
+      state: "I was charged twice. Please fix this today.",
+      questions: {
+        category: choice("Which team?", { billing: null, technical: null }),
+      },
+    });
+
 
 COMING SOON
 
@@ -207,6 +224,8 @@ SURFACES
   REST API        POST https://classifier.dev  or  GET https://classifier.dev/{labels}/{text}
                   Query form: GET https://classifier.dev/?labels={a,b}&text={text}
                   Versioned alias: POST https://classifier.dev/v1/classify (same body, same answer)
+  TypeSafe SDK    Base URL https://classifier.dev; POST /v1/systemone and GET /v1/models
+                  JavaScript: @typesafe-ai/sdk   Python: typesafe-sdk
   OpenAPI 3.1     https://classifier.dev/openapi.json
   MCP             https://classifier.dev/mcp (tools) and https://classifier.dev/mcp/docs (documentation)
                   Setup for Claude, ChatGPT, Codex, Cursor: https://classifier.dev/mcp-setup
@@ -229,6 +248,8 @@ ENDPOINTS
   POST    /v1/classify              Classify 1-1,000 texts. Body: {inputs, labels, tier?, instructions?, multi?, max_labels?}
   POST    /                         Alias of /v1/classify, tracks the current major
   POST    /v1/classify/batch        Alias, for callers that look for a batch endpoint by name
+  POST    /v1/systemone             TypeSafe System One wire-compatible endpoint
+  GET     /v1/models                TypeSafe model aliases in the official SDK response shape
   GET     /{labels}/{text}          One text in the URL: /spam,not+spam/Win+a+free+iPhone -> "spam"
   GET     /?labels=&text=           The same as query parameters: /?labels=spam,not+spam&text=Win+a+free+iPhone
   GET     /v1/health                {ok, version, time}
@@ -252,6 +273,11 @@ AUTHENTICATION
   https://classifier.dev/app/keys. Workspace keys use the classifier_agent_ prefix.
   Send Authorization: Bearer <key> on REST or MCP.
   Partner keys remain supported. https://classifier.dev/auth.md
+
+  The official TypeSafe SDK requires a non-empty apiKey when it constructs a
+  client. On the TypeSafe-compatible endpoints, use any placeholder such as
+  "unused". classifier.dev does not authenticate or forward that value; public
+  limits remain per IP. Never put a real TypeSafe credential in the placeholder.
 
 
 EXAMPLES
@@ -309,6 +335,12 @@ KEYS AND LIMITS
   10x minute and daily allowances shared across keys and agents, and accept up to
   1,000 inputs per request on both tiers. Use --api-key with the CLI, or set
   CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). https://classifier.dev/auth.md
+
+  POST /v1/systemone uses the same public fast-tier limits, counting named
+  questions rather than HTTP requests. GET /v1/models does not spend quota.
+  TypeSafe-native upstream validation, rate-limit and service errors retain
+  their status and body; x-typesafe-request-id, Retry-After and Retry-After-Ms
+  are preserved for the official SDKs.
 
 
 SANDBOX

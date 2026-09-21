@@ -30,6 +30,7 @@ export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
+import { typeSafeCompatibleResponse, typeSafeDecisionCount } from "./typesafe-compat";
 
 export interface Env extends LayaEnv {
   QUOTAS?: DurableObjectNamespace;
@@ -182,8 +183,8 @@ export function primaryModels(): string[] {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "Content-Type, Authorization, Accept, Idempotency-Key, If-None-Match, Mcp-Session-Id, MCP-Protocol-Version",
-  "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, x-api-version, Idempotency-Key",
+  "access-control-allow-headers": "Content-Type, Authorization, Accept, Idempotency-Key, If-None-Match, Mcp-Session-Id, MCP-Protocol-Version, X-TypeSafe-SDK, X-TypeSafe-Runtime, X-TypeSafe-Retry-Count",
+  "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, Retry-After-Ms, x-api-version, x-typesafe-request-id, Idempotency-Key",
 };
 
 /**
@@ -275,6 +276,8 @@ const agentView = (origin: string) => ({
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
+    typesafe_system_one: { method: "POST", url: `${origin}/v1/systemone`, compatibility: "TypeSafe System One wire contract; use the official SDK with this origin and any non-empty placeholder API key" },
+    typesafe_models: { method: "GET", url: `${origin}/v1/models`, compatibility: "TypeSafe model-list response consumed by the official SDK" },
     subscribe: {
       method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
       content_type: "application/json", body: { email: "agent@example.com", wants: ["faster"], desired_latency_ms: 100 },
@@ -314,7 +317,7 @@ const agentView = (origin: string) => ({
   },
   mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
   cli: { install: "npm i -g classifier-dev", example: "classify bug,feature,praise < feedback.txt" },
-  sdks: { python: 'pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"', go: "go get github.com/mrmps/classifier-dev/sdk/go", javascript: "fetch(); no package needed" },
+  sdks: { python: 'pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"', go: "go get github.com/mrmps/classifier-dev/sdk/go", javascript: "fetch(); no package needed", typesafe: { javascript: "@typesafe-ai/sdk", python: "typesafe-sdk", base_url: origin, api_key: "any non-empty placeholder; never forwarded" } },
   skill: { install: `npx skills add ${origin}`, url: `${origin}/skill.md` },
   limits: { fast: "3,000 classifications/min, 20,000/day per IP", smart: "200/min, 2,000/day per IP", headers: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Policy", "Retry-After"] },
   pricing: { price: 0, currency: "USD", url: `${origin}/pricing` },
@@ -1331,6 +1334,56 @@ const worker = {
         200,
         { "cache-control": "no-store" },
       );
+    }
+    // The official TypeSafe clients can point their base URL at classifier.dev
+    // without changing the request or response contract. Their Authorization
+    // value only satisfies the SDK's local non-empty-key check; it is never
+    // forwarded. The service credential is the sole credential sent upstream.
+    if (path === "v1/systemone" || path === "v1/models") {
+      const hasBody = req.method !== "GET" && req.method !== "HEAD";
+      const body = hasBody ? await req.text() : undefined;
+      const decisions = path === "v1/systemone" && req.method === "POST"
+        ? typeSafeDecisionCount(body ?? "")
+        : 0;
+      let remaining = -1;
+      if (decisions && !enterprise) {
+        const gate = await limited(env, "fast", ip, decisions);
+        remaining = gate.remaining;
+        if (gate.limited) {
+          const retryAfter = gate.resetIn ?? 60;
+          return json(
+            { error: `Rate limit reached; retry in ${retryAfter}s.` },
+            429,
+            {
+              "retry-after": String(retryAfter),
+              "ratelimit-limit": String(TIERS.fast.rpm),
+              "ratelimit-remaining": "0",
+              "ratelimit-policy": `${TIERS.fast.rpm};w=60, ${TIERS.fast.daily};w=86400`,
+            },
+          );
+        }
+      }
+
+      const response = await typeSafeCompatibleResponse(req, env.TYPESAFE_API_KEY, body);
+      const headers = new Headers(response.headers);
+      // Own the browser policy at this boundary. An upstream credentialed CORS
+      // header combined with our wildcard origin would make an otherwise valid
+      // SDK response unreadable in browsers.
+      for (const name of [
+        "access-control-allow-credentials",
+        "access-control-allow-headers",
+        "access-control-allow-methods",
+        "access-control-allow-origin",
+        "access-control-expose-headers",
+        "access-control-max-age",
+      ]) headers.delete(name);
+      for (const [name, value] of Object.entries({ ...CORS, ...SECURITY })) headers.set(name, value);
+      if (decisions) {
+        headers.set("ratelimit-limit", enterprise ? "unlimited" : String(TIERS.fast.rpm));
+        headers.set("ratelimit-policy", enterprise ? "unlimited" : `${TIERS.fast.rpm};w=60, ${TIERS.fast.daily};w=86400`);
+        if (remaining >= 0) headers.set("ratelimit-remaining", String(remaining));
+      }
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     }
     // .md twins for the machine-readable files, so appending .md to any URL works.
     if (path === "openapi.json.md") {
