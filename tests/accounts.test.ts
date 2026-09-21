@@ -33,6 +33,14 @@ beforeEach(async () => {
   );
 });
 describe("account lifecycle", () => {
+  test.each(["free", "pro"])("reservation returns the current %s plan with its account debit", async (plan) => {
+    const enrolled = await enroll();
+    await env.APP_DB.prepare("UPDATE app_accounts SET billing_plan=? WHERE id='local-demo'").bind(plan).run();
+    const reservation = await authorizeAndReserve(request(enrolled.secret), env, 1);
+    expect(reservation?.billingPlan).toBe(plan);
+    expect(reservation?.accountId).toBe("local-demo");
+    expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='local-demo'").first())?.balance).toBe(499999);
+  });
   test("authentication transitions clear the previous workspace selection", () => {
     const callback = clearWorkspaceSelection(
       new Response(null, {

@@ -69,7 +69,7 @@ Deploy the transfer-aware `RateLimiter`, coordinator binding and migration with 
 
 Rollback by disabling `QUOTA_COORDINATOR_ENABLED` while retaining the new classes, bindings and forwarding code. **Do not roll back to code predating the transfer protocol:** its old counters are frozen and no longer authoritative. The disabled path continues to follow transferred counters. Neither successful admission nor forwarding uses unconfirmed storage writes.
 
-Run `node inference/laya/latency.mjs <output.json>` before and after deployment from the same client. It records 20 sequential synthetic requests, separates the first call, and reports end-to-end, Worker, quota, Modal and backend timings. Do not equate backend compute time or the Worker-to-Modal span with client latency. The Worker executes at Cloudflare's ingress edge; Modal ingress and compute are colocated in `us-west`. Measure other client regions independently.
+Run `node inference/laya/latency.mjs <output.json>` before and after deployment from the same client. It records 20 sequential synthetic requests, separates the first call, and reports end-to-end, Worker, quota, Modal and backend timings. Do not equate backend compute time or the Worker-to-Modal span with client latency. The Worker targets Oregon (`aws:us-west-2`); Modal ingress and compute use `us-west`. Existing Durable Objects and databases are not relocated by these settings. Measure other client regions independently.
 
 ## Evidence
 

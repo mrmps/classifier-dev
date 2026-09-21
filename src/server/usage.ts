@@ -4,6 +4,7 @@ export interface Reservation {
   accountId: string;
   agentId: string;
   cost: number;
+  billingPlan: string;
 }
 /** Serializable transaction: conditional ledger insertion, account and agent debit. */
 export async function authorizeAndReserve(
@@ -62,7 +63,7 @@ export async function authorizeAndReserve(
       agent.account_id,
     ),
     env.APP_DB.prepare(
-      "UPDATE app_accounts SET balance=balance-?,paid_balance=paid_balance-(SELECT paid_credits FROM app_usage WHERE id=?) WHERE id=? AND EXISTS(SELECT 1 FROM app_usage WHERE id=?)",
+      "UPDATE app_accounts SET balance=balance-?,paid_balance=paid_balance-(SELECT paid_credits FROM app_usage WHERE id=?) WHERE id=? AND EXISTS(SELECT 1 FROM app_usage WHERE id=?) RETURNING billing_plan",
     ).bind(cost, id, agent.account_id, id),
     env.APP_DB.prepare(
       "UPDATE app_agents SET used=used+? WHERE id=? AND EXISTS(SELECT 1 FROM app_usage WHERE id=?)",
@@ -73,7 +74,10 @@ export async function authorizeAndReserve(
       403,
       "Credential is paused or revoked, or the workspace balance is too low.",
     );
-  return { id, accountId: agent.account_id, agentId: agent.id, cost };
+  // Reuse the account row already locked by reservation instead of making
+  // classification pay another database round trip to look up its plan.
+  return { id, accountId: agent.account_id, agentId: agent.id, cost,
+    billingPlan: results[1].results[0].billing_plan as string };
 }
 /** Idempotent settlement; failures restore both account and agent reservations. */
 export async function completeReservation(

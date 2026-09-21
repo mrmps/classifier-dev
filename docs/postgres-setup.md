@@ -101,12 +101,11 @@ connection strings into commands that will remain in shell history. Migrations
 are transactional, ordered, and checksum-verified; editing an already-applied
 migration is rejected.
 
-The production Worker executes at Cloudflare's ingress edge. Neon remains in
-`aws:us-west-2`; removing the former Worker placement avoids forwarding every
-latency-sensitive classification request through Oregon. This is not a data
-residency guarantee and does not move the Neon primary or a Durable Object.
-Confirm database-dependent account latency as well as inference latency before
-changing placement again. See [Cloudflare placement](https://developers.cloudflare.com/workers/configuration/placement/).
+The production Worker targets Oregon (`aws:us-west-2`) for fetch execution.
+This is not a data-residency guarantee and does not move an existing Neon
+database or Durable Object. Verify the active database's region separately;
+Worker placement alone does not establish full colocation.
+See [Cloudflare placement](https://developers.cloudflare.com/workers/configuration/placement/).
 
 Do not enable the new account offering until retail token rates, Autumn events,
 legacy Pro handling, reconciliation, and end-to-end production checks are ready.

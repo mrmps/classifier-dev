@@ -34,7 +34,6 @@ export async function accountClassification(request: Request, env: AppEnv & Part
     type: `${source} · ${body.dimensions ? "Dimensions" : body.multi ? "Multi-label" : "Single-label"}`, meteringMode: "tokens",
   });
   if (!reservation) throw new AppError(401, "Missing account credential.");
-  const plan = await env.APP_DB.prepare("SELECT billing_plan FROM app_accounts WHERE id=?").bind(accountId).first<{ billing_plan: string }>();
   const meter = newMeter();
   let admissionError: AppError | undefined;
   let reservationQueue = Promise.resolve();
@@ -67,7 +66,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   let response: Response;
   try {
     response = await worker.fetch(new Request(request.url, { method: "POST", headers: request.headers, body: text }), env as Env, ctx,
-      { account: { id: accountId, multiplier: plan?.billing_plan === "free" ? 1 : 10 }, meter });
+      { account: { id: accountId, multiplier: reservation.billingPlan === "free" ? 1 : 10 }, meter });
     await reservationQueue;
     if (admissionError) throw admissionError;
   } catch (error) {

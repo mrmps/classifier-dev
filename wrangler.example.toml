@@ -10,6 +10,11 @@ compatibility_flags = ["nodejs_compat"]
 compatibility_date = "2026-08-01"
 account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
 
+# Run fetch handlers near Oregon. This is a placement target, not a
+# data-residency guarantee; assets remain globally served.
+[placement]
+region = "aws:us-west-2"
+
 # Set the pooled runtime URL as a Worker secret, never a plaintext var. CI uses
 # a separate direct DATABASE_URL_UNPOOLED secret for migrations.
 [secrets]

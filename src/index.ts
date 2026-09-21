@@ -2013,10 +2013,8 @@ const worker = {
       const quotas: Omit<Quota,"id">[] = enterprise ? [] : [{scope:tier,cost:decisions,limit:rpm,daily:TIERS[tier].daily * multiplier}];
       quotas.push({scope:`laya:${processing}`,cost:layaPlan!.cost,limit:LAYA_LIMITS[processing].rpm,daily:LAYA_LIMITS[processing].daily});
       try {
-        // The coordinator always returns its stage timings. `timing=1` also
-        // forces storage.sync(), turning observability into ~40 ms of latency
-        // on every anonymous Laya call even though the awaited transactional
-        // put already preserves the counters.
+        // The coordinator returns stage timings without the diagnostic
+        // storage.sync(); its output gate still preserves counter durability.
         const response = await admit({LIMITER:env.LIMITER,QUOTAS:env.QUOTAS!},quotaOwner,quotas,false);
         readQuotaTiming(response, layaTiming ? regularQuotaTiming : undefined);
         gate = await response.json() as AdmissionResult;

@@ -92,7 +92,7 @@ test("fast local admission lets exact admission and inference overlap", async ()
   expect(f.admissionUrls).toEqual(["https://quota/admit"]);
 });
 
-test("exact admission rejection aborts speculative fast inference", async () => {
+test.each(["lane", "tier"])("exact %s admission rejection aborts speculative fast inference", async limitedBy => {
   let started!: () => void, aborted!: () => void;
   const modalStarted = new Promise<void>(resolve => { started = resolve; });
   const modalAborted = new Promise<void>(resolve => { aborted = resolve; });
@@ -102,13 +102,26 @@ test("exact admission rejection aborts speculative fast inference", async () => 
   })) as typeof fetch;
   const f = combinedEnv(async () => {
     await modalStarted;
-    return Response.json({limited:true,remaining:2999,limitedBy:"lane",scope:"minute",resetIn:12});
+    return Response.json({limited:true,remaining:2999,limitedBy,scope:"minute",resetIn:12});
   });
   const bindings = {...f.bindings, LAYA_FAST_ADMISSION:{limit:async () => ({success:true})}} as unknown as Env;
   const response = await request(task,bindings);
   expect(response.status).toBe(429);
-  expect(await response.json()).toMatchObject({code:"laya_rate_limit"});
+  expect(await response.json()).toMatchObject({code:limitedBy === "lane" ? "laya_rate_limit" : "rate_limit_minute"});
   await modalAborted;
+});
+
+test.each([false, true])("local burst shield blocks inference when unavailable=%s", async unavailable => {
+  const calls = mockLaya();
+  const f = combinedEnv();
+  const bindings = {...f.bindings, LAYA_FAST_ADMISSION:{limit:async () => {
+    if (unavailable) throw new Error("unavailable");
+    return {success:false};
+  }}} as unknown as Env;
+  const response = await request(task,bindings);
+  expect(response.status).toBe(unavailable ? 503 : 429);
+  expect(calls).toHaveLength(0);
+  expect(f.admissions).toHaveLength(0);
 });
 
 test("bulk chunks by question count, retains order and meters the selected lane", async () => {

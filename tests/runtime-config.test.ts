@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import Ajv from "ajv";
 
 const root = new URL("../", import.meta.url);
 const renderer = new URL(".github/render-wrangler.mjs", root);
@@ -35,7 +36,10 @@ test("production rendering uses PostgreSQL secrets and activates verified accoun
   expect(config.vars.DATABASE_URL).toBeUndefined();
   expect(config.secrets.required).toContain("DATABASE_URL");
   expect(config.secrets.required).not.toContain("DATABASE_URL_UNPOOLED");
-  expect(config.placement).toBeUndefined();
+  expect(config.placement).toEqual({ region: "aws:us-west-2" });
+  const schema = JSON.parse(readFileSync(new URL("node_modules/wrangler/config-schema.json", root), "utf8"));
+  const validate = new Ajv({ strict: false }).compile(schema.definitions.RawConfig.properties.placement);
+  expect(validate(config.placement)).toBe(true);
   expect(config.ratelimits).toContainEqual({name:"LAYA_FAST_ADMISSION",namespace_id:"910001",simple:{limit:60,period:60}});
 });
 
