@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-21-beam-laya-kev-v1",
+  "version": "2026-09-21-spending-v2",
   "models": [
     {
       "provider": "typesafe",
@@ -15,7 +15,54 @@
       "outputUsdPerMillion": "4.500",
       "cachedInputUsdPerMillion": "0.090"
     },
-    { "provider": "beam", "model": "jev/laya", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" },
-    { "provider": "beam", "model": "jev/kev", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" }
+    {
+      "provider": "beam",
+      "model": "jev/laya",
+      "inputUsdPerMillion": "0",
+      "outputUsdPerMillion": "0",
+      "cachedInputUsdPerMillion": "0"
+    },
+    {
+      "provider": "beam",
+      "model": "jev/kev",
+      "inputUsdPerMillion": "0",
+      "outputUsdPerMillion": "0",
+      "cachedInputUsdPerMillion": "0"
+    },
+    {
+      "provider": "openrouter",
+      "model": "ibm-granite/granite-4.0-h-micro",
+      "inputUsdPerMillion": "0.021",
+      "outputUsdPerMillion": "0.135",
+      "cachedInputUsdPerMillion": "0.021"
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "inputUsdPerMillion": "0.068",
+      "outputUsdPerMillion": "0.134",
+      "cachedInputUsdPerMillion": "0.068"
+    },
+    {
+      "provider": "openrouter",
+      "model": "inclusionai/ling-3.0-flash",
+      "inputUsdPerMillion": "0.026",
+      "outputUsdPerMillion": "0.076",
+      "cachedInputUsdPerMillion": "0.026"
+    },
+    {
+      "provider": "openrouter",
+      "model": "inception/mercury-2.5",
+      "inputUsdPerMillion": "0.048",
+      "outputUsdPerMillion": "0.180",
+      "cachedInputUsdPerMillion": "0.048"
+    },
+    {
+      "provider": "openrouter",
+      "model": "ibm-granite/granite-4.2-8b",
+      "inputUsdPerMillion": "0.072",
+      "outputUsdPerMillion": "0.300",
+      "cachedInputUsdPerMillion": "0.072"
+    }
   ]
 }

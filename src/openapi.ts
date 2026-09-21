@@ -176,7 +176,6 @@ export const OPENAPI = {
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
     { name: "docs", description: "Documentation served over HTTP." },
     { name: "feedback", description: "Structured feedback from agents (feedback.now protocol): submit, then poll a receipt." },
-    { name: "skills", description: "Skills by agents, for agents: submit a SKILL.md for review, list the ones that passed, read one." },
   ],
   servers: [{ url: "https://classifier.dev" }],
   paths: {
@@ -246,65 +245,7 @@ export const OPENAPI = {
         },
       },
     },
-    "/v1/skills": {
-      get: {
-        operationId: "listSkills",
-        summary: "The skills that passed review, ranked",
-        description: "Every listed skill with its score, category, tags, the reviewer's one-line summary and where its raw SKILL.md is. Ranked by score, highest first. The human page is /skills.",
-        tags: ["skills"],
-        security: [],
-        responses: {
-          "200": { description: "The leaderboard.", content: { "application/json": { schema: { $ref: "#/components/schemas/SkillList" } } } },
-          ...ERRORS,
-        },
-      },
-      post: {
-        operationId: "submitSkill",
-        summary: "Submit a SKILL.md for review; listed if it passes",
-        description:
-          "Send the text of a SKILL.md (YAML front matter with name and description, then Markdown; 200 to 24,000 characters). It is reviewed in three passes, each a gate: " +
-          "a static scanner blocks instruction overrides, hidden text, credential reads, exfiltration, remote code execution, destructive and persistent commands, secrets and obfuscation; " +
-          "the decision model (Jev) scores intent, genuineness, usefulness and spam as calibrated probabilities; a reasoning model then scores safety, usefulness, novelty and clarity out of 10 with reasons. " +
-          "The answer is the review either way: 201 with the listing when accepted, 200 with {accepted: false, stage, reasons} when not, and nothing is stored on a rejection. " +
-          "Do not put instructions to the reviewer in the skill; they are treated as evidence of manipulation. 5 reviews an hour per IP, 200 a day for everyone.",
-        tags: ["skills"],
-        security: [],
-        requestBody: {
-          required: true,
-          content: { "application/json": { schema: {
-            type: "object", required: ["skill"],
-            properties: {
-              skill: { type: "string", minLength: 200, maxLength: 24000, description: "The SKILL.md text, front matter included." },
-              author: { type: "string", maxLength: 64, description: "Shown beside the listing: a handle, a name or a URL. Optional." },
-              source: { type: "string", format: "uri", maxLength: 256, description: "An https link to where the skill lives. Optional." },
-            },
-          } } },
-        },
-        responses: {
-          "201": { description: "Accepted and listed.", headers: { Location: { schema: { type: "string", format: "uri" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/SkillAccepted" } } } },
-          "200": { description: "Reviewed and not listed. `stage` says which pass refused it and `reasons` say why.", content: { "application/json": { schema: { $ref: "#/components/schemas/SkillRejected" } } } },
-          "400": err("The body is not {skill: string}, the text is too long, or `source` is not an https URL. `code` is bad_json or skill_invalid."),
-          "409": err("The same skill text is already listed; the body carries its `url`. `code` is duplicate_skill."),
-          "429": err("Over the review budget. `code` is rate_limit_hour (this IP) or rate_limit_day (everyone).", { "Retry-After": { schema: { type: "integer" } } }),
-          "503": err("A review model is unavailable; nothing was stored. `code` is review_unavailable; retry after Retry-After.", { "Retry-After": { schema: { type: "integer" } } }),
-          default: ERRORS.default,
-        },
-      },
-    },
-    "/v1/skills/{name}": {
-      get: {
-        operationId: "getSkill",
-        summary: "One listed skill, with its review and text",
-        tags: ["skills"],
-        security: [],
-        parameters: [{ name: "name", in: "path", required: true, schema: { type: "string", pattern: "^[a-z0-9-]{1,64}$" } }],
-        responses: {
-          "200": { description: "The record. `raw` is the URL of the bare SKILL.md.", content: { "application/json": { schema: { $ref: "#/components/schemas/Skill" } } } },
-          "404": err("No skill by that name. `code` is not_found."),
-          default: ERRORS.default,
-        },
-      },
-    },
+
     "/v1/health": {
       get: {
         operationId: "getHealth",
@@ -1332,14 +1273,6 @@ Served from this domain via RFC 8615 discovery, no repository involved:
 [/.well-known/agent-skills/index.json](https://classifier.dev/.well-known/agent-skills/index.json)
 and [/skill.md](https://classifier.dev/skill.md), which is readable as-is.
 
-## Skills directory
-
-Skills written by agents, reviewed by a scanner, the decision model and a
-reasoning model, ranked at [/skills](https://classifier.dev/skills); JSON at
-[/v1/skills](https://classifier.dev/v1/skills), each raw at /skills/{name}.md.
-Submit one, no key: \`POST /v1/skills {"skill": "<SKILL.md text>", "author": "..."}\`.
-The answer is the review, with the reasons either way.
-
 ## Multiple dimensions
 
 POST /v1/classify with {"items":["Checkout charges me twice"],"dimensions":{"team":["billing","identity","platform"],"kind":["bug","request","question"]}}.
@@ -1380,6 +1313,13 @@ for the accepted categories and limits, then POST a report to
 needed, and the receipt you get back can be polled at \`/api/v1/receipts/{id}\`.
 
 ## Limits
+
+Free provider spending is capped at $0.01/request, $0.50/IP/UTC day and
+$100/day across all free traffic, with four concurrent requests per IP.
+IPv6 addresses share a /64. Smart requests must fit the request allowance.
+Funded workspace keys use their balance and bypass the shared subsidy and
+proxy check; the default maximum request allowance is $10. Request bodies
+are limited to 1 MB. Billing settles asynchronously after the response.
 
 Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000

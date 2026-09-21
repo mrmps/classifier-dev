@@ -1,3 +1,4 @@
+import { providerFetch } from "./spending/permit";
 /**
  * TypeSafe's Jev, the model behind both tiers.
  *
@@ -507,7 +508,7 @@ async function postBeam(key: string, body: JevBody, backend: Backend, meter?: Me
     const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "beam", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
     let res: Response;
     try {
-      res = await fetch(backend.url, {
+      res = await providerFetch(meter, "beam", body.model, 0, backend.url, {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -576,7 +577,7 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics
     const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "typesafe", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
     let res: Response;
     try {
-      res = await fetch(API, {
+      res = await providerFetch(meter, "typesafe", body.model, 0, API, {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         body: JSON.stringify(body),

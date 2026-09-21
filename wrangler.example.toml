@@ -55,6 +55,14 @@ namespace_id = "910001"
 [vars]
 # Transfer-aware legacy objects were deployed before enabling admission here.
 QUOTA_COORDINATOR_ENABLED = "true"
+SPENDING_ENABLED = "true"
+FREE_DAILY_USD = "100"
+FREE_IP_DAILY_USD = "0.50"
+FREE_REQUEST_USD = "0.01"
+FREE_IP_CONCURRENCY = "4"
+FREE_CONCURRENCY = "128"
+PAID_REQUEST_USD = "10"
+SPUR_MONTHLY_LOOKUPS = "45000"
 # Laya and Kev are hosted by Beam on its shared endpoints; there is no
 # deployment of our own to point at. BEAM_API_KEY is a Worker secret, never a
 # plaintext var, and it is the only credential either model needs.
@@ -98,3 +106,11 @@ deleted_classes = ["BillingAccount"]
 [[migrations]]
 tag = "v4-combined-quotas"
 new_sqlite_classes = ["QuotaCoordinator"]
+
+[[durable_objects.bindings]]
+name = "FREE_BUDGET"
+class_name = "FreeBudget"
+
+[[migrations]]
+tag = "v5-free-spending"
+new_sqlite_classes = ["FreeBudget"]

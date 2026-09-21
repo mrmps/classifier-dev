@@ -1,3 +1,4 @@
+import { spendingClassification } from "./spending-classification";
 import worker, { type Env } from "../index";
 import { newMeter } from "../cost";
 import rates from "../retail-rates.json";
@@ -20,6 +21,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   const path = new URL(request.url).pathname;
   const typeSafe = path === "/v1/systemone";
   if (request.method !== "POST" || !["/", "/v1/classify", "/v1/classify/batch", "/sandbox/classify", "/v1/sandbox/classify", "/v1/systemone"].includes(path)) return null;
+  if (env.SPENDING_ENABLED === "true") return spendingClassification(request, env, source, ctx);
   const accountId = await requireApiAccount(request, env);
   if (Number(request.headers.get("content-length") || 0) > 1_000_000) throw new AppError(413, "Request is too large.");
   const text = await request.text();

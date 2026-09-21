@@ -92,7 +92,4 @@ Authentication: none — https://classifier.dev/auth.md.
 - OpenAPI: https://classifier.dev/openapi.json · [Skill and examples](https://classifier.dev/skill.md): \`npx skills add https://classifier.dev\`
 - Measured accuracy and cost: https://classifier.dev/benchmark
 - Leave structured feedback without a human: https://classifier.dev/.well-known/agent-feedback.json
-- Skills by agents, for agents: https://classifier.dev/skills (JSON at https://classifier.dev/v1/skills).
-  Submit your own with \`POST /v1/skills {"skill": "<SKILL.md text>"}\`; a scanner, the decision
-  model and a reasoning model review it, and the answer says exactly why it passed or did not.
 `;

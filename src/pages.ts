@@ -619,6 +619,13 @@ PUBLIC SERVICE LOGS
   caller is a keyed hash of the IP that changes daily, so a record cannot be
   read back to an address or followed across days. The address itself serves
   the per-IP limits while the request is in flight and is not written down.
+  To prevent abuse of free inference, the caller IP is sent to Spur's
+  Context API on a cache miss. We store only a daily keyed network
+  fingerprint and an allow/deny result, never the raw address. IPv6 /64
+  networks share a spending allowance. Funded workspace requests skip Spur.
+  Free spending reservations and reputation entries are removed after their
+  retention window (up to three UTC days); monthly lookup counts contain
+  no caller identity.
   These records feed the usage counts and the alerting, and are kept for 90
   days in Cloudflare Analytics Engine.
 
@@ -722,7 +729,7 @@ partner key with one.
 WHAT YOU GET
 
   A zero-shot text classification API over HTTP, two MCP servers, a CLI, a
-  skill and a skills directory, all at https://classifier.dev, with no account
+  skill, all at https://classifier.dev, with no account
   and no key, within the per-IP limits at https://classifier.dev/pricing. The
   limits, the models and the endpoints can change; the API reference and the
   changelog say when they do, and a versioned path stays as documented while
