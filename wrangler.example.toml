@@ -55,10 +55,10 @@ namespace_id = "910001"
 [vars]
 # Transfer-aware legacy objects were deployed before enabling admission here.
 QUOTA_COORDINATOR_ENABLED = "true"
+# Laya and Kev are hosted by Beam on its shared endpoints; there is no
+# deployment of our own to point at. BEAM_API_KEY is a Worker secret, never a
+# plaintext var, and it is the only credential either model needs.
 LAYA_ENABLED = "true"
-LAYA_FAST_URL = "https://miryaboy--classifier-laya-router-trial-west-fast.us-west.modal.direct"
-LAYA_BULK_URL = "https://miryaboy--classifier-laya-router-trial-west-bulk.us-west.modal.direct"
-# LAYA_MODAL_KEY and LAYA_MODAL_SECRET are Worker secrets, never plaintext vars.
 # Enable only after account migration, pricing and Autumn reconciliation checks.
 APP_ACCOUNTS_ENABLED = "true"
 # Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.

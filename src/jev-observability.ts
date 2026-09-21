@@ -2,7 +2,7 @@
  * must remain visible without inflating request counts. Never record payloads,
  * provider messages, keys, caller identifiers or label sets here. */
 export type JevAttempt = {
-  provider: "gateway" | "typesafe";
+  provider: "gateway" | "typesafe" | "beam";
   outcome: "success" | "failure" | "skipped";
   reason: string;
   status: number;

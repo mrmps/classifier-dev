@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-20-laya-router-trial-v2",
+  "version": "2026-09-21-beam-laya-kev-v1",
   "models": [
     {
       "provider": "typesafe",
@@ -15,7 +15,7 @@
       "outputUsdPerMillion": "4.500",
       "cachedInputUsdPerMillion": "0.090"
     },
-    { "provider": "modal", "model": "laya-0.3.4-routed-fast", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" },
-    { "provider": "modal", "model": "laya-0.3.4-routed-bulk", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" }
+    { "provider": "beam", "model": "jev/laya", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" },
+    { "provider": "beam", "model": "jev/kev", "inputUsdPerMillion": "0", "outputUsdPerMillion": "0", "cachedInputUsdPerMillion": "0" }
   ]
 }

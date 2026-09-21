@@ -497,21 +497,24 @@ test.each([
 ])("account Laya %j settles free inference without a Jev credential", async selection => {
   const { processing } = selection;
   delete env.TYPESAFE_API_KEY;
-  Object.assign(env, { LAYA_ENABLED: "true", LAYA_FAST_URL: "https://fast.example", LAYA_BULK_URL: "https://bulk.example",
-    LAYA_MODAL_KEY: "fixture", LAYA_MODAL_SECRET: "fixture", LIMITER: {
+  Object.assign(env, { LAYA_ENABLED: "true", BEAM_API_KEY: "fixture", LIMITER: {
       idFromName: (name: string) => name,
       get: () => ({ fetch: async () => Response.json({ limited: false, remaining: 59 }) }),
     } });
   // A free inference must also work when the account has no paid or free credits.
   await env.APP_DB.prepare("UPDATE app_accounts SET balance=0,paid_balance=0 WHERE id='local-demo'").run();
   globalThis.fetch = (async (url, init) => {
-    expect(String(url)).toBe(`https://${processing}.example/predict`);
-    const { batch } = JSON.parse(String(init?.body));
-    return Response.json({ results: batch.map((row: { questions: Record<string, unknown> }) => ({
-      answers: Object.fromEntries(Object.keys(row.questions).map(id => [id, {
+    // Both lanes reach the same Beam endpoint; the lane is a quota, not a host.
+    expect(String(url)).toBe("https://app.beam.cloud/v1/systemone");
+    const body = JSON.parse(String(init?.body)) as { model: string; questions: Record<string, unknown> };
+    expect(body.model).toBe("jev/laya");
+    return Response.json({
+      model: "jev/laya",
+      answers: Object.fromEntries(Object.keys(body.questions).map(id => [id, {
         choice: "yes", confidence: .99, probabilities: { yes: .99, no: .01 },
-      }])), usage: { input_tokens: 41 }, routing: { model: "english" },
-    })) });
+      }])),
+      usage: { input_tokens: 41, output_tokens: 0 },
+    });
   }) as typeof fetch;
   const response = await accountClassification(request({ input: "Hello", labels: ["yes", "no"], ...selection }), env);
   expect(response?.status).toBe(200);
@@ -534,21 +537,23 @@ test.each(["fast", "smart"])("unconfigured %s Jev inference fails before spendin
 });
 
 test("account Laya Smart charges only the actual review tokens", async () => {
-  Object.assign(env, { LAYA_ENABLED: "true", LAYA_FAST_URL: "https://fast.example", LAYA_MODAL_KEY: "fixture",
-    LAYA_MODAL_SECRET: "fixture", OPENROUTER_API_KEY: "fixture", LIMITER: {
+  Object.assign(env, { LAYA_ENABLED: "true", BEAM_API_KEY: "fixture", OPENROUTER_API_KEY: "fixture", LIMITER: {
       idFromName: (name: string) => name,
       get: () => ({ fetch: async () => Response.json({ limited: false, remaining: 59 }) }),
     } });
   let calls = 0;
   globalThis.fetch = (async (url, init) => {
     calls++;
-    if (String(url) === "https://fast.example/predict") {
-      const { batch } = JSON.parse(String(init?.body));
-      return Response.json({ results: batch.map((row: { questions: Record<string, unknown> }) => ({
-        answers: Object.fromEntries(Object.keys(row.questions).map(id => [id, {
+    if (String(url) === "https://app.beam.cloud/v1/systemone") {
+      const body = JSON.parse(String(init?.body)) as { questions: Record<string, unknown> };
+      // Low confidence, so the smart tier escalates this answer to a review.
+      return Response.json({
+        model: "jev/laya",
+        answers: Object.fromEntries(Object.keys(body.questions).map(id => [id, {
           choice: "yes", confidence: .6, probabilities: { yes: .6, no: .4 },
-        }])), usage: { input_tokens: 41 }, routing: { model: "english" },
-      })) });
+        }])),
+        usage: { input_tokens: 41, output_tokens: 0 },
+      });
     }
     expect(String(url)).toBe("https://openrouter.ai/api/v1/chat/completions");
     return Response.json({ model: "google/gemini-3.8-flash", choices: [{ message: { content: "B" } }],

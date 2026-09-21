@@ -1,57 +1,72 @@
-import { addTokens, type Meter } from "./cost";
-import type { JevResult } from "./jev";
+import type { Meter } from "./cost";
+import {
+  type JevKeys, type JevResult, type JevQuestionGroup, type Question, type Backend,
+  LAYA_BACKEND, KEV_BACKEND, JevError, prepareJevBatches, runJevBatches,
+} from "./jev";
+
+/**
+ * Laya and Kev, both hosted by Beam.
+ *
+ * Beam speaks TypeSafe's System One protocol, so there is no separate client
+ * here any more: this module owns the product contract — which lanes exist,
+ * what a caller may send, and what a lane costs against quota — and hands the
+ * actual request to `src/jev.ts`, which owns every System One transport.
+ *
+ * What the move off Modal changed, visibly:
+ *   - There is no GPU pool to keep warm, so `fast` and `bulk` are quota lanes
+ *     rather than separate deployments. Neither can return "still starting".
+ *   - Beam does not report which checkpoint answered, so a result is labelled
+ *     `jev/laya` or `jev/kev` rather than `laya-0.3.4-<checkpoint>-<lane>`.
+ *   - Spend is per input token and reported, so account analytics no longer
+ *     marks provider cost unknown.
+ */
 
 export type Processing = "fast" | "bulk";
+export type LayaModel = "laya" | "kev";
+
 export type LayaEnv = {
-  LAYA_FAST_URL?: string;
-  LAYA_BULK_URL?: string;
-  LAYA_MODAL_KEY?: string;
-  LAYA_MODAL_SECRET?: string;
   LAYA_ENABLED?: string;
   LAYA_FAST_ADMISSION?: RateLimit;
   LIMITER: DurableObjectNamespace;
 };
+
+/**
+ * Lane quotas. These are a product decision about shared capacity, not a
+ * property of Beam, so they survived the move unchanged: existing callers keep
+ * the limits they were issued against.
+ */
 export const LAYA_LIMITS = {
   fast: { rpm: 60, daily: 2000, questions: 4 },
   bulk: { rpm: 1000, daily: 20_000, questions: 64 },
 } as const;
-export const layaModel = (lane: Processing, checkpoint = "routed") => `laya-0.3.4-${checkpoint}-${lane}`;
+
+export const BACKEND_FOR: Record<LayaModel, Backend> = { laya: LAYA_BACKEND, kev: KEV_BACKEND };
+/** The label a result carries; Beam returns the same string. */
+export const layaModel = (model: LayaModel = "laya") => BACKEND_FOR[model].model;
+
 export class LayaError extends Error {
   constructor(message: string, readonly status: 400 | 429 | 502 | 503, readonly retryAfter = 1, readonly scope?: "day") { super(message); }
 }
-export type LayaTask = { input: string; labels: string[]; instructions?: string; multi?: boolean };
-type Row = { state: string; questions: Record<string, unknown> };
-export type LayaPlan = { batches: Row[][]; tasks: LayaTask[]; cost: number; processing: Processing };
 
-/** Validate and chunk before any quota, billing, or inference side effects. */
-export function planLaya(tasks: LayaTask[], processing: Processing): LayaPlan {
+export type LayaTask = { input: string; labels: string[]; instructions?: string; multi?: boolean };
+export type LayaPlan = { tasks: LayaTask[]; cost: number; processing: Processing; model: LayaModel };
+
+/** Validate and price before any quota, billing, or inference side effects. */
+export function planLaya(tasks: LayaTask[], processing: Processing, model: LayaModel = "laya"): LayaPlan {
   if (!tasks.length || tasks.length > 1000) throw new LayaError("Laya accepts 1–1,000 decisions per request", 400);
   if (processing === "fast" && tasks.length > 1) throw new LayaError("Laya fast accepts one decision per call; use processing: bulk for batches or dimensions", 400);
-  const batches: Row[][] = [];
-  let batch: Row[] = [], size = 0, bytes = 0, cost = 0;
+  let cost = 0;
   for (const task of tasks) {
     if (task.labels.length < 2 || task.labels.length > 16 || task.labels.some(l => l.length > 100) ||
         task.input.length > 2000 || (task.instructions?.length ?? 0) > 400) {
       throw new LayaError("Laya trial accepts short text (≤2,000 characters), 2–16 short labels, and instructions ≤400 characters; the full question must also fit the selected checkpoint's token budget", 400);
     }
-    const questions: Record<string, unknown> = {};
-    if (task.multi) task.labels.forEach((label, i) => {
-      questions[`q${i}`] = { type: "noul", instructions: `Does this text belong to the category ${JSON.stringify(label)}? ${task.instructions ?? ""}` };
-    });
-    else questions.q = { type: "choice", instructions: `Which category fits this text? ${task.instructions ?? ""}`,
-      criteria: Object.fromEntries(task.labels.map(label => [label, null])) };
-    const n = Object.keys(questions).length;
-    if (n > LAYA_LIMITS[processing].questions) throw new LayaError("Too many questions for Laya fast; use processing: bulk", 400);
-    const row = { state: task.input, questions };
-    const rowBytes = new TextEncoder().encode(JSON.stringify(row)).length;
-    if (batch.length && (size + n > LAYA_LIMITS[processing].questions || bytes + rowBytes > 200_000)) {
-      batches.push(batch); batch = []; size = 0; bytes = 0;
-    }
-    batch.push(row); size += n; bytes += rowBytes; cost += n;
+    const questions = task.multi ? task.labels.length : 1;
+    if (questions > LAYA_LIMITS[processing].questions) throw new LayaError("Too many questions for Laya fast; use processing: bulk", 400);
+    cost += questions;
   }
   if (cost > LAYA_LIMITS[processing].rpm) throw new LayaError("Batch exceeds the Laya per-minute question quota; split it into smaller calls", 400);
-  if (batch.length) batches.push(batch);
-  return { batches, tasks, cost, processing };
+  return { tasks, cost, processing, model };
 }
 
 export type QuotaTiming = Partial<Record<"handler" | "read" | "write", number>>;
@@ -76,80 +91,98 @@ export async function limitLaya(env: LayaEnv, lane: Processing, owner: string, c
     return result.remaining;
   } catch (error) {
     if (error instanceof LayaError) throw error;
-    // Unlike the legacy quota, this protects a deliberately small GPU pool.
+    // Unlike the legacy quota, this protects a deliberately small shared pool.
     throw new LayaError("Laya admission control is temporarily unavailable", 503);
   }
 }
 
-const probability = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
+/**
+  * Beam reports no server-side duration, so there is nothing to record beyond
+  * the client-side span. The Modal deployment's `inference_ms` and the
+  * headers/body split went with it rather than being reported as zero.
+  */
+export type LayaTiming = { fetchMs?: number };
 
-export type LayaTiming = { fetchMs?: number; headersMs?: number; backendMs?: number };
+/** One question per label for multi-label, one choice otherwise — Jev's own shape. */
+function groupsFor(plan: LayaPlan): JevQuestionGroup<number>[] {
+  return plan.tasks.map((task, index) => {
+    const id = `i${index}`;
+    const questions: Record<string, Question> = {};
+    if (task.multi) {
+      task.labels.forEach((label, i) => {
+        questions[`${id}_${i}`] = { type: "noul", instructions: `Does this text belong to the category ${JSON.stringify(label)}? ${task.instructions ?? ""}`.trim() };
+      });
+    } else {
+      questions[id] = {
+        type: "choice",
+        instructions: `Which category fits this text? ${task.instructions ?? ""}`.trim(),
+        criteria: Object.fromEntries(task.labels.map(label => [label, null])),
+      };
+    }
+    return { state: { id, text: task.input }, questions, value: index };
+  });
+}
 
-export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter, timing?: LayaTiming, signal?: AbortSignal): Promise<JevResult[]> {
-  const url = plan.processing === "fast" ? env.LAYA_FAST_URL : env.LAYA_BULK_URL;
-  if (env.LAYA_ENABLED !== "true" || !url || !env.LAYA_MODAL_KEY || !env.LAYA_MODAL_SECRET)
-    throw new LayaError("Laya trial is currently unavailable", 503);
-  const model = layaModel(plan.processing);
-  const output: JevResult[] = [];
-  let completeBackendTiming = true;
-  const deadline = Date.now() + 90_000;
-  for (const batch of plan.batches) {
-    if (Date.now() >= deadline) throw new LayaError("Laya request deadline exceeded; use smaller batches", 503);
-    await meter?.beforeCall?.("modal", model, 0);
-    let response: Response;
-    const started = performance.now();
-    try {
-      response = await fetch(url + "/predict", { method: "POST",
-        headers: { "content-type": "application/json", "Modal-Key": env.LAYA_MODAL_KEY, "Modal-Secret": env.LAYA_MODAL_SECRET },
-        body: JSON.stringify({ batch }), signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(Math.min(15_000, deadline - Date.now()))])
-          : AbortSignal.timeout(Math.min(15_000, deadline - Date.now())) });
-    } catch { throw new LayaError("Laya timed out or could not be reached", 503, 5); }
-    if (timing) timing.headersMs = (timing.headersMs ?? 0) + performance.now() - started;
-    if (response.status === 429 || response.status === 503)
-      throw new LayaError("Laya is busy or starting; retry with backoff", response.status, response.status === 503 ? 10 : 1);
-    if (response.status === 400 || response.status === 413)
-      throw new LayaError("Laya rejected the input: shorten text, instructions, or labels to fit the selected checkpoint's context", 400);
-    if (!response.ok) throw new LayaError("Laya inference failed", 502);
-    let body: { inference_ms?: unknown; results?: Array<{ routing?: { model?: string }; answers?: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>; usage?: { input_tokens?: number } }> };
-    try { body = await response.json(); } catch { throw new LayaError("Invalid Laya response", 502); }
-    if (timing) {
-      timing.fetchMs = (timing.fetchMs ?? 0) + performance.now() - started;
-      if (typeof body?.inference_ms === "number" && Number.isFinite(body.inference_ms) && body.inference_ms >= 0)
-        timing.backendMs = (timing.backendMs ?? 0) + body.inference_ms;
-      else completeBackendTiming = false;
-    }
-    if (!Array.isArray(body?.results) || body.results.length !== batch.length) throw new LayaError("Incomplete Laya response", 502);
-    for (const row of body.results) {
-      if (!row || typeof row !== "object") throw new LayaError("Invalid Laya response", 502);
-      const checkpoint = row.routing?.model;
-      if (!checkpoint || !["english", "multilingual", "typed-decisions"].includes(checkpoint))
-        throw new LayaError("Invalid Laya routing metadata", 502);
-      const task = plan.tasks[output.length];
-      let scores: Record<string, number>, label: string, confidence: number;
-      if (task.multi) {
-        scores = {};
-        task.labels.forEach((name, i) => {
-          const value = row.answers?.[`q${i}`]?.noul;
-          if (!probability(value)) throw new LayaError("Invalid Laya probabilities", 502);
-          Object.defineProperty(scores, name, { value, enumerable: true });
-        });
-        label = task.labels.reduce((a, b) => scores[a] >= scores[b] ? a : b);
-        confidence = scores[label];
-      } else {
-        const answer = row.answers?.q;
-        if (!answer || !task.labels.includes(answer.choice ?? "") || !probability(answer.confidence) ||
-            !answer.probabilities || !task.labels.every(l => probability(answer.probabilities?.[l])))
-          throw new LayaError("Invalid Laya probabilities", 502);
-        label = answer.choice!; confidence = answer.confidence;
-        scores = Object.fromEntries(task.labels.map(l => [l, answer.probabilities![l]]));
-      }
-      output.push({ label, confidence, scores, model: layaModel(plan.processing, checkpoint) });
-    }
-    const counts = body.results.map(r => r.usage?.input_tokens);
-    addTokens(meter, "modal", model, { inputTokens: counts.every(n => Number.isSafeInteger(n) && n! >= 0) ? counts.reduce<number>((sum, n) => sum + n!, 0) : undefined,
-      outputTokens: 0, cachedInputTokens: 0 });
+/**
+ * A Beam refusal in the vocabulary callers already handle. The mapping is
+ * deliberately lossy — upstream strings can echo caller text, so only the
+ * status and our own message travel outward.
+ */
+function asLayaError(error: unknown): LayaError {
+  if (!(error instanceof JevError)) return new LayaError("Laya inference failed", 502);
+  // Input the model will not accept, however Beam phrased the refusal.
+  if (error.errorType === "max_tokens_exceeded" || error.errorType === "invalid_request" ||
+      error.status === 400 || error.status === 413 || error.status === 422)
+    return new LayaError("Laya rejected the input: shorten text, instructions, or labels to fit the selected checkpoint's context", 400);
+  if (error.status === 429) return new LayaError("Laya is busy; retry with backoff", 429, 1);
+  // A key or balance problem is ours, not the caller's: it reads as unavailable.
+  if (error.status === 401 || error.status === 402 || error.status === 403 || error.status === 503)
+    return new LayaError("Laya trial is currently unavailable", 503, 10);
+  if (error.errorType === "timeout" || error.errorType === "network")
+    return new LayaError("Laya timed out or could not be reached", 503, 5);
+  return new LayaError("Laya inference failed", 502);
+}
+
+export async function runLaya(env: LayaEnv, keys: JevKeys, plan: LayaPlan, meter?: Meter, timing?: LayaTiming, signal?: AbortSignal): Promise<JevResult[]> {
+  if (env.LAYA_ENABLED !== "true" || !keys.beam) throw new LayaError("Laya trial is currently unavailable", 503);
+  const backend = BACKEND_FOR[plan.model];
+  const started = performance.now();
+  let answered;
+  try {
+    answered = await runJevBatches(keys, prepareJevBatches(groupsFor(plan), { limits: backend.limits }), meter, backend, signal);
+  } catch (error) {
+    throw asLayaError(error);
   }
-  if (timing && !completeBackendTiming) delete timing.backendMs;
-  return output;
+  if (timing) timing.fetchMs = performance.now() - started;
+
+  const out: JevResult[] = new Array(plan.tasks.length);
+  for (const { value: index, model, answers } of answered) {
+    const task = plan.tasks[index];
+    const id = `i${index}`;
+    let scores: Record<string, number>, label: string, confidence: number;
+    if (task.multi) {
+      scores = {};
+      task.labels.forEach((name, i) => {
+        const value = answers[`${id}_${i}`]?.noul;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)
+          throw new LayaError("Invalid Laya probabilities", 502);
+        // Define own properties so a label such as __proto__ stays data.
+        Object.defineProperty(scores, name, { value: Number(value.toFixed(4)), enumerable: true, writable: true, configurable: true });
+      });
+      label = task.labels.reduce((a, b) => (scores[a] >= scores[b] ? a : b));
+      confidence = scores[label];
+    } else {
+      const answer = answers[id];
+      const ok = answer && task.labels.includes(answer.choice ?? "") &&
+        typeof answer.confidence === "number" && answer.confidence >= 0 && answer.confidence <= 1 &&
+        answer.probabilities && task.labels.every(l => typeof answer.probabilities![l] === "number");
+      if (!ok) throw new LayaError("Invalid Laya probabilities", 502);
+      label = answer!.choice!;
+      confidence = Number(answer!.confidence!.toFixed(4));
+      scores = Object.fromEntries(task.labels.map(l => [l, Number(answer!.probabilities![l].toFixed(4))]));
+    }
+    out[index] = { label, confidence, scores, model };
+  }
+  if (out.some(row => row === undefined)) throw new LayaError("Incomplete Laya response", 502);
+  return out;
 }

@@ -121,8 +121,8 @@ function parseArgs(argv) {
     if (!(Number.isInteger(o.max) && o.max > 0)) fail("--max takes a whole number above 0, e.g. --max 3");
     o.multi = true; // the API reads max_labels as multi-label; a single label cannot be capped
   }
-  if (!["jev", "laya"].includes(o.model)) fail("--model must be jev or laya");
-  if (!["fast", "bulk"].includes(o.processing) || o.model !== "laya" && o.processing !== "fast") fail("--processing bulk requires --model laya");
+  if (!["jev", "laya", "kev"].includes(o.model)) fail("--model must be jev, laya or kev");
+  if (!["fast", "bulk"].includes(o.processing) || o.model === "jev" && o.processing !== "fast") fail("--processing bulk requires --model laya or --model kev");
   return o;
 }
 
@@ -175,7 +175,7 @@ async function readStdin() {
 
 async function post(o, inputs) {
   const body = { inputs, labels: o.labels };
-  if (o.model === "laya") { body.model = "laya"; body.processing = o.processing; }
+  if (o.model !== "jev") { body.model = o.model; body.processing = o.processing; }
   if (o.multi) body.multi = true;
   if (o.max) body.max_labels = o.max;
   if (o.smart) body.tier = "smart";
@@ -184,8 +184,8 @@ async function post(o, inputs) {
   if (o.apiKey) headers.authorization = `Bearer ${o.apiKey}`;
 
   let last = "";
-  const attempts = o.model === "laya" ? 20 : ATTEMPTS;
-  const deadline = o.model === "laya" ? Date.now() + 180_000 : Infinity;
+  const attempts = o.model !== "jev" ? 20 : ATTEMPTS;
+  const deadline = o.model !== "jev" ? Date.now() + 180_000 : Infinity;
   for (let attempt = 0; attempt < attempts && Date.now() < deadline; attempt++) {
     let res;
     try {
@@ -213,7 +213,7 @@ async function post(o, inputs) {
       // The API says exactly how long; a batch that trips the minute window
       // resumes on its own rather than dying at item 7,400. The first wait
       // also says, once, that the wait is optional.
-      if (o.model !== "laya" && !o.apiKey && !hinted) { hinted = true; process.stderr.write(`classify: free limits are per IP; Pro lifts them 10x for $20/month: ${payload.upgrade || "https://classifier.dev/pro"}\n`); }
+      if (o.model === "jev" && !o.apiKey && !hinted) { hinted = true; process.stderr.write(`classify: free limits are per IP; Pro lifts them 10x for $20/month: ${payload.upgrade || "https://classifier.dev/pro"}\n`); }
       await retry("rate limited", Number(res.headers.get("retry-after")) || 5, attempt, attempts, deadline);
       continue;
     }
@@ -244,7 +244,7 @@ function configuredBatch() {
 }
 
 function batchSize(o) {
-  if (o.model === "laya") return Math.min(configuredBatch(), o.processing === "fast" ? 1 : Math.floor(1000 / (o.multi ? o.labels.length : 1)), o.smart ? SMART_BATCH : MAX_BATCH);
+  if (o.model !== "jev") return Math.min(configuredBatch(), o.processing === "fast" ? 1 : Math.floor(1000 / (o.multi ? o.labels.length : 1)), o.smart ? SMART_BATCH : MAX_BATCH);
   return Math.min(configuredBatch(), o.smart && !o.apiKey ? SMART_BATCH : MAX_BATCH);
 }
 
@@ -294,7 +294,7 @@ export async function classifyAll(o, items, onReady, onProgress) {
   // Public smart traffic is limited to 200 classifications/minute. One
   // worker keeps concurrent batches from spending that whole window at once;
   // partner keys can use the normal four workers.
-  const concurrency = o.model === "laya" || o.smart && !o.apiKey ? 1 : CONCURRENCY;
+  const concurrency = o.model !== "jev" || o.smart && !o.apiKey ? 1 : CONCURRENCY;
   await Promise.all(
     Array.from({ length: Math.min(concurrency, batches.length) }, async () => {
       while (next < batches.length) {

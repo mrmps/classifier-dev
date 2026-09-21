@@ -23,7 +23,7 @@
  */
 
 import { recordJevAttempt } from "./jev-observability";
-import { addJevCost, addUsd, addTokens, JEV_ACCOUNT_MODEL, type Meter } from "./cost";
+import { addJevCost, addBeamCost, addUsd, addTokens, JEV_ACCOUNT_MODEL, type Meter } from "./cost";
 
 const API = "https://api.typesafe.ai/v1/systemone";
 const MODEL = "jev-latest";
@@ -73,12 +73,12 @@ export function resetGatewayPause() {
 }
 
 /** Where Jev can be asked. Either key alone works; with both, the gateway goes first and TypeSafe catches what it drops. */
-export type JevKeys = { typesafe?: string; gateway?: string; analytics?: AnalyticsEngineDataset };
+export type JevKeys = { typesafe?: string; gateway?: string; beam?: string; analytics?: AnalyticsEngineDataset };
 
-export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string; AI_GATEWAY_DISABLED?: string; JEV_AE?: AnalyticsEngineDataset }): JevKeys | null => {
+export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string; AI_GATEWAY_DISABLED?: string; BEAM_API_KEY?: string; JEV_AE?: AnalyticsEngineDataset }): JevKeys | null => {
   const gateway = env.AI_GATEWAY_DISABLED === "true" ? undefined : env.AI_GATEWAY_API_KEY;
-  return env.TYPESAFE_API_KEY || gateway
-    ? { typesafe: env.TYPESAFE_API_KEY, gateway, ...(env.JEV_AE ? { analytics: env.JEV_AE } : {}) }
+  return env.TYPESAFE_API_KEY || gateway || env.BEAM_API_KEY
+    ? { typesafe: env.TYPESAFE_API_KEY, gateway, beam: env.BEAM_API_KEY, ...(env.JEV_AE ? { analytics: env.JEV_AE } : {}) }
     : null;
 };
 
@@ -97,6 +97,70 @@ const STATE_QUESTION_BUDGET = 28_000;
 const MAX_ITEMS = 1000;
 const CONCURRENCY = 8;
 const UPSTREAM_TIMEOUT_MS = 10_000;
+
+/**
+ * Beam serves the same System One protocol as TypeSafe, so Laya and Kev are a
+ * third transport here rather than a second client: one packer, one retry
+ * policy, one validator, one meter. Only the arithmetic differs.
+ *
+ * Two Beam limits have no analogue at TypeSafe. Every model refuses more than
+ * 32 named questions in a request whatever its context ("questions must
+ * contain 1..32 named questions"), and the contexts are small — 512 tokens for
+ * Laya, 8,192 for Kev, against Jev's 64k. Beam rejects an overflow rather than
+ * truncating it, which is the behaviour we want, so the budgets below sit well
+ * under the documented ceilings: `estimateTokens` is an estimate, and a Beam
+ * context refusal is translated to `max_tokens_exceeded` so `runJevBatches`
+ * halves the batch and recovers instead of failing the request.
+ *
+ * Laya's item cap is empirical, not documented: 20 items of ordinary support
+ * text were accepted and 25 were refused, so 16 is the conservative floor.
+ */
+const BEAM_API = "https://app.beam.cloud/v1/systemone";
+/** Beam's hard per-request cap, identical across its models. */
+export const BEAM_MAX_QUESTIONS = 32;
+
+export type Limits = { tokenBudget: number; stateQuestionBudget: number; maxItems: number; maxQuestions: number };
+export type BackendId = "jev" | "laya" | "kev";
+export type Backend = {
+  id: BackendId;
+  via: "typesafe" | "beam";
+  url: string;
+  /** Sent as `model`, and the label an answer is attributed to. */
+  model: string;
+  /** Pinned, versioned id used when an account is being billed. */
+  accountModel: string;
+  /**
+   * Attempts per request. Jev retries because a retried 429 is not billed and
+   * a second door exists. The Beam lanes do not: their quota counts attempts,
+   * including failed inference, and a model that is at capacity will not clear
+   * inside a 300ms backoff. A caller gets the refusal and its Retry-After.
+   */
+  attempts: number;
+  limits: Limits;
+};
+
+export const JEV_BACKEND: Backend = {
+  id: "jev", via: "typesafe", url: API, model: MODEL, accountModel: JEV_ACCOUNT_MODEL, attempts: 3,
+  limits: { tokenBudget: TOKEN_BUDGET, stateQuestionBudget: STATE_QUESTION_BUDGET, maxItems: MAX_ITEMS, maxQuestions: Number.MAX_SAFE_INTEGER },
+};
+/**
+ * Laya's documented budget is "state plus one question must fit 512 tokens",
+ * which is `stateQuestionBudget`, not a total across questions: it answers
+ * every question in one batched forward pass over shared state. Capping the
+ * total as well would fragment a thousand short items into hundreds of
+ * requests for no reason, so only the documented constraint binds, under a
+ * 16-item ceiling taken from what Beam actually accepts (20 passed, 25 did not).
+ */
+export const LAYA_BACKEND: Backend = {
+  id: "laya", via: "beam", url: BEAM_API, model: "jev/laya", accountModel: "jev/laya", attempts: 1,
+  limits: { tokenBudget: Number.MAX_SAFE_INTEGER, stateQuestionBudget: 460, maxItems: 16, maxQuestions: 16 },
+};
+export const KEV_BACKEND: Backend = {
+  id: "kev", via: "beam", url: BEAM_API, model: "jev/kev", accountModel: "jev/kev", attempts: 1,
+  limits: { tokenBudget: 7_200, stateQuestionBudget: 7_200, maxItems: BEAM_MAX_QUESTIONS, maxQuestions: BEAM_MAX_QUESTIONS },
+};
+export const BACKENDS: Record<BackendId, Backend> = { jev: JEV_BACKEND, laya: LAYA_BACKEND, kev: KEV_BACKEND };
+export const isBackendId = (v: unknown): v is BackendId => v === "jev" || v === "laya" || v === "kev";
 
 /**
  * Tokens in a string, estimated. ASCII runs at about 3.5 characters a token;
@@ -225,33 +289,43 @@ function batchFrom<T>(groups: JevQuestionGroup<T>[]): JevBatch<T> {
   return { groups, state: [...states.values()], questions };
 }
 
-/** Own both documented context budgets and greedily preserve group order. */
-export function prepareJevBatches<T>(groups: JevQuestionGroup<T>[], options: { rejectOversized?: boolean } = {}): JevBatch<T>[] {
+/**
+ * Own both documented context budgets and greedily preserve group order.
+ *
+ * `limits` selects the backend's arithmetic; it defaults to Jev's. Beam adds a
+ * hard ceiling on the number of named questions per request, which Jev has no
+ * equivalent of, so a batch flushes on question count as well as on tokens.
+ */
+export function prepareJevBatches<T>(groups: JevQuestionGroup<T>[], options: { rejectOversized?: boolean; limits?: Limits } = {}): JevBatch<T>[] {
+  const { tokenBudget, stateQuestionBudget, maxItems, maxQuestions } = options.limits ?? JEV_BACKEND.limits;
   const batches: JevBatch<T>[] = [];
   let current: JevQuestionGroup<T>[] = [];
   let included = new Set<string>();
   let stateTokens = 0;
   let questionTokens = 0;
+  let questionCount = 0;
   let longestQuestion = 0;
 
   const flush = () => {
     if (current.length) batches.push(batchFrom(current));
     current = [];
     included = new Set();
-    stateTokens = questionTokens = longestQuestion = 0;
+    stateTokens = questionTokens = questionCount = longestQuestion = 0;
   };
 
   for (const group of groups) {
     const addedState = included.has(group.state.id) ? 0 : stateCost(group.state);
     const costs = Object.values(group.questions).map(questionCost);
     const addedQuestions = costs.reduce((sum, cost) => sum + cost, 0);
+    const addedCount = costs.length;
     const groupLongest = Math.max(0, ...costs);
-    if (options.rejectOversized && stateCost(group.state) + groupLongest > STATE_QUESTION_BUDGET) {
-      throw new JevContextError("A state item and question exceed Jev's context budget");
+    if (options.rejectOversized && stateCost(group.state) + groupLongest > stateQuestionBudget) {
+      throw new JevContextError("A state item and question exceed the model's context budget");
     }
-    const overBudget = stateTokens + addedState + questionTokens + addedQuestions > TOKEN_BUDGET ||
-      stateTokens + addedState + Math.max(longestQuestion, groupLongest) > STATE_QUESTION_BUDGET ||
-      (!included.has(group.state.id) && included.size >= MAX_ITEMS);
+    const overBudget = stateTokens + addedState + questionTokens + addedQuestions > tokenBudget ||
+      stateTokens + addedState + Math.max(longestQuestion, groupLongest) > stateQuestionBudget ||
+      questionCount + addedCount > maxQuestions ||
+      (!included.has(group.state.id) && included.size >= maxItems);
     if (current.length && overBudget) flush();
 
     current.push(group);
@@ -260,6 +334,7 @@ export function prepareJevBatches<T>(groups: JevQuestionGroup<T>[], options: { r
       stateTokens += stateCost(group.state);
     }
     questionTokens += addedQuestions;
+    questionCount += addedCount;
     longestQuestion = Math.max(longestQuestion, groupLongest);
   }
   flush();
@@ -384,12 +459,19 @@ async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?
 }
 
 /** The gateway when it is configured and not paused, TypeSafe otherwise; and TypeSafe again when the gateway drops a request. */
-async function post(keys: JevKeys, body: JevBody, meter?: Meter): Promise<JevPayload> {
+async function post(keys: JevKeys, body: JevBody, meter?: Meter, backend: Backend = JEV_BACKEND, signal?: AbortSignal): Promise<JevPayload> {
+  // Beam hosts its own models; there is no gateway door and nothing to fall
+  // back to, so an unconfigured key is an error rather than a silent reroute
+  // to Jev, which would answer with a different model than the caller asked for.
+  if (backend.via === "beam") {
+    if (!keys.beam) throw new JevError("beam: no key configured", 0, "unconfigured");
+    return postBeam(keys.beam, { ...body, model: backend.model }, backend, meter, keys.analytics, signal);
+  }
   // Paid work has an explicit versioned price. Do not route it through the
   // unversioned gateway or silently follow a new model behind jev-latest.
   if (meter?.beforeCall) {
     if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
-    return postTypesafe(keys.typesafe, { ...body, model: JEV_ACCOUNT_MODEL }, meter, keys.analytics);
+    return postTypesafe(keys.typesafe, { ...body, model: backend.accountModel }, meter, keys.analytics);
   }
   // Without a TypeSafe key there is nothing to pause towards, so the gateway is always tried.
   const tryGateway = keys.gateway && (!keys.typesafe || Date.now() >= gatewayPausedUntil);
@@ -408,6 +490,82 @@ async function post(keys: JevKeys, body: JevBody, meter?: Meter): Promise<JevPay
   }
   if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
   return postTypesafe(keys.typesafe, body, meter, keys.analytics);
+}
+
+/**
+ * One Beam request. Same protocol as TypeSafe, different failure vocabulary:
+ * refusals arrive as `{error: {code, type}}` and validation as a 422 with a
+ * plain `detail` string. A context refusal is translated to
+ * `max_tokens_exceeded` so the caller halves the batch, which is the only
+ * recovery that can work when an estimate underran a 512-token window.
+ */
+async function postBeam(key: string, body: JevBody, backend: Backend, meter?: Meter, analytics?: AnalyticsEngineDataset, signal?: AbortSignal): Promise<JevPayload> {
+  let last: Error = new Error("beam: no attempt made");
+  for (let attempt = 0; attempt < backend.attempts; attempt++) {
+    await meter?.beforeCall?.("beam", body.model, 0);
+    const started = Date.now();
+    const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "beam", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
+    let res: Response;
+    try {
+      res = await fetch(backend.url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]) : AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
+    } catch (e) {
+      const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+      observe(timeout ? 504 : 0, timeout ? "timeout" : "network");
+      last = new JevError(`beam ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
+      // A caller that has withdrawn the request gets no further attempts.
+      if (signal?.aborted || attempt >= backend.attempts - 1) break;
+      await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
+      continue;
+    }
+    const rawPayload = await res.json().catch(() => null);
+    const payload = (isRecord(rawPayload) ? rawPayload : {}) as Partial<JevPayload> & { error?: unknown; detail?: unknown };
+    if (res.ok && !payload.error && validPayload(payload, body)) {
+      addBeamCost(meter, payload.usage?.input_tokens);
+      addTokens(meter, "beam", payload.model, { inputTokens: payload.usage?.input_tokens, outputTokens: payload.usage?.output_tokens, cachedInputTokens: 0 });
+      observe(res.status);
+      return payload;
+    }
+    observe(res.status, beamFailureReason(res.status, rawPayload));
+    last = new JevError(`beam ${res.status}: ${res.ok ? "malformed response" : beamErrorType(res.status, rawPayload)}`, res.status, beamErrorType(res.status, rawPayload));
+    const retryable = res.status === 408 || res.status === 425 || res.status === 429 || res.status === 529 || res.status >= 500 || res.ok;
+    if (!retryable || attempt >= backend.attempts - 1) break;
+    await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
+  }
+  throw last;
+}
+
+/**
+ * Beam's 422 covers both "too many questions" and "this did not fit the
+ * context". Only the second is recoverable by halving, and the two are told
+ * apart by the message rather than the status, so the match is deliberately
+ * narrow: anything unrecognised stays a plain invalid request.
+ */
+function beamErrorType(status: number, raw: unknown): string {
+  if (status === 0) return "network";
+  const detail = isRecord(raw) && typeof raw.detail === "string" ? raw.detail : "";
+  const error = isRecord(raw) && isRecord(raw.error) ? raw.error : {};
+  const code = safeErrorType(error.code);
+  if (status === 422) {
+    return /\b(exceeds?|max_length|too long|context)\b/i.test(detail) && /\btokens?\b/i.test(detail)
+      ? "max_tokens_exceeded"
+      : "invalid_request";
+  }
+  if (status === 429) return code || "rate_limit_exceeded";
+  return code || (status >= 500 ? "upstream_error" : "");
+}
+
+function beamFailureReason(status: number, raw: unknown) {
+  const type = beamErrorType(status, raw);
+  if (["timeout", "network", "malformed_response", "max_tokens_exceeded"].includes(type)) return type;
+  if (status === 429) return "rate_limit";
+  if ([401, 402, 403].includes(status)) return "credentials_or_credit";
+  if (status === 422) return "invalid_request";
+  return "upstream_error";
 }
 
 async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset): Promise<JevPayload> {
@@ -471,7 +629,7 @@ export async function jevAsk(keys: JevKeys, state: { id: string; text: string }[
 export type JevBatchResult<T> = { value: T; model: string; answers: Record<string, JevAnswer> };
 
 /** Execute prepared requests with bounded concurrency and recover from an underestimated context by halving groups. */
-export async function runJevBatches<T>(keys: JevKeys, prepared: JevBatch<T>[], meter?: Meter): Promise<JevBatchResult<T>[]> {
+export async function runJevBatches<T>(keys: JevKeys, prepared: JevBatch<T>[], meter?: Meter, backend: Backend = JEV_BACKEND, signal?: AbortSignal): Promise<JevBatchResult<T>[]> {
   const queue = [...prepared];
   const positions = new Map(prepared.flatMap((batch) => batch.groups).map((group, index) => [group, index]));
   const out: JevBatchResult<T>[] = new Array(positions.size);
@@ -482,7 +640,7 @@ export async function runJevBatches<T>(keys: JevKeys, prepared: JevBatch<T>[], m
     while (!failure && next < queue.length) {
       const batch = queue[next++];
       try {
-        const res = await post(keys, { state: batch.state, model: MODEL, questions: batch.questions }, meter);
+        const res = await post(keys, { state: batch.state, model: backend.model, questions: batch.questions }, meter, backend, signal);
         for (const group of batch.groups) out[positions.get(group)!] = { value: group.value, model: res.model, answers: res.answers };
       } catch (error) {
         if (error instanceof JevError && error.errorType === "max_tokens_exceeded" && batch.groups.length > 1) {
@@ -505,6 +663,7 @@ export async function jevClassify(
   instructions: string | undefined,
   multi: boolean,
   meter?: Meter,
+  backend: Backend = JEV_BACKEND,
 ): Promise<JevResult[]> {
   const groups = inputs.map((text, index): JevQuestionGroup<number> => {
     const id = `i${index}`;
@@ -513,7 +672,7 @@ export async function jevClassify(
       : undefined;
     return { state: { id, text, ...(rubric ? { rubric } : {}) }, questions: questionsFor(id, labels, instructions, multi), value: index };
   });
-  const answered = await runJevBatches(keys, prepareJevBatches(groups), meter);
+  const answered = await runJevBatches(keys, prepareJevBatches(groups, { limits: backend.limits }), meter, backend);
   return answered.map(({ value: index, model, answers }) => {
     const id = `i${index}`;
     if (multi) {
