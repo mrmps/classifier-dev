@@ -55,6 +55,10 @@ const RATE_LIMIT_HEADERS = {
 const TYPESAFE_REQUEST_ID_HEADER = {
   "x-typesafe-request-id": { schema: { type: "string" }, description: "TypeSafe request ID, exposed by both official SDKs." },
 };
+const ACCOUNT_BILLING_HEADERS = {
+  "x-request-id": { schema: { type: "string" }, description: "Workspace usage request ID. Present when a classifier_agent_ key is used." },
+  "x-billing-status": { schema: { type: "string", enum: ["settled", "refunded", "review"] }, description: "Workspace charge result. Present when a classifier_agent_ key is used." },
+};
 const TYPESAFE_ENTRY = {
   anyOf: [
     { type: "string" },
@@ -584,25 +588,29 @@ export const OPENAPI = {
         summary: "Run the TypeSafe System One contract through classifier.dev.",
         description:
           "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
-          "Use any non-empty placeholder API key; classifier.dev never forwards it and authenticates upstream with its own credential. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. " +
-          "Public fast-tier quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/.",
+          "Use any non-empty placeholder API key for anonymous per-IP limits, or a classifier_agent_ workspace key to use workspace quota, credits and usage history. Free workspaces have the public ceilings and Pro workspaces get 10x limits. " +
+          "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/.",
         tags: ["classify"],
-        security: [],
+        security: [{ accountKey: [] }, {}],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneRequest" } } } },
         responses: {
           "200": {
             description: "The native TypeSafe System One response.",
-            headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER },
+            headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS },
             content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneResponse" } } },
           },
           "422": {
             description: "TypeSafe request validation failed; body and request ID are preserved.",
-            headers: TYPESAFE_REQUEST_ID_HEADER,
+            headers: { ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS },
             content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeValidationError" } } },
           },
-          "429": { description: "classifier.dev or TypeSafe rate limit; Retry-After or Retry-After-Ms is preserved.", content: { "application/json": { schema: { type: "object" } } } },
-          "502": { description: "TypeSafe could not be reached.", content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
-          "503": { description: "The compatibility endpoint is not configured.", content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+          "401": { description: "The supplied classifier_agent_ workspace key is invalid or revoked.", content: { "application/json": { schema: { type: "object" } } } },
+          "402": { description: "The workspace balance cannot cover the provider reservation; TypeSafe is not called.", content: { "application/json": { schema: { type: "object" } } } },
+          "403": { description: "The workspace key is inactive or the workspace cannot authorize usage.", content: { "application/json": { schema: { type: "object" } } } },
+          "413": { description: "The request body exceeds 1 MB.", content: { "application/json": { schema: { type: "object" } } } },
+          "429": { description: "classifier.dev or TypeSafe rate limit; Retry-After or Retry-After-Ms is preserved.", headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS }, content: { "application/json": { schema: { type: "object" } } } },
+          "502": { description: "TypeSafe could not be reached.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+          "503": { description: "The compatibility endpoint or workspace billing is temporarily unavailable.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
         },
       },
     },
@@ -1236,7 +1244,7 @@ export const OPENAPI = {
     securitySchemes: {
       accountKey: {
         type: "http", scheme: "bearer",
-        description: "Workspace API key (classifier_agent_...) managed at /app/keys. Required for account reads.",
+        description: "Workspace API key (classifier_agent_...) managed at /app/keys. Required for account reads; optional on classification and TypeSafe-compatible endpoints to use workspace quota and credits.",
       },
       partnerKey: {
         type: "http",

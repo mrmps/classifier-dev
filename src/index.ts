@@ -276,7 +276,7 @@ const agentView = (origin: string) => ({
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
-    typesafe_system_one: { method: "POST", url: `${origin}/v1/systemone`, compatibility: "TypeSafe System One wire contract; use the official SDK with this origin and any non-empty placeholder API key" },
+    typesafe_system_one: { method: "POST", url: `${origin}/v1/systemone`, compatibility: "TypeSafe System One wire contract; use the official SDK with a placeholder for anonymous use or a classifier_agent_ workspace key for workspace quota and billing" },
     typesafe_models: { method: "GET", url: `${origin}/v1/models`, compatibility: "TypeSafe model-list response consumed by the official SDK" },
     subscribe: {
       method: "POST", url: `${origin}/${newsletter.SUBSCRIBE_PATH}`,
@@ -317,7 +317,7 @@ const agentView = (origin: string) => ({
   },
   mcp: { tools: `${origin}/mcp`, docs: `${origin}/mcp/docs`, card: `${origin}/.well-known/mcp/server-card.json`, setup: `${origin}/mcp-setup` },
   cli: { install: "npm i -g classifier-dev", example: "classify bug,feature,praise < feedback.txt" },
-  sdks: { python: 'pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"', go: "go get github.com/mrmps/classifier-dev/sdk/go", javascript: "fetch(); no package needed", typesafe: { javascript: "@typesafe-ai/sdk", python: "typesafe-sdk", base_url: origin, api_key: "any non-empty placeholder; never forwarded" } },
+  sdks: { python: 'pip install "classifier-dev @ git+https://github.com/mrmps/classifier-dev.git@python-v0.1.0#subdirectory=sdk/python"', go: "go get github.com/mrmps/classifier-dev/sdk/go", javascript: "fetch(); no package needed", typesafe: { javascript: "@typesafe-ai/sdk", python: "typesafe-sdk", base_url: origin, api_key: { anonymous: "any non-empty placeholder", workspace: "classifier_agent_... from /app/keys", note: "caller credentials are never forwarded to TypeSafe" } } },
   skill: { install: `npx skills add ${origin}`, url: `${origin}/skill.md` },
   limits: { fast: "3,000 classifications/min, 20,000/day per IP", smart: "200/min, 2,000/day per IP", headers: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Policy", "Retry-After"] },
   pricing: { price: 0, currency: "USD", url: `${origin}/pricing` },
@@ -1350,9 +1350,13 @@ const worker = {
       const decisions = path === "v1/systemone" && req.method === "POST"
         ? typeSafeDecisionCount(body ?? "")
         : 0;
+      const multiplier = account?.multiplier ?? 1;
+      const quotaOwner = account ? `account:${account.id}` : ip;
+      const rpm = TIERS.fast.rpm * multiplier;
+      const daily = TIERS.fast.daily * multiplier;
       let remaining = -1;
       if (decisions && !enterprise) {
-        const gate = await limited(env, "fast", ip, decisions);
+        const gate = await limited(env, "fast", quotaOwner, decisions, multiplier);
         remaining = gate.remaining;
         if (gate.limited) {
           const retryAfter = gate.resetIn ?? 60;
@@ -1361,15 +1365,20 @@ const worker = {
             429,
             {
               "retry-after": String(retryAfter),
-              "ratelimit-limit": String(TIERS.fast.rpm),
+              "ratelimit-limit": String(rpm),
               "ratelimit-remaining": "0",
-              "ratelimit-policy": `${TIERS.fast.rpm};w=60, ${TIERS.fast.daily};w=86400`,
+              "ratelimit-policy": `${rpm};w=60, ${daily};w=86400`,
             },
           );
         }
       }
 
-      const response = await typeSafeCompatibleResponse(req, env.TYPESAFE_API_KEY, body);
+      const response = await typeSafeCompatibleResponse(
+        req,
+        env.TYPESAFE_API_KEY,
+        body,
+        decisions && meter.beforeCall ? meter : undefined,
+      );
       const headers = new Headers(response.headers);
       // Own the browser policy at this boundary. An upstream credentialed CORS
       // header combined with our wildcard origin would make an otherwise valid
@@ -1384,8 +1393,8 @@ const worker = {
       ]) headers.delete(name);
       for (const [name, value] of Object.entries({ ...CORS, ...SECURITY })) headers.set(name, value);
       if (decisions) {
-        headers.set("ratelimit-limit", enterprise ? "unlimited" : String(TIERS.fast.rpm));
-        headers.set("ratelimit-policy", enterprise ? "unlimited" : `${TIERS.fast.rpm};w=60, ${TIERS.fast.daily};w=86400`);
+        headers.set("ratelimit-limit", enterprise ? "unlimited" : String(rpm));
+        headers.set("ratelimit-policy", enterprise ? "unlimited" : `${rpm};w=60, ${daily};w=86400`);
         if (remaining >= 0) headers.set("ratelimit-remaining", String(remaining));
       }
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });

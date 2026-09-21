@@ -18,7 +18,7 @@ export const MCP_REGISTRY_AUTH = "v=MCPv1; k=ed25519; p=aWvcKpRNSyAPr+bh7ba+Hiiy
 export const MCP_REGISTRY_ENTRY = "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier";
 
 /** Bumped when any public page changes materially; feeds sitemap lastmod. */
-export const SITE_UPDATED = "2026-09-20";
+export const SITE_UPDATED = "2026-09-21";
 
 export const SITE = {
   name: "classifier.dev",
@@ -339,6 +339,8 @@ classifier.dev does not implement that spec's agent registration or token exchan
 ## Discover
 
 - REST: POST https://classifier.dev/v1/classify with inputs and labels.
+- TypeSafe SDK: POST https://classifier.dev/v1/systemone and GET
+  https://classifier.dev/v1/models with base URL https://classifier.dev.
 - MCP: https://classifier.dev/mcp; docs: https://classifier.dev/mcp/docs.
 - OpenAPI: https://classifier.dev/openapi.json.
 - RFC 9728 metadata: https://classifier.dev/.well-known/oauth-protected-resource.
@@ -347,7 +349,8 @@ classifier.dev does not implement that spec's agent registration or token exchan
 ## Pick a method
 
 - **anonymous** — free, per IP: fast 3,000/minute and 20,000/day;
-  smart 200/minute and 2,000/day. No account or card.
+  smart 200/minute and 2,000/day. No account or card. The TypeSafe SDK requires
+  an apiKey value, so use a non-empty placeholder such as "unused"; it is ignored.
 - **service_auth (workspace key)** — classifier_agent_ keys charge the workspace
   credit balance. Create and manage keys in /app/keys. Free workspaces have
   the public ceilings, shared across keys. Pro workspaces get 10x limits:
@@ -368,6 +371,11 @@ registration.
 
 Use the same header on REST and MCP. For the CLI, use --api-key or set
 CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). Keep keys out of URLs.
+For the official TypeSafe SDK, use the classifier_agent_ key as its apiKey and
+set baseURL/base_url to https://classifier.dev. POST /v1/systemone then charges
+the workspace from TypeSafe's returned token usage and uses its shared quota;
+GET /v1/models remains public and free. Never use a real TypeSafe API key with
+classifier.dev: caller credentials are not forwarded to TypeSafe.
 No token exchange or refresh is needed. Your browser billing session is not
 an API credential.
 

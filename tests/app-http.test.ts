@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { choice, noul, score, TypeSafeClient } from "@typesafe-ai/sdk";
 import { database } from "./support/postgres";
 import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
@@ -130,6 +131,144 @@ test("classification adapter uses provider credential, meters actual tokens, and
   expect(calls).toBe(1);
 });
 
+test("the official TypeSafe SDK applies a workspace key to quota, billing, and model discovery", async () => {
+  const quota: Array<{ owner: string; url: string }> = [];
+  env.LIMITER = {
+    idFromName: (owner: string) => owner,
+    get: (owner: string) => ({ fetch: async (url: string) => {
+      quota.push({ owner, url });
+      return Response.json({ limited: false, remaining: 2997 });
+    } }),
+  } as unknown as DurableObjectNamespace;
+  let systemOneCalls = 0;
+  let modelCalls = 0;
+  globalThis.fetch = (async (url, init) => {
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer provider-fixture");
+    if (String(url).endsWith("/v1/models")) {
+      modelCalls++;
+      return Response.json({ models: [{ name: "jev-latest", description: "Latest stable Jev.", release_date: "2026-09-15" }] });
+    }
+    systemOneCalls++;
+    return Response.json({
+      model: "jev-1.13.0",
+      answers: {
+        category: { type: "choice", choice: "billing", confidence: .99, probabilities: { billing: .99, support: .01 } },
+        urgent: { type: "noul", noul: .8 },
+        frustration: { type: "score", score: 1.5, confidence: .75, legend: { "0": "calm", "1": "concerned", "2": "angry" }, probabilities: { "0": .1, "1": .3, "2": .6 } },
+      },
+      usage: { input_tokens: 41, output_tokens: 9 },
+    }, { headers: { "x-typesafe-request-id": "req_workspace" } });
+  }) as typeof fetch;
+
+  const client = new TypeSafeClient({
+    apiKey: token,
+    baseURL: "http://localhost",
+    fetch: (input, init) => dispatch(new Request(input, init)),
+    retry: { maxRetries: 0 },
+  });
+  const result = await client.systemOne({
+    state: "I was charged twice and need this fixed today.",
+    questions: {
+      category: choice("Which team?", { billing: null, support: null }),
+      urgent: noul("Is this urgent?"),
+      frustration: score("How frustrated?", ["calm", "concerned", "angry"]),
+    },
+  }).withResponse();
+  const models = await client.models.list();
+
+  expect(result.data.answers.category.choice).toBe("billing");
+  expect(result.requestId).toBe("req_workspace");
+  expect(result.response.headers.get("x-billing-status")).toBe("settled");
+  expect(result.response.headers.get("x-request-id")).toBeTruthy();
+  expect(models.map(model => model.name)).toEqual(["jev-latest"]);
+  expect(systemOneCalls).toBe(1);
+  expect(modelCalls).toBe(1);
+  expect(quota).toHaveLength(1);
+  expect(quota[0].owner).toBe("fast:account:local-demo");
+  expect(new URL(quota[0].url).searchParams.get("cost")).toBe("3");
+  expect(new URL(quota[0].url).searchParams.get("limit")).toBe("3000");
+  expect(new URL(quota[0].url).searchParams.get("daily")).toBe("20000");
+  expect((await getSnapshot("local-demo", env)).credits.balance).toBe(499999);
+  expect(await env.APP_DB.prepare(
+    "SELECT items,credits,usage_type,input_tokens,output_tokens,actual_nano::text AS actual_nano,status FROM app_usage WHERE account_id='local-demo'",
+  ).first()).toEqual({
+    items: 3,
+    credits: 1,
+    usage_type: "API · TypeSafe System One",
+    input_tokens: 41,
+    output_tokens: 9,
+    actual_nano: "1722",
+    status: "completed",
+  });
+});
+
+test("TypeSafe workspace requests refund native provider errors and stop before inference without credit", async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return Response.json({ detail: [{ loc: ["body", "questions"], msg: "Field required", type: "missing" }] }, {
+      status: 422,
+      headers: { "x-typesafe-request-id": "req_invalid" },
+    });
+  }) as typeof fetch;
+  const invalid = await dispatch(new Request("http://localhost/v1/systemone", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ state: "ticket", questions: {} }),
+  }));
+  expect(invalid.status).toBe(422);
+  expect(invalid.headers.get("x-typesafe-request-id")).toBe("req_invalid");
+  expect(invalid.headers.get("x-billing-status")).toBe("refunded");
+  expect(await invalid.json()).toEqual({ detail: [{ loc: ["body", "questions"], msg: "Field required", type: "missing" }] });
+  expect((await getSnapshot("local-demo", env)).credits.balance).toBe(500000);
+  expect(await env.APP_DB.prepare("SELECT status FROM app_usage WHERE account_id='local-demo'").first()).toEqual({ status: "refunded" });
+
+  await env.APP_DB.prepare("UPDATE app_accounts SET balance=1 WHERE id='local-demo'").run();
+  const before = calls;
+  const insufficient = await dispatch(new Request("http://localhost/v1/systemone", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ state: "ticket", questions: { urgent: { type: "noul" } } }),
+  }));
+  expect(insufficient.status).toBe(402);
+  expect(await insufficient.json()).toMatchObject({ error: expect.stringContaining("Insufficient") });
+  expect(calls).toBe(before);
+  expect((await getSnapshot("local-demo", env)).credits.balance).toBe(1);
+});
+
+test("TypeSafe workspace requests use paid-plan quota and reject revoked keys before inference", async () => {
+  await env.APP_DB.prepare("UPDATE app_accounts SET billing_plan='pro' WHERE id='local-demo'").run();
+  const quota: string[] = [];
+  env.LIMITER = {
+    idFromName: (owner: string) => owner,
+    get: () => ({ fetch: async (url: string) => {
+      quota.push(url);
+      return Response.json({ limited: false, remaining: 29999 });
+    } }),
+  } as unknown as DurableObjectNamespace;
+  let calls = 0;
+  globalThis.fetch = (async (_url, init) => {
+    calls++;
+    return jevResponse(init, 20);
+  }) as typeof fetch;
+  const call = () => dispatch(new Request("http://localhost/v1/systemone", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ state: "ticket", questions: { category: { type: "choice", criteria: { billing: null, support: null } } } }),
+  }));
+  const response = await call();
+  expect(response.status).toBe(200);
+  expect(response.headers.get("ratelimit-limit")).toBe("30000");
+  expect(response.headers.get("ratelimit-policy")).toBe("30000;w=60, 200000;w=86400");
+  expect(new URL(quota[0]).searchParams.get("limit")).toBe("30000");
+  expect(new URL(quota[0]).searchParams.get("daily")).toBe("200000");
+
+  await performAction("local-demo", { type: "revoke", agentId }, env);
+  const revoked = await call();
+  expect(revoked.status).toBe(401);
+  expect(calls).toBe(1);
+});
+
 test.each(["input", "inputs"])("account billing accepts the public API's scalar %s field", async (field) => {
   globalThis.fetch = (async (_url, init) => jevResponse(init, 41)) as typeof fetch;
   const response = await accountClassification(request({ [field]: "Help with my invoice", labels: ["billing", "sales"] }), env);
@@ -153,8 +292,8 @@ test.each(["/sandbox/classify", "/v1/sandbox/classify"])("account sandbox alias 
   await expect(accountClassification(new Request(`http://localhost${path}`, request({ input: "Invoice", labels: ["billing", "sales"] })), env)).rejects.toThrow("revoked");
 });
 
-test("account authorization headers do not capture public documents or MCP discovery", async () => {
-  for (const path of ["/", "/developers", "/openapi.json", "/mcp/docs", "/v1/health"]) {
+test("account authorization headers do not capture public documents or unmetered model discovery", async () => {
+  for (const path of ["/", "/developers", "/openapi.json", "/mcp/docs", "/v1/health", "/v1/models"]) {
     expect(await accountClassification(new Request(`http://localhost${path}`, { headers: { authorization: `Bearer ${token}` } }), env)).toBeNull();
   }
 });
@@ -163,7 +302,7 @@ const context = { waitUntil(promise: Promise<unknown>) { void promise.catch(() =
 const dispatch = async (req: Request) => await accountApi(req, env as AppEnv & Env, context) ?? legacy.fetch(req, env as Env, context);
 
 test("browser account clients can preflight and read balances, errors, and billing headers", async () => {
-  for (const path of ["/v1/account/balance", "/v1/account/usage/summary", "/v1/classify", "/mcp"]) {
+  for (const path of ["/v1/account/balance", "/v1/account/usage/summary", "/v1/classify", "/v1/systemone", "/mcp"]) {
     const response = await dispatch(new Request(`http://localhost${path}`, {
       method: "OPTIONS", headers: { origin: "https://client.example", "access-control-request-headers": "authorization,content-type" },
     }));

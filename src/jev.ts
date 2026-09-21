@@ -23,7 +23,7 @@
  */
 
 import { recordJevAttempt } from "./jev-observability";
-import { addJevCost, addUsd, addTokens, type Meter } from "./cost";
+import { addJevCost, addUsd, addTokens, JEV_ACCOUNT_MODEL, type Meter } from "./cost";
 
 const API = "https://api.typesafe.ai/v1/systemone";
 const MODEL = "jev-latest";
@@ -389,7 +389,7 @@ async function post(keys: JevKeys, body: JevBody, meter?: Meter): Promise<JevPay
   // unversioned gateway or silently follow a new model behind jev-latest.
   if (meter?.beforeCall) {
     if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
-    return postTypesafe(keys.typesafe, { ...body, model: "jev-1.13.0" }, meter, keys.analytics);
+    return postTypesafe(keys.typesafe, { ...body, model: JEV_ACCOUNT_MODEL }, meter, keys.analytics);
   }
   // Without a TypeSafe key there is nothing to pause towards, so the gateway is always tried.
   const tryGateway = keys.gateway && (!keys.typesafe || Date.now() >= gatewayPausedUntil);

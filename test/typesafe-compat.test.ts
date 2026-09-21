@@ -221,16 +221,19 @@ describe("the TypeSafe-compatible API", () => {
     expect(DOCS).toContain("TYPESAFE SDK COMPATIBILITY");
     expect(DOCS).toContain('baseURL: "https://classifier.dev"');
     expect(DOCS).toContain('base_url="https://classifier.dev"');
+    expect(DOCS).toContain("classifier_agent_...");
+    expect(DOCS).toContain("Do not put a real TypeSafe API key here");
     expect(DEVELOPERS).toContain("POST    /v1/systemone");
     expect(DEVELOPERS).toContain("GET     /v1/models");
     expect(OPENAPI.paths).toHaveProperty("/v1/systemone");
     expect(OPENAPI.paths).toHaveProperty("/v1/models");
+    expect(OPENAPI.paths["/v1/systemone"].post.security).toEqual([{ accountKey: [] }, {}]);
 
     const h = harness();
     const agentIndex = await worker.fetch(new Request("https://classifier.dev/api"), h.env, ctx);
-    const body = await agentIndex.json() as { api: Record<string, { url: string }>; sdks: Record<string, unknown> };
+    const body = await agentIndex.json() as { api: Record<string, { url: string }>; sdks: { typesafe: { api_key: { workspace: string } } } };
     expect(body.api.typesafe_system_one.url).toBe("https://classifier.dev/v1/systemone");
     expect(body.api.typesafe_models.url).toBe("https://classifier.dev/v1/models");
-    expect(body.sdks).toHaveProperty("typesafe");
+    expect(body.sdks.typesafe.api_key.workspace).toContain("classifier_agent_");
   });
 });

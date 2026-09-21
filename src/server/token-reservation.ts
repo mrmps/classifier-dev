@@ -1,10 +1,10 @@
 import { AppError, type AppDatabase } from "./db";
-import type { ModelTokenUsage } from "../cost";
+import { JEV_ACCOUNT_MODEL, type ModelTokenUsage } from "../cost";
 import type { TokenRateCard } from "./token-pricing";
 
 /** Provider context limits, not token estimates. Unknown models cannot spend. */
 export function providerCallBound(card: TokenRateCard, provider: ModelTokenUsage["provider"], model: string, maxOutput: number): number {
-  const inputLimit = provider === "typesafe" && model === "jev-1.13.0" ? 65_536
+  const inputLimit = provider === "typesafe" && model === JEV_ACCOUNT_MODEL ? 65_536
     : provider === "modal" && ["laya-0.3.4-routed-fast", "laya-0.3.4-routed-bulk"].includes(model) ? 64 * 1024
     : provider === "openrouter" && model === "google/gemini-3.8-flash" ? 1_048_576 : null;
   const rate = card.models.find((row) => row.provider === provider && row.model === model);
