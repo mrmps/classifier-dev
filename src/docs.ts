@@ -13,6 +13,50 @@ Agents: the OpenAPI 3.1 description is at https://classifier.dev/openapi.json
 and a short index at https://classifier.dev/llms.txt
 
 
+TYPESAFE SDK COMPATIBILITY
+
+  classifier.dev implements TypeSafe's System One wire contract at the same
+  paths as TypeSafe. Point the official JavaScript or Python SDK at this origin;
+  Choice, Noul and Score questions, model listing, usage, request IDs,
+  validation errors and retry headers keep their native shapes.
+
+    npm install @typesafe-ai/sdk
+
+    import { choice, TypeSafeClient } from "@typesafe-ai/sdk";
+
+    const client = new TypeSafeClient({
+      apiKey: "unused",                  // the SDK requires a non-empty value
+      baseURL: "https://classifier.dev",
+    });
+    const result = await client.systemOne({
+      state: "I was charged twice. Please fix this today.",
+      questions: {
+        category: choice("Which team should handle this?", {
+          billing: null,
+          technical: null,
+        }),
+      },
+    });
+    console.log(result.answers.category.choice);
+
+    # uv add typesafe-sdk
+    from typesafe_sdk import Choice, TypeSafeClient
+
+    with TypeSafeClient(api_key="unused", base_url="https://classifier.dev") as client:
+        result = client.system_one(
+            state="I was charged twice. Please fix this today.",
+            questions={"category": Choice(
+                instructions="Which team?",
+                criteria={"billing": None, "technical": None},
+            )},
+        )
+
+  The placeholder key is never forwarded. classifier.dev uses its own TypeSafe
+  credential and applies the public fast-tier quota, counted by questions:
+  3,000/minute and 20,000/day per IP. The corresponding HTTP resources are
+  POST /v1/systemone and GET /v1/models.
+
+
 LAYA TRIAL
 
   Calls with neither model nor processing use Jev. To try Laya, send a POST

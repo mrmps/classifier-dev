@@ -52,6 +52,58 @@ const RATE_LIMIT_HEADERS = {
   "x-api-version": { schema: { type: "string" }, description: "The API major that answered, e.g. v1." },
   "Idempotency-Key": { schema: { type: "string" }, description: "Echoed when sent." },
 };
+const TYPESAFE_REQUEST_ID_HEADER = {
+  "x-typesafe-request-id": { schema: { type: "string" }, description: "TypeSafe request ID, exposed by both official SDKs." },
+};
+const TYPESAFE_ENTRY = {
+  anyOf: [
+    { type: "string" },
+    { type: "object", additionalProperties: true },
+    { type: "array", items: {} },
+    { type: "null" },
+  ],
+};
+const TYPESAFE_QUESTION = {
+  oneOf: [
+    {
+      type: "object", required: ["type"],
+      properties: {
+        type: { const: "noul" }, instructions: TYPESAFE_ENTRY,
+        criteria: { anyOf: [{ type: "object", properties: { true: TYPESAFE_ENTRY, false: TYPESAFE_ENTRY } }, { type: "null" }] },
+      },
+    },
+    {
+      type: "object", required: ["type", "criteria"],
+      properties: {
+        type: { const: "choice" }, instructions: TYPESAFE_ENTRY,
+        criteria: { type: "object", additionalProperties: TYPESAFE_ENTRY },
+      },
+    },
+    {
+      type: "object", required: ["type", "criteria"],
+      properties: {
+        type: { const: "score" }, instructions: TYPESAFE_ENTRY,
+        criteria: { type: "array", minItems: 1, items: TYPESAFE_ENTRY },
+      },
+    },
+  ],
+  discriminator: { propertyName: "type" },
+};
+const TYPESAFE_ANSWER = {
+  oneOf: [
+    { type: "object", required: ["type", "noul"], properties: { type: { const: "noul" }, noul: { type: "number", minimum: 0, maximum: 1 } } },
+    { type: "object", required: ["type", "choice", "confidence", "probabilities"], properties: {
+      type: { const: "choice" }, choice: { type: "string" }, confidence: { type: "number", minimum: 0, maximum: 1 },
+      probabilities: { type: "object", additionalProperties: { type: "number", minimum: 0, maximum: 1 } },
+    } },
+    { type: "object", required: ["type", "score", "confidence", "legend", "probabilities"], properties: {
+      type: { const: "score" }, score: { type: "number" }, confidence: { type: "number", minimum: 0, maximum: 1 },
+      legend: { type: "object", additionalProperties: TYPESAFE_ENTRY },
+      probabilities: { type: "object", additionalProperties: { type: "number", minimum: 0, maximum: 1 } },
+    } },
+  ],
+  discriminator: { propertyName: "type" },
+};
 const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
   "401": err("Invalid API key. Create a workspace key at /app/keys."),
@@ -526,6 +578,52 @@ export const OPENAPI = {
         },
       },
     },
+    "/v1/systemone": {
+      post: {
+        operationId: "typeSafeSystemOne",
+        summary: "Run the TypeSafe System One contract through classifier.dev.",
+        description:
+          "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
+          "Use any non-empty placeholder API key; classifier.dev never forwards it and authenticates upstream with its own credential. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. " +
+          "Public fast-tier quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/.",
+        tags: ["classify"],
+        security: [],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneRequest" } } } },
+        responses: {
+          "200": {
+            description: "The native TypeSafe System One response.",
+            headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER },
+            content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneResponse" } } },
+          },
+          "422": {
+            description: "TypeSafe request validation failed; body and request ID are preserved.",
+            headers: TYPESAFE_REQUEST_ID_HEADER,
+            content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeValidationError" } } },
+          },
+          "429": { description: "classifier.dev or TypeSafe rate limit; Retry-After or Retry-After-Ms is preserved.", content: { "application/json": { schema: { type: "object" } } } },
+          "502": { description: "TypeSafe could not be reached.", content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+          "503": { description: "The compatibility endpoint is not configured.", content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+        },
+      },
+    },
+    "/v1/models": {
+      get: {
+        operationId: "listTypeSafeModels",
+        summary: "List TypeSafe models and aliases in the official SDK shape.",
+        description: "Wire-compatible with TypeSafe's GET /v1/models and consumed by client.models.list() / client.models.list().",
+        tags: ["classify"],
+        security: [],
+        responses: {
+          "200": {
+            description: "Models available through classifier.dev's TypeSafe account.",
+            headers: TYPESAFE_REQUEST_ID_HEADER,
+            content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeModelsResponse" } } },
+          },
+          "502": { description: "TypeSafe could not be reached.", content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+          "503": { description: "The compatibility endpoint is not configured.", content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+        },
+      },
+    },
     "/v1/classify": {
       post: {
         operationId: "classifyV1",
@@ -837,6 +935,44 @@ export const OPENAPI = {
           agent_product: { type: "string", maxLength: 64 },
         },
         example: { category: "friction", summary: "The 404 body names an endpoint that also 404s.", surface: "POST /v1/classify", domain: "classifier.dev" },
+      },
+      TypeSafeSystemOneRequest: {
+        type: "object",
+        required: ["state", "model", "questions"],
+        properties: {
+          state: TYPESAFE_ENTRY,
+          model: { type: "string", description: "A name or alias returned by GET /v1/models." },
+          questions: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_QUESTION },
+        },
+        example: {
+          state: { ticket: "I was charged twice. Please fix this today." },
+          model: "jev-latest",
+          questions: { category: { type: "choice", instructions: "Which team?", criteria: { billing: null, technical: null } } },
+        },
+      },
+      TypeSafeSystemOneResponse: {
+        type: "object",
+        required: ["model", "answers", "usage"],
+        properties: {
+          model: { type: "string" },
+          answers: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_ANSWER },
+          usage: { type: "object", required: ["input_tokens", "output_tokens"], properties: {
+            input_tokens: { type: "integer" }, output_tokens: { type: "integer" },
+          } },
+        },
+      },
+      TypeSafeModelsResponse: {
+        type: "object", required: ["models"],
+        properties: { models: { type: "array", items: { type: "object", required: ["name", "description", "release_date"], properties: {
+          name: { type: "string" }, description: { type: "string" }, release_date: { type: "string", format: "date" },
+        } } } },
+      },
+      TypeSafeValidationError: {
+        type: "object",
+        properties: { detail: { type: "array", items: { type: "object", required: ["loc", "msg", "type"], properties: {
+          loc: { type: "array", items: { anyOf: [{ type: "string" }, { type: "integer" }] } },
+          msg: { type: "string" }, type: { type: "string" }, input: {}, ctx: { type: "object" },
+        } } } },
       },
       ClassifyRequest: {
         type: "object",
