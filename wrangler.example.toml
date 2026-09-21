@@ -10,8 +10,8 @@ compatibility_flags = ["nodejs_compat"]
 compatibility_date = "2026-08-01"
 account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
 
-# Run fetch handlers near the Oregon Neon primary. This is a placement target,
-# not a data-residency guarantee; assets remain globally served.
+# Run fetch handlers near Oregon. This is a placement target, not a
+# data-residency guarantee; assets remain globally served.
 [placement]
 region = "aws:us-west-2"
 
@@ -42,12 +42,22 @@ dataset = "classifier_jev_attempts"
 binding = "ACCOUNT_AE"
 dataset = "classifier_account_events"
 
+# A local, permissive burst shield lets exact Durable Object admission overlap
+# the fast inference call without exposing the single warm GPU to obvious floods.
+[[ratelimits]]
+name = "LAYA_FAST_ADMISSION"
+namespace_id = "910001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
 [vars]
 # Transfer-aware legacy objects were deployed before enabling admission here.
 QUOTA_COORDINATOR_ENABLED = "true"
 LAYA_ENABLED = "true"
-LAYA_FAST_URL = "https://miryaboy--classifier-laya-router-trial-fast.us-east.modal.direct"
-LAYA_BULK_URL = "https://miryaboy--classifier-laya-router-trial-bulk.us-east.modal.direct"
+LAYA_FAST_URL = "https://miryaboy--classifier-laya-router-trial-west-fast.us-west.modal.direct"
+LAYA_BULK_URL = "https://miryaboy--classifier-laya-router-trial-west-bulk.us-west.modal.direct"
 # LAYA_MODAL_KEY and LAYA_MODAL_SECRET are Worker secrets, never plaintext vars.
 # Enable only after account migration, pricing and Autumn reconciliation checks.
 APP_ACCOUNTS_ENABLED = "true"

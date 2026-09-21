@@ -21,15 +21,15 @@ One single-label decision is one question. Multi-label asks one question per lab
 
 Text ≤2,000 characters, 2–16 labels ≤100 characters each, instructions ≤400 characters. The combined model input must also fit the selected checkpoint's context (512 English, 1,024 multilingual); long labels/instructions may hit the smaller question budget. Reject instead of truncate.
 
-Modal app `classifier-laya-router-trial` has global compute placement (no west-coast pin), one ingress in `us-east`, and private proxy authentication. This is not a GPU replica in every region, and does not promise 40–70ms worldwide. Pools are isolated. Large flashes are shed, not absorbed into an unbounded backlog. Accepted payloads are only held in memory, never stored as durable jobs.
+Modal app `classifier-laya-router-trial-west` colocates its compute and ingress in `us-west`, near west-coast Worker execution, and uses private proxy authentication. This avoids Modal's former east-to-global inter-region hop, but it is not a GPU replica in every region and does not promise the same client round-trip worldwide. Pools are isolated. Large flashes are shed, not absorbed into an unbounded backlog. Accepted payloads are only held in memory, never stored as durable jobs.
 
 ## Cost
 
-At [Modal list prices](https://modal.com/pricing), checked 2026-09-20, approximate allocation cost is $0.80/hour L4 + 2 × $0.0473/hour CPU + 4 × $0.008/hour memory = **$0.9266/hour per lane**.
+At [Modal list prices](https://modal.com/pricing), checked 2026-09-20, base allocation is $0.80/hour L4 + 2 × $0.0473/hour CPU + 4 × $0.008/hour memory. The narrow-region 1.75× multiplier makes the colocated deployment approximately **$1.6216/hour per lane**.
 
-- Warm fast: about **$22.24/day or $667 per 30-day month**.
-- Bulk: about **$0.93 per allocated hour**, including startup/idle tails; another ~$667/month if continuously active.
-- Both continuously active: about **$44.48/day or $1,334/month**. Fleet caps are not a hard dollar budget; CPU overage, other infrastructure, reviews, taxes and credits are separate.
+- Warm fast: about **$38.92/day or $1,168 per 30-day month**.
+- Bulk: about **$1.62 per allocated hour**, including startup/idle tails; another ~$1,168/month if continuously active.
+- Both continuously active: about **$77.83/day or $2,335/month**. Fleet caps are not a hard dollar budget; CPU overage, other infrastructure, reviews, taxes and credits are separate.
 
 Laya's explicit retail token rate is zero during the trial. Smart reviews retain existing prices. Provider-token spend is not Modal GPU hosting spend: inspect Modal usage for the actual bill. Account analytics marks combined provider cost unknown when Modal is involved.
 
@@ -54,7 +54,7 @@ Worker configuration lives in `wrangler.example.toml`; production deploys from m
 To pause new requests, set `LAYA_ENABLED = "false"` in the canonical config and deploy. **Disabling the Worker route does not stop the warm GPU bill.** To stop both trial pools immediately:
 
 ```sh
-uvx --from modal modal app stop classifier-laya-router-trial
+uvx --from modal modal app stop classifier-laya-router-trial-west
 ```
 
 Existing Jev remains available. Redeploy `deploy.py` and re-enable the Worker flag to resume. Do not scale up to hide overload without revisiting costs.
@@ -63,13 +63,13 @@ Watch model labels `laya-0.3.4-<checkpoint>-<lane>` in existing classifier analy
 
 ## Quota admission rollout
 
-`QuotaCoordinator` keeps each caller's existing fast/smart tier counters and fast/bulk Laya counters in one object. A warm Laya request checks and writes both quotas in one durable operation. Jev still shares its tier allowance with Laya, and a Laya lane still shares its allowance across tiers. Decision and question costs remain separate. A tier refusal spends nothing; a lane refusal retains the tier debit. Combined Laya admission fails closed if either counter is unavailable; Jev retains its existing fail-open behavior.
+`QuotaCoordinator` keeps each caller's existing fast/smart tier counters and fast/bulk Laya counters in one object. A warm Laya request checks and writes both quotas in one durable operation. Anonymous fast calls first pass a local Cloudflare burst shield, then exact admission overlaps inference; an exact refusal aborts the in-flight Modal request and is still authoritative. Jev still shares its tier allowance with Laya, and a Laya lane still shares its allowance across tiers. Decision and question costs remain separate. A tier refusal spends nothing; a lane refusal retains the tier debit. Combined Laya admission fails closed if either counter is unavailable; Jev retains its existing fail-open behavior.
 
 Deploy the transfer-aware `RateLimiter`, coordinator binding and migration with `QUOTA_COORDINATOR_ENABLED = "false"` first. After that deployment completes, enable the flag in a second deployment. On first use, each old object freezes its counters and forwards later requests. The coordinator imports the frozen snapshot without resetting the minute or day allowance. Interrupted imports retry the same snapshot. Only opaque Durable Object IDs, scope names and counters are stored. Migration adds latency on the first call, not every call.
 
 Rollback by disabling `QUOTA_COORDINATOR_ENABLED` while retaining the new classes, bindings and forwarding code. **Do not roll back to code predating the transfer protocol:** its old counters are frozen and no longer authoritative. The disabled path continues to follow transferred counters. Neither successful admission nor forwarding uses unconfirmed storage writes.
 
-Run `node inference/laya/latency.mjs <output.json>` before and after deployment from the same client. It records 20 sequential synthetic requests, separates the first call, and reports end-to-end, Worker, quota, Modal and backend timings. Do not equate backend compute time or the Worker-to-Modal span with client latency. The main Worker is in Oregon for account database access; the Modal ingress is in Virginia. Moving every request east would also move database-dependent account traffic, so placement must be evaluated per path.
+Run `node inference/laya/latency.mjs <output.json>` before and after deployment from the same client. It records 20 sequential synthetic requests, separates the first call, and reports end-to-end, Worker, quota, Modal and backend timings. Do not equate backend compute time or the Worker-to-Modal span with client latency. The Worker targets Oregon (`aws:us-west-2`); Modal ingress and compute use `us-west`. Existing Durable Objects and databases are not relocated by these settings. Measure other client regions independently.
 
 ## Evidence
 

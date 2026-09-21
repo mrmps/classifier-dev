@@ -18,9 +18,12 @@ image = (modal.Image.debian_slim(python_version="3.11")
          .env({"USE_TF": "0", "LAYA_REVISION": REVISION, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"})
          .add_local_file(root / "adapter.py", "/root/adapter.py")
          .add_local_file(root / "runtime.py", "/root/runtime.py"))
-app = modal.App("classifier-laya-router-trial")
+app = modal.App("classifier-laya-router-trial-west")
 resources = dict(image=image, gpu="L4", cpu=2, memory=4096,
-                 compute_region=None, routing_region="us-east", unauthenticated=False,
+                 # Keep Modal's ingress and container together near west-coast
+                 # traffic: an east-coast ingress adds a continent-scale hop
+                 # that dwarfs ~30 ms inference.
+                 compute_region="us-west", routing_region="us-west", unauthenticated=False,
                  max_containers=1, target_concurrency=1, startup_timeout=240)
 
 

@@ -930,6 +930,14 @@ async function escalate(env: Env, inputs: string[], labels: string[], instructio
  * fast-tier answers under a smart-tier label.
  */
 type LayaRequestTiming = LayaTiming & { runMs?: number };
+type LayaRun = Promise<Awaited<ReturnType<typeof runLaya>>>;
+
+function startLaya(env: Env, plan: LayaPlan, meter: Meter | undefined, timing: LayaRequestTiming | undefined, signal?: AbortSignal): LayaRun {
+  const started = performance.now();
+  return runLaya(env, plan, meter, timing, signal).finally(() => {
+    if (timing) timing.runMs = performance.now() - started;
+  });
+}
 
 async function classifyMany(
   env: Env,
@@ -941,6 +949,7 @@ async function classifyMany(
   meter?: Meter,
   layaPlan?: LayaPlan,
   layaTiming?: LayaRequestTiming,
+  layaRun?: LayaRun,
 ): Promise<{ results: Result[]; escalationFailed: number }> {
   const keys = jevKeys(env);
   if (keys || layaPlan) {
@@ -948,9 +957,7 @@ async function classifyMany(
     let jev: Awaited<ReturnType<typeof jevClassify>> | null = null;
     try {
       if (layaPlan) {
-        const runStarted = performance.now();
-        jev = await runLaya(env, layaPlan, meter, layaTiming);
-        if (layaTiming) layaTiming.runMs = performance.now() - runStarted;
+        jev = await (layaRun ?? startLaya(env, layaPlan, meter, layaTiming));
       } else jev = await jevClassify(keys!, inputs, labels, instructions, !!multi, meter);
     } catch (e) {
       if (layaPlan) throw e;
@@ -995,14 +1002,12 @@ async function classifyMany(
 }
 
 /** Keep each field independent, including smart escalation and the bounded LLM fallback. */
-async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter, layaPlan?: LayaPlan, layaTiming?: LayaRequestTiming) {
+async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter, layaPlan?: LayaPlan, layaTiming?: LayaRequestTiming, layaRun?: LayaRun) {
   const started = Date.now();
   let jev: Awaited<ReturnType<typeof classifyDimensions>> | undefined;
   const keys = jevKeys(env);
   if (layaPlan) {
-    const runStarted = performance.now();
-    const flat = await runLaya(env, layaPlan, meter, layaTiming);
-    if (layaTiming) layaTiming.runMs = performance.now() - runStarted;
+    const flat = await (layaRun ?? startLaya(env, layaPlan, meter, layaTiming));
     jev = inputs.map((_, i) => flat.slice(i * dimensions.length, (i + 1) * dimensions.length));
   } else if (keys) {
     try { jev = await classifyDimensions(keys, batches, meter); }
@@ -1987,21 +1992,43 @@ const worker = {
     if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
     const regularQuotaStarted = performance.now();
     const combinedQuota = !!layaPlan && env.QUOTA_COORDINATOR_ENABLED === "true" && !!env.QUOTAS;
+    let layaRun: LayaRun | undefined;
+    let layaAbort: AbortController | undefined;
+    if (combinedQuota && layaTiming && processing === "fast" && env.LAYA_FAST_ADMISSION) {
+      try {
+        const key = env.LIMITER.idFromName(`laya:fast:${quotaOwner}`).toString();
+        const checks = await Promise.all(Array.from({length:layaPlan!.cost}, () => env.LAYA_FAST_ADMISSION!.limit({key})));
+        if (checks.some(check => !check.success))
+          return fail("Laya trial limit reached; retry after the window resets",429,"laya_rate_limit",{"retry-after":"1"});
+      } catch {
+        return fail("Laya admission control is temporarily unavailable",503,"laya_unavailable",{"retry-after":"1"});
+      }
+      layaAbort = new AbortController();
+      layaRun = startLaya(env, layaPlan!, meter, layaTiming, layaAbort.signal);
+      // Exact admission can still reject before this promise is awaited.
+      void layaRun.catch(() => {});
+    }
     let gate: AdmissionResult;
     if (combinedQuota) {
       const quotas: Omit<Quota,"id">[] = enterprise ? [] : [{scope:tier,cost:decisions,limit:rpm,daily:TIERS[tier].daily * multiplier}];
       quotas.push({scope:`laya:${processing}`,cost:layaPlan!.cost,limit:LAYA_LIMITS[processing].rpm,daily:LAYA_LIMITS[processing].daily});
       try {
-        const response = await admit({LIMITER:env.LIMITER,QUOTAS:env.QUOTAS!},quotaOwner,quotas,!!layaTiming);
+        // The coordinator returns stage timings without the diagnostic
+        // storage.sync(); its output gate still preserves counter durability.
+        const response = await admit({LIMITER:env.LIMITER,QUOTAS:env.QUOTAS!},quotaOwner,quotas,false);
         readQuotaTiming(response, layaTiming ? regularQuotaTiming : undefined);
         gate = await response.json() as AdmissionResult;
         if (typeof gate?.limited !== "boolean" || !Number.isFinite(gate.remaining) ||
           (gate.limited ? !["tier","lane"].includes(gate.limitedBy!) : !Number.isFinite(gate.laneRemaining)))
           throw new Error("Invalid quota admission response");
-        if (gate.limited && gate.limitedBy === "lane") return fail("Laya trial limit reached; retry after the window resets",429,
-          gate.scope === "day" ? "rate_limit_day" : "laya_rate_limit", {"retry-after":String(gate.resetIn ?? 60)});
+        if (gate.limited && gate.limitedBy === "lane") {
+          layaAbort?.abort();
+          return fail("Laya trial limit reached; retry after the window resets",429,
+            gate.scope === "day" ? "rate_limit_day" : "laya_rate_limit", {"retry-after":String(gate.resetIn ?? 60)});
+        }
         layaRemaining = gate.laneRemaining ?? -1;
       } catch {
+        layaAbort?.abort();
         return fail("Laya admission control is temporarily unavailable",503,"laya_unavailable", {"retry-after":"1"});
       }
     } else gate = enterprise
@@ -2009,6 +2036,7 @@ const worker = {
       : await limited(env, tier, quotaOwner, decisions, multiplier, layaTiming ? regularQuotaTiming : undefined);
     regularQuotaMs = performance.now() - regularQuotaStarted;
     if (gate.limited) {
+      layaAbort?.abort();
       const perDay = gate.scope === "day";
       // The moment someone runs out of room is the moment to say where more is.
       // A free caller is told the plan that lifts this exact limit and gets its
@@ -2053,12 +2081,12 @@ const worker = {
     let escalationFailed = 0;
     try {
       if (dimensions) {
-        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan, layaTiming);
+        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan, layaTiming, layaRun);
         matrix = r.results;
         results = matrix.flat();
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
-      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming));
+      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun));
     } catch (e) {
       if (e instanceof LayaError) return fail(e.message, e.status,
         e.status === 400 ? "laya_input" : e.status === 429 ? "laya_rate_limit" : "laya_unavailable",

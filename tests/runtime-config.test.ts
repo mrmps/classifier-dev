@@ -40,6 +40,7 @@ test("production rendering uses PostgreSQL secrets and activates verified accoun
   const schema = JSON.parse(readFileSync(new URL("node_modules/wrangler/config-schema.json", root), "utf8"));
   const validate = new Ajv({ strict: false }).compile(schema.definitions.RawConfig.properties.placement);
   expect(validate(config.placement)).toBe(true);
+  expect(config.ratelimits).toContainEqual({name:"LAYA_FAST_ADMISSION",namespace_id:"910001",simple:{limit:60,period:60}});
 });
 
 test("renderer needs no D1 identifier but still refuses missing Cloudflare bindings", () => {

@@ -17,7 +17,7 @@ async def main():
     report = {}
     async with httpx.AsyncClient(headers=headers, timeout=30) as client:
         for lane in ("fast", "bulk"):
-            url = f"https://miryaboy--classifier-laya-router-trial-{lane}.us-east.modal.direct"
+            url = f"https://miryaboy--classifier-laya-router-trial-west-{lane}.us-west.modal.direct"
             started = time.monotonic()
             while time.monotonic() - started < 240:
                 try:

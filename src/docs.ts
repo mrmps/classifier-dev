@@ -95,7 +95,7 @@ LAYA TRIAL
   Fast stays warm. Bulk starts on demand and can return 503 while starting.
   On 429 or 503, respect Retry-After and use bounded retries with backoff.
   The repository CLI retries Laya for up to three minutes per batch.
-  Global GPU placement is not a replica in every region or a latency promise.
+  One regional GPU deployment is not a replica in every region or a latency promise.
   Accepted work is held only in memory; there is no durable batch-job service.
   Overload never silently switches the model or processing lane.
 
