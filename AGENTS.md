@@ -32,6 +32,16 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   when the gateway refuses; both transports and the translation between them
   live in `src/jev.ts`. Nothing downstream should know which door answered
   beyond the `model` label.
+- Laya (`jev/laya`) and Kev (`jev/kev`) are hosted by Beam, which speaks the
+  same System One protocol, so they are a third transport in `src/jev.ts`
+  rather than a second client: one packer, one retry policy, one validator,
+  one meter, selected by a `Backend` descriptor. `src/laya.ts` owns only the
+  product contract — lanes, caller limits, quota cost. `BEAM_API_KEY` is the
+  single credential; there is no deployment of ours and nothing on Modal.
+  Beam refuses more than 32 named questions per request and rejects an
+  oversized context rather than truncating, so a context refusal is
+  translated to `max_tokens_exceeded` and the batch halves and retries.
+  Unlike Jev, a Beam request is never retried: a lane quota counts attempts.
 - The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
   text, the signup form and the Markdown all render from it. Addresses go to the
   `subscriber` table in the shared application Neon database. Preserve consent,
