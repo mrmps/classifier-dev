@@ -185,13 +185,13 @@ QUICKSTART
   (the same document as \`curl classifier.dev\`).
 
   Existing TypeSafe code can use the same official SDK and call shape. Change
-  only the API root; the placeholder key satisfies the SDK's local check and is
-  never sent upstream:
+  the API root and use a classifier.dev workspace key, or "unused" for the
+  anonymous free tier. Caller credentials are never sent to TypeSafe:
 
     import { choice, TypeSafeClient } from "@typesafe-ai/sdk";
 
     const client = new TypeSafeClient({
-      apiKey: "unused",
+      apiKey: process.env.CLASSIFIER_API_KEY ?? "unused",
       baseURL: "https://classifier.dev",
     });
     const result = await client.systemOne({
@@ -275,9 +275,12 @@ AUTHENTICATION
   Partner keys remain supported. https://classifier.dev/auth.md
 
   The official TypeSafe SDK requires a non-empty apiKey when it constructs a
-  client. On the TypeSafe-compatible endpoints, use any placeholder such as
-  "unused". classifier.dev does not authenticate or forward that value; public
-  limits remain per IP. Never put a real TypeSafe credential in the placeholder.
+  client. Use "unused" for anonymous free access; classifier.dev ignores that
+  value and applies the per-IP public limits. To attach requests to a workspace,
+  pass a classifier_agent_ key from /app/keys as the SDK apiKey. The key is
+  validated by classifier.dev, uses the workspace quota and credit balance, and
+  makes billing headers available on the SDK response. Never put a real TypeSafe
+  credential here: caller credentials are not forwarded to TypeSafe.
 
 
 EXAMPLES
@@ -336,11 +339,15 @@ KEYS AND LIMITS
   1,000 inputs per request on both tiers. Use --api-key with the CLI, or set
   CLASSIFY_API_KEY (CLASSIFIER_API_KEY also works). https://classifier.dev/auth.md
 
-  POST /v1/systemone uses the same public fast-tier limits, counting named
-  questions rather than HTTP requests. GET /v1/models does not spend quota.
-  TypeSafe-native upstream validation, rate-limit and service errors retain
-  their status and body; x-typesafe-request-id, Retry-After and Retry-After-Ms
-  are preserved for the official SDKs.
+  POST /v1/systemone counts named questions rather than HTTP requests. A
+  placeholder uses the public fast-tier quota per IP. A classifier_agent_ key
+  uses the workspace's shared quota and credit balance; returned TypeSafe token
+  usage determines the charge, and Pro gets the same 10x allowance as the REST
+  and MCP APIs. GET /v1/models does not spend quota or credits. TypeSafe-native
+  validation, rate-limit and service errors retain their status and body;
+  x-typesafe-request-id, Retry-After and Retry-After-Ms are preserved. Workspace
+  responses also expose x-request-id and x-billing-status (settled, refunded or
+  review).
 
 
 SANDBOX

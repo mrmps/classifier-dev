@@ -25,7 +25,7 @@ TYPESAFE SDK COMPATIBILITY
     import { choice, TypeSafeClient } from "@typesafe-ai/sdk";
 
     const client = new TypeSafeClient({
-      apiKey: "unused",                  // the SDK requires a non-empty value
+      apiKey: process.env.CLASSIFIER_API_KEY ?? "unused",
       baseURL: "https://classifier.dev",
     });
     const result = await client.systemOne({
@@ -51,10 +51,21 @@ TYPESAFE SDK COMPATIBILITY
             )},
         )
 
-  The placeholder key is never forwarded. classifier.dev uses its own TypeSafe
-  credential and applies the public fast-tier quota, counted by questions:
-  3,000/minute and 20,000/day per IP. The corresponding HTTP resources are
-  POST /v1/systemone and GET /v1/models.
+  The apiKey selects how classifier.dev accounts for POST /v1/systemone:
+
+    "unused" or any non-workspace value
+      Free anonymous use. The value is ignored and never forwarded. Fast-tier
+      quota is counted by questions: 3,000/minute and 20,000/day per IP.
+
+    classifier_agent_...
+      A workspace key from https://classifier.dev/app/keys. Requests use the
+      workspace's shared quota and credit balance. Free workspaces keep the
+      same ceilings; Pro workspaces get 10x limits. Charges use TypeSafe's
+      returned token usage and appear in workspace usage history.
+
+  Do not put a real TypeSafe API key here: classifier.dev never forwards caller
+  credentials. GET /v1/models is public and does not spend quota or credits.
+  The corresponding HTTP resources are POST /v1/systemone and GET /v1/models.
 
 
 LAYA TRIAL

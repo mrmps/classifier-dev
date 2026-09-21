@@ -7,8 +7,14 @@
  * subtly different implementation in classifier.dev.
  */
 
+import { addJevCost, addTokens, JEV_ACCOUNT_MODEL, type Meter } from "./cost";
+
 const TYPESAFE_ORIGIN = "https://api.typesafe.ai";
 const PRIVATE_REQUEST_HEADERS = /^(authorization|cookie|host|content-length|connection|forwarded|cf-|x-forwarded-|x-real-ip$|true-client-ip$|fly-client-ip$)/i;
+
+function object(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
 
 /** One System One question is one decision for classifier.dev quota purposes. */
 export function typeSafeDecisionCount(body: string): number {
@@ -30,6 +36,7 @@ export async function typeSafeCompatibleResponse(
   request: Request,
   apiKey: string | undefined,
   body?: string,
+  meter?: Meter,
 ): Promise<Response> {
   if (!apiKey) {
     return Response.json(
@@ -48,6 +55,12 @@ export async function typeSafeCompatibleResponse(
   }
   headers.set("authorization", `Bearer ${apiKey}`);
 
+  // Only trusted account execution supplies this hook. Reserve the maximum
+  // provider exposure before the paid request leaves the Worker.
+  // The request itself remains untouched, so TypeSafe aliases retain their
+  // native behavior; an unexpected future response model stays held for review.
+  await meter?.beforeCall?.("typesafe", JEV_ACCOUNT_MODEL, 0);
+
   let response: Response;
   try {
     response = await fetch(upstream, {
@@ -61,6 +74,19 @@ export async function typeSafeCompatibleResponse(
       { error: "TypeSafe is temporarily unavailable." },
       { status: 502, headers: { "cache-control": "no-store" } },
     );
+  }
+
+  if (response.ok && meter) {
+    const payload = object(await response.clone().json().catch(() => null));
+    const usage = object(payload?.usage);
+    const model = typeof payload?.model === "string" && payload.model ? payload.model : "";
+    if (model) {
+      addJevCost(meter, usage?.input_tokens);
+      addTokens(meter, "typesafe", model, {
+        inputTokens: usage?.input_tokens,
+        outputTokens: usage?.output_tokens,
+      });
+    }
   }
 
   // Keep response metadata additive so future official SDK behavior does not

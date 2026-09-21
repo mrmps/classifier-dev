@@ -8,6 +8,7 @@ import { parseTokenRateCard, priceTokens } from "../server/token-pricing";
 import { extendTokenReservation, providerCallBound } from "../server/token-reservation";
 import { refundTokenReservation, settleTokenReservation } from "../server/token-ledger";
 import { writeAccountAnalytics } from "../server/analytics/write";
+import { typeSafeDecisionCount } from "../typesafe-compat";
 
 const card = parseTokenRateCard(JSON.stringify(rates))!;
 const background = { waitUntil(promise: Promise<unknown>) { void promise.catch(() => {}); } } as ExecutionContext;
@@ -16,22 +17,31 @@ const background = { waitUntil(promise: Promise<unknown>) { void promise.catch((
 export async function accountClassification(request: Request, env: AppEnv & Partial<Env>, source: "API" | "MCP" = "API",
   ctx: ExecutionContext = background): Promise<Response | null> {
   if (!/^Bearer\s+classifier_agent_/i.test(request.headers.get("authorization") || "")) return null;
-  if (request.method !== "POST" || !["/", "/v1/classify", "/v1/classify/batch", "/sandbox/classify", "/v1/sandbox/classify"].includes(new URL(request.url).pathname)) return null;
+  const path = new URL(request.url).pathname;
+  const typeSafe = path === "/v1/systemone";
+  if (request.method !== "POST" || !["/", "/v1/classify", "/v1/classify/batch", "/sandbox/classify", "/v1/sandbox/classify", "/v1/systemone"].includes(path)) return null;
   const accountId = await requireApiAccount(request, env);
   if (Number(request.headers.get("content-length") || 0) > 1_000_000) throw new AppError(413, "Request is too large.");
   const text = await request.text();
   if (new TextEncoder().encode(text).length > 1_000_000) throw new AppError(413, "Request is too large.");
-  let body: Record<string, unknown>;
-  try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
-  if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
-  const rawInputs = body.inputs ?? body.items ?? body.input;
-  const inputs = typeof rawInputs === "string" ? [rawInputs] : rawInputs;
-  if (!Array.isArray(inputs) || !inputs.length || inputs.length > 10_000 || inputs.some((input) => typeof input !== "string"))
-    throw new AppError(400, "Provide a nonempty list of text inputs.");
-  if (body.tier !== undefined && !["fast", "smart"].includes(String(body.tier))) throw new AppError(400, "Invalid classification tier.");
-  const tier = body.tier === "smart" ? "smart" : "fast";
-  const reservation = await authorizeAndReserve(request, env, 0, inputs.length, {
-    type: `${source} · ${body.dimensions ? "Dimensions" : body.multi ? "Multi-label" : "Single-label"}`, meteringMode: "tokens",
+  let body: Record<string, unknown> = {};
+  let itemCount: number;
+  if (typeSafe) {
+    itemCount = typeSafeDecisionCount(text);
+  } else {
+    try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
+    const rawInputs = body.inputs ?? body.items ?? body.input;
+    const inputs = typeof rawInputs === "string" ? [rawInputs] : rawInputs;
+    if (!Array.isArray(inputs) || !inputs.length || inputs.length > 10_000 || inputs.some((input) => typeof input !== "string"))
+      throw new AppError(400, "Provide a nonempty list of text inputs.");
+    itemCount = inputs.length;
+    if (body.tier !== undefined && !["fast", "smart"].includes(String(body.tier))) throw new AppError(400, "Invalid classification tier.");
+  }
+  const tier = !typeSafe && body.tier === "smart" ? "smart" : "fast";
+  const usageType = typeSafe ? "TypeSafe System One" : body.dimensions ? "Dimensions" : body.multi ? "Multi-label" : "Single-label";
+  const reservation = await authorizeAndReserve(request, env, 0, itemCount, {
+    type: `${source} · ${usageType}`, meteringMode: "tokens",
   });
   if (!reservation) throw new AppError(401, "Missing account credential.");
   const meter = newMeter();
@@ -58,7 +68,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   };
   const analytics = (success: boolean, retailCostUsd: number | null) => writeAccountAnalytics(env, {
     accountId, keyId: reservation.agentId, requestId: reservation.id, source, tier,
-    status: success ? "success" : "error", items: inputs.length, ...tokens(),
+    status: success ? "success" : "error", items: itemCount, ...tokens(),
     model: meter.tokens.map((row) => row.model).join(","), providerCostUsd: meter.tokens.length && !meter.tokens.some(row => row.provider === "modal") ? meter.usd : null,
     retailCostUsd, latencyMs: Date.now() - started,
     escalations: meter.tokens.filter((row) => row.provider === "openrouter").reduce((total, row) => total + row.calls, 0),

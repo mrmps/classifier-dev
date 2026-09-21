@@ -16,6 +16,8 @@
 
 /** TypeSafe bills Jev per input token: $0.042 per million. */
 export const JEV_USD_PER_MTOK = 0.042;
+/** Versioned Jev model whose context window and retail rate are pinned for account billing. */
+export const JEV_ACCOUNT_MODEL = "jev-1.13.0";
 
 export type TokenCounts = {
   /** Includes cached input; subtract cachedInputTokens only when both are known. */
