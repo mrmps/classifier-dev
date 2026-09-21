@@ -19,7 +19,7 @@ import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
 import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
-import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, readQuotaTiming, type QuotaTiming, type LayaEnv, type LayaPlan, type LayaTiming, type Processing } from "./laya";
+import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, readQuotaTiming, type QuotaTiming, type LayaEnv, type LayaPlan, type LayaTiming, type Processing, type LayaModel } from "./laya";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, addTokens, type Meter } from "./cost";
 import { secretEquals } from "./secrets";
@@ -37,6 +37,8 @@ export interface Env extends LayaEnv {
   QUOTA_COORDINATOR_ENABLED?: string;
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
+  /** Beam workspace token; the credential for the Beam-hosted Laya and Kev. */
+  BEAM_API_KEY?: string;
   /**
    * Vercel AI Gateway, which serves Jev on a free monthly credit. With it set,
    * Jev is asked there first and TYPESAFE_API_KEY catches what the gateway
@@ -934,7 +936,9 @@ type LayaRun = Promise<Awaited<ReturnType<typeof runLaya>>>;
 
 function startLaya(env: Env, plan: LayaPlan, meter: Meter | undefined, timing: LayaRequestTiming | undefined, signal?: AbortSignal): LayaRun {
   const started = performance.now();
-  return runLaya(env, plan, meter, timing, signal).finally(() => {
+  const keys = jevKeys(env);
+  if (!keys?.beam) return Promise.reject(new LayaError("Laya trial is currently unavailable", 503));
+  return runLaya(env, keys, plan, meter, timing, signal).finally(() => {
     if (timing) timing.runMs = performance.now() - started;
   });
 }
@@ -1826,7 +1830,7 @@ const worker = {
     let inputs: string[] = [];
     let labels: string[] = [];
     let tier: Tier = "fast";
-    let selectedModel: "jev" | "laya" = "jev";
+    let selectedModel: "jev" | LayaModel = "jev";
     let processing: Processing = "fast";
     let automaticProcessing = true;
     let layaPlan: LayaPlan | undefined;
@@ -1849,7 +1853,7 @@ const worker = {
     // key if the caller sent one — classification has no side effects, so the
     // echo is all a retrying client needs.
     const apiHeaders = (remaining = -1): Record<string, string> => {
-      const isLaya = selectedModel === "laya";
+      const isLaya = selectedModel !== "jev";
       const limit = isLaya ? Math.min(LAYA_LIMITS[processing].rpm, TIERS[tier].rpm * multiplier) : TIERS[tier].rpm * multiplier;
       const daily = isLaya ? Math.min(LAYA_LIMITS[processing].daily, TIERS[tier].daily * multiplier) : TIERS[tier].daily * multiplier;
       const h: Record<string, string> = {
@@ -1867,7 +1871,7 @@ const worker = {
       return h;
     };
     const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, string> = {}) => {
-      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "laya" ? layaModel(processing) : "",
+      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : layaModel(selectedModel),
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
@@ -1895,8 +1899,13 @@ const worker = {
         return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
       }
       const b = body as Record<string, unknown>;
-      if (b.model !== undefined && b.model !== "jev" && b.model !== "laya") return fail('model must be "jev" or "laya"', 400, "bad_model");
-      selectedModel = b.model === "laya" || (b.model === undefined && b.processing !== undefined) ? "laya" : "jev";
+      if (b.model !== undefined && b.model !== "jev" && b.model !== "laya" && b.model !== "kev")
+        return fail('model must be "jev", "laya" or "kev"', 400, "bad_model");
+      // `processing` without a model still means Laya: it is the lane selector
+      // for the Beam-hosted trial and Jev has no lanes.
+      selectedModel = b.model === "laya" || b.model === "kev"
+        ? (b.model as LayaModel)
+        : b.model === undefined && b.processing !== undefined ? "laya" : "jev";
       if (b.processing !== undefined && b.processing !== "fast" && b.processing !== "bulk")
         return fail('processing must be "fast" or "bulk"', 400, "bad_processing");
       processing = b.processing === "bulk" ? "bulk" : "fast";
@@ -1975,20 +1984,20 @@ const worker = {
 
     if (dimensions) {
       if (inputs.length * dimensions.length > MAX_DECISIONS) return fail(`Maximum ${MAX_DECISIONS} decisions (items × dimensions) per request`, 400, "too_many_decisions");
-      try { if (selectedModel !== "laya") dimensionBatches = packDimensions(inputs, dimensions, instructions); }
+      try { if (selectedModel === "jev") dimensionBatches = packDimensions(inputs, dimensions, instructions); }
       catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
     } else mode = multi ? "multi" : "single";
     const decisions = inputs.length * (dimensions?.length ?? 1);
-    if (selectedModel === "laya" && automaticProcessing) {
+    if (selectedModel !== "jev" && automaticProcessing) {
       processing = decisions > 1 || (!!multi && labels.length > LAYA_LIMITS.fast.questions) ? "bulk" : "fast";
     }
-    if (selectedModel === "laya") {
+    if (selectedModel !== "jev") {
       if (!account && !req.headers.has("authorization")) layaTiming = {};
       if (env.LAYA_ENABLED !== "true") return fail("Laya trial is currently unavailable", 503, "laya_unavailable");
       try {
         layaPlan = planLaya(dimensions
           ? inputs.flatMap(input => dimensions!.map(d => ({ input, labels: d.labels, instructions: dimensionInstructions(d, instructions) })))
-          : inputs.map(input => ({ input, labels, instructions, multi: !!multi })), processing);
+          : inputs.map(input => ({ input, labels, instructions, multi: !!multi })), processing, selectedModel as LayaModel);
       } catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
           error.status === 400 ? "laya_input" : error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -2128,8 +2137,7 @@ const worker = {
         quota_combined: combinedQuota ? regularQuotaMs : undefined,
         regular_handler: regularQuotaTiming.handler, regular_read: regularQuotaTiming.read, regular_write: regularQuotaTiming.write,
         lane_handler: laneQuotaTiming.handler, lane_read: laneQuotaTiming.read, lane_write: laneQuotaTiming.write,
-        laya_run: layaTiming.runMs, modal_fetch: layaTiming.fetchMs,
-        modal_headers: layaTiming.headersMs, backend: layaTiming.backendMs,
+        laya_run: layaTiming.runMs, beam_fetch: layaTiming.fetchMs,
       };
       headers["server-timing"] = Object.entries(durations)
         .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0)

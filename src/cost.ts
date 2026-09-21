@@ -16,6 +16,8 @@
 
 /** TypeSafe bills Jev per input token: $0.042 per million. */
 export const JEV_USD_PER_MTOK = 0.042;
+/** Beam bills every hosted decision model per input token: $0.021 per million, output free. */
+export const BEAM_USD_PER_MTOK = 0.021;
 /** Versioned Jev model whose context window and retail rate are pinned for account billing. */
 export const JEV_ACCOUNT_MODEL = "jev-1.13.0";
 
@@ -28,7 +30,7 @@ export type TokenCounts = {
 };
 
 export type ModelTokenUsage = TokenCounts & {
-  provider: "typesafe" | "vercel" | "openrouter" | "modal";
+  provider: "typesafe" | "vercel" | "openrouter" | "beam";
   model: string;
   calls: number;
 };
@@ -83,6 +85,12 @@ export function addTokens(
 export function addJevCost(meter: Meter | undefined, inputTokens: unknown) {
   const n = Number(inputTokens);
   if (meter && Number.isFinite(n) && n > 0) meter.usd += (n * JEV_USD_PER_MTOK) / 1e6;
+}
+
+/** Beam prices its decision models on input tokens alone; output is always zero. */
+export function addBeamCost(meter: Meter | undefined, inputTokens: unknown) {
+  const n = Number(inputTokens);
+  if (meter && Number.isFinite(n) && n > 0) meter.usd += (n * BEAM_USD_PER_MTOK) / 1e6;
 }
 
 /** OpenRouter reports the charge for the call directly, already in USD. */

@@ -68,17 +68,23 @@ TYPESAFE SDK COMPATIBILITY
   The corresponding HTTP resources are POST /v1/systemone and GET /v1/models.
 
 
-LAYA TRIAL
+LAYA AND KEV
 
-  Calls with neither model nor processing use Jev. To try Laya, send a POST
-  with model: "laya". Omit processing to automatically choose fast for one
-  decision (up to four multi-label questions), or bulk for larger work.
-  Supplying processing without model implies Laya. Explicit lanes are honored.
-  With explicit model: "jev", processing is accepted but has no effect.
-  Both lanes use the same preloaded Router:
-  English text uses the English checkpoint; other languages use multilingual.
-  Processing changes batching and capacity, not checkpoint selection.
-  Each result's model identifies the checkpoint and lane that answered.
+  Calls with neither model nor processing use Jev. Two other models are
+  available, both hosted by Beam on shared inference endpoints:
+
+    model: "laya"   ModernBERT-large with a trained decision head. Answers
+                    every question in one batched forward pass. State plus one
+                    question must fit 512 tokens.
+    model: "kev"    Qwen2.5-0.5B with released LoRA weights and a pointer
+                    head. Encodes state once and scores question branches
+                    together in one 8,192-token packed sequence.
+
+  Omit processing to automatically choose fast for one decision (up to four
+  multi-label questions), or bulk for larger work. Supplying processing
+  without model implies Laya. Explicit lanes are honored. With explicit
+  model: "jev", processing is accepted but has no effect. Each result is
+  labelled jev/laya or jev/kev; neither model reports a checkpoint.
 
     {"model":"laya","processing":"fast","input":"Please refund this charge",
      "labels":["billing","technical"]}
@@ -89,34 +95,34 @@ LAYA TRIAL
   decision is one question; multi-label uses one question per label. Fast
   accepts at most four questions. Multiple dimensions normally need bulk.
   Trial limits also apply to paid and operator keys; existing Smart quotas
-  still apply. Shared GPU capacity can return 429 even with quota remaining.
-  Quotas count attempted questions, including failed inference and retries.
+  still apply. Shared capacity can return 429 even with quota remaining.
+  Quotas count attempted questions, including failed inference.
 
-  Laya accepts short text: at most 2,000 characters, 2–16 labels of
+  Both models accept short text: at most 2,000 characters, 2–16 labels of
   at most 100 characters each, and instructions up to 400 characters. The
-  text, question and labels must also fit the selected checkpoint's context
-  (512 tokens for English, 1,024 for multilingual);
-  oversized content is rejected, not silently shortened. Jev's published
-  accuracy and calibration measurements do not describe Laya.
-  The upstream model card warns that shipped confidence can be overconfident.
-  We have not fitted temperatures on classifier.dev traffic: treat scores and
-  Smart's confidence-triggered reviews as experimental, not a quality guarantee.
-  Language routing is a heuristic, not a guarantee of language or task accuracy.
+  text, question and labels must also fit the model's context — 512 tokens
+  for Laya, 8,192 for Kev — and oversized content is rejected, not silently
+  shortened. Upstream caps a request at 32 questions, so a large batch is
+  split into several requests and reassembled in input order.
 
-  Fast stays warm. Bulk starts on demand and can return 503 while starting.
-  On 429 or 503, respect Retry-After and use bounded retries with backoff.
-  The repository CLI retries Laya for up to three minutes per batch.
-  One regional GPU deployment is not a replica in every region or a latency promise.
+  Jev's published accuracy and calibration measurements do not describe
+  either model. We have not fitted temperatures on classifier.dev traffic:
+  treat scores and Smart's confidence-triggered reviews as experimental,
+  not a quality guarantee.
+
+  Neither model has a warm pool to start, so there is no cold-start 503.
+  On 429, respect Retry-After and use bounded retries with backoff. A refused
+  request is not retried upstream: the refusal is returned as it happened.
+  Shared endpoints are not a replica in every region or a latency promise.
   Accepted work is held only in memory; there is no durable batch-job service.
   Overload never silently switches the model or processing lane.
 
-  Laya inference has no retail charge during this trial. Optional tier: "smart"
-  reviews remain separately priced as before and can be slower. GPU hosting
-  costs are separate from the API's provider-reported spend totals.
+  Laya and Kev inference has no retail charge during this trial. Optional
+  tier: "smart" reviews remain separately priced as before and can be slower.
 
   From this repository's CLI:
     node cli/classify.js billing,technical --model laya "Please refund this"
-    node cli/classify.js billing,technical --model laya --processing bulk < tickets.txt
+    node cli/classify.js billing,technical --model kev --processing bulk < tickets.txt
 
 
 AGAINST THE MODEL IT RUNS ON

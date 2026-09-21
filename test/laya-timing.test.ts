@@ -16,65 +16,56 @@ afterEach(() => {
   clock?.mockRestore();
   clock = undefined;
 });
-const env = { LAYA_ENABLED: "true", LAYA_FAST_URL: "https://fast.example", LAYA_BULK_URL: "https://bulk.example",
-  LAYA_MODAL_KEY: "fixture", LAYA_MODAL_SECRET: "fixture" } as LayaEnv;
+const env = { LAYA_ENABLED: "true" } as LayaEnv;
+const keys = { beam: "beam-key" };
 const task = { input: "refund", labels: ["billing", "support"] };
 
-function mockBackend(durations: unknown[]) {
+/**
+ * Beam answers in System One's shape and reports no server-side duration, so
+ * the only span there is to record is the client-side one.
+ */
+function mockBeam() {
   let calls = 0;
   globalThis.fetch = (async (_url, init) => {
-    const { batch } = JSON.parse(String(init?.body));
-    const body = { inference_ms: durations[calls++], results: batch.map(() => ({
-      routing: { model: "english" }, usage: { input_tokens: 20 }, answers: {
-        q: { choice: "billing", confidence: .9, probabilities: { billing: .9, support: .1 } },
-      },
-    })) };
-    // Preserve non-finite values here to exercise the parser's runtime guard,
-    // rather than JSON.stringify silently converting them to null.
-    const response = Response.json({});
-    response.json = async () => body;
-    return response;
+    calls++;
+    const body = JSON.parse(String(init?.body)) as { state: { id: string }[] };
+    const answers = Object.fromEntries(body.state.map(item => [item.id, {
+      choice: "billing", confidence: .9, probabilities: { billing: .9, support: .1 },
+    }]));
+    return Response.json({ model: "jev/laya", answers, usage: { input_tokens: 20 * body.state.length, output_tokens: 0 } });
   }) as typeof fetch;
   return () => calls;
 }
 
-test.each([0, 12.5])("records finite nonnegative backend duration %s", async backendMs => {
-  mockBackend([backendMs]);
+test("records a client-side span for a fast call", async () => {
+  mockBeam();
   const timing: LayaTiming = {};
-  const results = await runLaya(env, planLaya([task], "fast"), undefined, timing);
+  const results = await runLaya(env, keys, planLaya([task], "fast"), undefined, timing);
   expect(results[0].label).toBe("billing");
-  expect(timing.backendMs).toBe(backendMs);
   expect(Number.isFinite(timing.fetchMs)).toBe(true);
-  expect(timing.fetchMs!).toBeGreaterThanOrEqual(timing.headersMs!);
+  expect(timing.fetchMs!).toBeGreaterThanOrEqual(0);
 });
 
-test.each([undefined, null, -1, "12.5", NaN, Infinity, {}])("ignores absent or invalid backend duration %j", async duration => {
-  mockBackend([duration]);
+test("reports no backend duration, because Beam does not return one", async () => {
+  mockBeam();
   const timing: LayaTiming = {};
-  expect(await runLaya(env, planLaya([task], "fast"), undefined, timing)).toHaveLength(1);
+  await runLaya(env, keys, planLaya([task], "fast"), undefined, timing);
   expect(timing).not.toHaveProperty("backendMs");
-  expect(Number.isFinite(timing.fetchMs)).toBe(true);
+  expect(timing).not.toHaveProperty("headersMs");
 });
 
-test("aggregates bulk chunk durations instead of overwriting with the last chunk", async () => {
-  const calls = mockBackend([2.25, 4.5]);
-  const timestamps = [0, 3, 5, 10, 14, 17];
-  clock = spyOn(performance, "now").mockImplementation(() => timestamps.shift()!);
+test("a bulk span covers every chunk, not just the last", async () => {
+  const calls = mockBeam();
+  const timestamps = [0, 17];
+  clock = spyOn(performance, "now").mockImplementation(() => timestamps.shift() ?? 17);
   const timing: LayaTiming = {};
-  expect(await runLaya(env, planLaya(Array.from({ length: 65 }, () => task), "bulk"), undefined, timing)).toHaveLength(65);
-  expect(calls()).toBe(2);
-  expect(timing).toEqual({ headersMs: 7, fetchMs: 12, backendMs: 6.75 });
+  // 65 items exceed Laya's 16-item ceiling, so this is several Beam requests.
+  expect(await runLaya(env, keys, planLaya(Array.from({ length: 65 }, () => task), "bulk"), undefined, timing)).toHaveLength(65);
+  expect(calls()).toBeGreaterThan(1);
+  expect(timing).toEqual({ fetchMs: 17 });
 });
 
 test("timing remains optional for existing callers", async () => {
-  mockBackend([12]);
-  expect(await runLaya(env, planLaya([task], "fast"))).toHaveLength(1);
-});
-
-test.each([{ durations: [2.25, undefined] }, { durations: [undefined, 2.25] }])("omits an incomplete bulk backend total %j", async ({ durations }) => {
-  mockBackend(durations);
-  const timing: LayaTiming = {};
-  expect(await runLaya(env, planLaya(Array.from({ length: 65 }, () => task), "bulk"), undefined, timing)).toHaveLength(65);
-  expect(timing).not.toHaveProperty("backendMs");
-  expect(Number.isFinite(timing.fetchMs)).toBe(true);
+  mockBeam();
+  expect(await runLaya(env, keys, planLaya([task], "fast"))).toHaveLength(1);
 });

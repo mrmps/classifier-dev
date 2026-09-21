@@ -69,7 +69,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   const analytics = (success: boolean, retailCostUsd: number | null) => writeAccountAnalytics(env, {
     accountId, keyId: reservation.agentId, requestId: reservation.id, source, tier,
     status: success ? "success" : "error", items: itemCount, ...tokens(),
-    model: meter.tokens.map((row) => row.model).join(","), providerCostUsd: meter.tokens.length && !meter.tokens.some(row => row.provider === "modal") ? meter.usd : null,
+    model: meter.tokens.map((row) => row.model).join(","), providerCostUsd: meter.tokens.length ? meter.usd : null,
     retailCostUsd, latencyMs: Date.now() - started,
     escalations: meter.tokens.filter((row) => row.provider === "openrouter").reduce((total, row) => total + row.calls, 0),
   });

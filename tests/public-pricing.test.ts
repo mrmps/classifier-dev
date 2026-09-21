@@ -83,8 +83,8 @@ test("pricing renders workspace plans and Pro rate limits", () => {
   expect(html).toContain('class="plan-action" href="/auth/sign-up"');
   expect(html).toContain(`$${BILLING_PLANS.pro.priceCents / 100}`);
   expect(html).toContain(formatCreditsUsd(BILLING_PLANS.pro.includedCredits));
-  expect(html).toContain("laya-0.3.4-routed-fast");
-  expect(html).toContain("laya-0.3.4-routed-bulk");
+  expect(html).toContain("jev/laya");
+  expect(html).toContain("jev/kev");
   expect(html).toContain('href="/auth/sign-up?returnTo=/app/plans"');
   expect(html).not.toContain("classifier_pro_");
   expect(html).toContain("30,000/min · 200,000/day");
