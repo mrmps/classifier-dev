@@ -32,17 +32,19 @@ function mockLaya() {
   return calls;
 }
 
-function combinedEnv(result: unknown = {limited:false,remaining:2900,laneRemaining:56}) {
-  const admissions: any[] = [];
+function combinedEnv(result: unknown | ((url: string, init: RequestInit) => Promise<Response>) = {limited:false,remaining:2900,laneRemaining:56}) {
+  const admissions: any[] = [], admissionUrls: string[] = [];
   let legacyCalls = 0;
   const bindings = {...env, QUOTA_COORDINATOR_ENABLED:"true", LIMITER:{
     idFromName:(s: string) => s, get:() => ({fetch:async () => {legacyCalls++; throw new Error("unexpected legacy call");}}),
-  }, QUOTAS:{idFromName:(s: string) => s,get:() => ({fetch:async (_url: string, init: RequestInit) => {
+  }, QUOTAS:{idFromName:(s: string) => s,get:() => ({fetch:async (url: string, init: RequestInit) => {
+    admissionUrls.push(url);
     admissions.push(JSON.parse(String(init.body)));
     if (result instanceof Error) throw result;
+    if (typeof result === "function") return result(url,init);
     return Response.json(result);
   }})}} as unknown as Env;
-  return {bindings,admissions,legacyCalls:() => legacyCalls};
+  return {bindings,admissions,admissionUrls,legacyCalls:() => legacyCalls};
 }
 
 test("combined admission makes one RPC with separate decision and multi-label question costs", async () => {
@@ -52,6 +54,7 @@ test("combined admission makes one RPC with separate decision and multi-label qu
   expect(response.status).toBe(200);
   expect(response.headers.get("ratelimit-remaining")).toBe("56");
   expect(f.admissions).toHaveLength(1);
+  expect(f.admissionUrls).toEqual(["https://quota/admit"]);
   expect(f.admissions[0].quotas).toMatchObject([
     {scope:"fast",cost:1,limit:3000,daily:20000},
     {scope:"laya:fast",cost:2,limit:60,daily:2000},
@@ -71,6 +74,41 @@ test.each([
   expect(response.status).toBe(status);
   expect(await response.json()).toMatchObject({code});
   expect(calls).toHaveLength(0);
+});
+
+test("fast local admission lets exact admission and inference overlap", async () => {
+  mockLaya();
+  const predict = globalThis.fetch;
+  let started!: () => void;
+  const modalStarted = new Promise<void>(resolve => { started = resolve; });
+  globalThis.fetch = (async (...args: Parameters<typeof fetch>) => { started(); return predict(...args); }) as typeof fetch;
+  const f = combinedEnv(async () => {
+    await modalStarted;
+    return Response.json({limited:false,remaining:2999,laneRemaining:59});
+  });
+  const bindings = {...f.bindings, LAYA_FAST_ADMISSION:{limit:async () => ({success:true})}} as unknown as Env;
+  const response = await request(task,bindings);
+  expect(response.status).toBe(200);
+  expect(f.admissionUrls).toEqual(["https://quota/admit"]);
+});
+
+test("exact admission rejection aborts speculative fast inference", async () => {
+  let started!: () => void, aborted!: () => void;
+  const modalStarted = new Promise<void>(resolve => { started = resolve; });
+  const modalAborted = new Promise<void>(resolve => { aborted = resolve; });
+  globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve,reject) => {
+    started();
+    init?.signal?.addEventListener("abort",() => { aborted(); reject(new DOMException("aborted","AbortError")); },{once:true});
+  })) as typeof fetch;
+  const f = combinedEnv(async () => {
+    await modalStarted;
+    return Response.json({limited:true,remaining:2999,limitedBy:"lane",scope:"minute",resetIn:12});
+  });
+  const bindings = {...f.bindings, LAYA_FAST_ADMISSION:{limit:async () => ({success:true})}} as unknown as Env;
+  const response = await request(task,bindings);
+  expect(response.status).toBe(429);
+  expect(await response.json()).toMatchObject({code:"laya_rate_limit"});
+  await modalAborted;
 });
 
 test("bulk chunks by question count, retains order and meters the selected lane", async () => {

@@ -101,12 +101,12 @@ connection strings into commands that will remain in shell history. Migrations
 are transactional, ordered, and checksum-verified; editing an already-applied
 migration is rejected.
 
-The production template targets `aws:us-west-2`, supported by Wrangler 4.122's
-placement schema. Cloudflare runs fetch handlers in a nearby Cloudflare data
-center, not inside AWS itself. Placement does not move an existing Neon project
-or Durable Object, and is not a residency guarantee. Confirm the Neon primary
-and upstream latency before activating the production migration. See
-[Cloudflare placement](https://developers.cloudflare.com/workers/configuration/placement/).
+The production Worker executes at Cloudflare's ingress edge. Neon remains in
+`aws:us-west-2`; removing the former Worker placement avoids forwarding every
+latency-sensitive classification request through Oregon. This is not a data
+residency guarantee and does not move the Neon primary or a Durable Object.
+Confirm database-dependent account latency as well as inference latency before
+changing placement again. See [Cloudflare placement](https://developers.cloudflare.com/workers/configuration/placement/).
 
 Do not enable the new account offering until retail token rates, Autumn events,
 legacy Pro handling, reconciliation, and end-to-end production checks are ready.

@@ -8,6 +8,7 @@ export type LayaEnv = {
   LAYA_MODAL_KEY?: string;
   LAYA_MODAL_SECRET?: string;
   LAYA_ENABLED?: string;
+  LAYA_FAST_ADMISSION?: RateLimit;
   LIMITER: DurableObjectNamespace;
 };
 export const LAYA_LIMITS = {
@@ -84,7 +85,7 @@ const probability = (v: unknown): v is number => typeof v === "number" && Number
 
 export type LayaTiming = { fetchMs?: number; headersMs?: number; backendMs?: number };
 
-export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter, timing?: LayaTiming): Promise<JevResult[]> {
+export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter, timing?: LayaTiming, signal?: AbortSignal): Promise<JevResult[]> {
   const url = plan.processing === "fast" ? env.LAYA_FAST_URL : env.LAYA_BULK_URL;
   if (env.LAYA_ENABLED !== "true" || !url || !env.LAYA_MODAL_KEY || !env.LAYA_MODAL_SECRET)
     throw new LayaError("Laya trial is currently unavailable", 503);
@@ -100,7 +101,9 @@ export async function runLaya(env: LayaEnv, plan: LayaPlan, meter?: Meter, timin
     try {
       response = await fetch(url + "/predict", { method: "POST",
         headers: { "content-type": "application/json", "Modal-Key": env.LAYA_MODAL_KEY, "Modal-Secret": env.LAYA_MODAL_SECRET },
-        body: JSON.stringify({ batch }), signal: AbortSignal.timeout(Math.min(15_000, deadline - Date.now())) });
+        body: JSON.stringify({ batch }), signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(Math.min(15_000, deadline - Date.now()))])
+          : AbortSignal.timeout(Math.min(15_000, deadline - Date.now())) });
     } catch { throw new LayaError("Laya timed out or could not be reached", 503, 5); }
     if (timing) timing.headersMs = (timing.headersMs ?? 0) + performance.now() - started;
     if (response.status === 429 || response.status === 503)
