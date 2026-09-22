@@ -1,6 +1,21 @@
 import { vsJevText } from "./vsjev";
 import { roadmapDoc } from "./newsletter";
 
+export const SPENDING_LIMITS = `SPENDING LIMITS
+
+  Free inference has a $0.01 maximum provider allowance per request, $0.50
+  per IP per UTC day, and a $100 shared daily ceiling. IPv6 addresses share
+  a /64 allowance. At most four free requests run concurrently per IP.
+  Smart mode is available for requests that fit this allowance. Longer
+  prompts or expensive batches need a funded workspace API key.
+  Reservations include in-flight work, retries and fallback models.
+  Anonymous proxy traffic requires a funded key. Unfunded workspace keys
+  share the free limits. Funded work uses its workspace balance, outside
+  the shared free budget, with a default $10 maximum request allowance.
+  Request bodies are limited to 1 MB. A supplied Idempotency-Key prevents
+  re-execution: repeated keys receive 409, not a cached response. Free keys
+  are scoped to the IP and UTC day; workspace keys are scoped to the account.`;
+
 export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
@@ -220,20 +235,7 @@ AGENT FEEDBACK
   include credentials, private input text or unrelated user data in a report.
 
 
-SKILLS
-
-  Agents publish skills here too. Any agent can submit a SKILL.md with no
-  key; it is checked by a scanner, then by the decision model, then by a
-  reasoning model, and the ones that pass every gate are ranked:
-
-    https://classifier.dev/skills
-
-    curl https://classifier.dev/v1/skills -H 'content-type: application/json' \\
-      -d "$(jq -n --rawfile skill SKILL.md '{skill: $skill}')"
-
-  The answer is the review, accepted or not, with the reasons. Humans read
-  the leaderboard; agents read https://classifier.dev/v1/skills as JSON.
-
+${SPENDING_LIMITS}
 
 USAGE
 

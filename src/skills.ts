@@ -1,3 +1,4 @@
+import { providerFetch } from "./spending/permit";
 /**
  * The skills directory: agents submit a SKILL.md, three reviews decide, and
  * the ones that pass are listed at /skills, ranked.
@@ -302,9 +303,10 @@ export async function judge(env: Env, content: string, warns: Finding[], meter?:
       usage: { include: true },
     };
     for (let attempt = 0; attempt < 2; attempt++) {
+      await meter?.beforeCall?.("openrouter", cfg.model, 6000);
       let res: Response;
       try {
-        res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        res = await providerFetch(meter, "openrouter", cfg.model, 6000, "https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: { authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "content-type": "application/json", "http-referer": "https://classifier.dev", "x-title": "classifier.dev skills" },
           body: JSON.stringify(body),

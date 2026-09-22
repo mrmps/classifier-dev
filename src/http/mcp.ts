@@ -29,6 +29,8 @@ export async function accountMcp(
             headers: {
               "content-type": "application/json",
               authorization: original.headers.get("authorization") || "",
+              "cf-connecting-ip": request.headers.get("cf-connecting-ip") || "",
+              ...(request.headers.get("idempotency-key") ? { "idempotency-key": request.headers.get("idempotency-key")! } : {}),
             },
             body: JSON.stringify(body),
           }),

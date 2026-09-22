@@ -93,8 +93,8 @@ description: Write release notes for a version range from the commit log, groupe
 `;
 
 const post = (env: Env, body: unknown, headers: Record<string, string> = {}) =>
-  worker.fetch(new Request("https://classifier.dev/v1/skills", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) }), env, ctx);
-const get = (env: Env, path: string, headers: Record<string, string> = {}) => worker.fetch(new Request(`https://classifier.dev${path}`, { headers }), env, ctx);
+  worker.fetch(new Request("https://classifier.dev/v1/skills", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer internal-fixture", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) }), { ...env, INTERNAL_API_KEY: "internal-fixture" }, ctx);
+const get = (env: Env, path: string, headers: Record<string, string> = {}) => worker.fetch(new Request(`https://classifier.dev${path}`, { headers: { authorization: "Bearer internal-fixture", ...headers } }), { ...env, INTERNAL_API_KEY: "internal-fixture" }, ctx);
 
 describe("the cleaners", () => {
   test("pass the site's own skill, and a plain benign one, with no block", () => {
@@ -305,20 +305,17 @@ describe("the review budget", () => {
   /** A limiter that refuses everything. */
   const shut = { idFromName: (n: string) => n, get: () => ({ fetch: async () => Response.json({ limited: true }) }) };
 
-  test("stops an anonymous caller with a 429 that says when to retry", async () => {
+  test("internal review is independent of the public quota", async () => {
     fakeModels();
     const env = { TYPESAFE_API_KEY: "t", OPENROUTER_API_KEY: "o", STATS: fakeKv(), LIMITER: shut } as unknown as Env;
-    const res = await post(env, { skill: BENIGN });
-    expect(res.status).toBe(429);
-    expect(res.headers.get("retry-after")).toBeTruthy();
-    expect(((await res.json()) as { code: string }).code).toBe("rate_limit_day");
+    expect((await post(env, { skill: BENIGN })).status).toBe(201);
   });
 
-  test("does not apply to a partner key, which lifts the classifier's limits too", async () => {
+  test("partner keys do not authorize internal review", async () => {
     fakeModels();
     const env = { TYPESAFE_API_KEY: "t", OPENROUTER_API_KEY: "o", STATS: fakeKv(), LIMITER: shut, ENTERPRISE_API_KEY: "partner" } as unknown as Env;
     const res = await post(env, { skill: BENIGN }, { authorization: "Bearer partner" });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(404);
   });
 });
 
@@ -328,10 +325,10 @@ describe("taking a skill down", () => {
     const env = { TYPESAFE_API_KEY: "t", OPENROUTER_API_KEY: "o", REPORT_KEY: "operator", STATS: kv } as unknown as Env;
     fakeModels();
     expect((await post(env, { skill: BENIGN })).status).toBe(201);
-    const del = (headers: Record<string, string> = {}) => worker.fetch(new Request("https://classifier.dev/v1/skills/release-notes-from-git", { method: "DELETE", headers }), env, ctx);
+    const del = (headers: Record<string, string> = {}) => worker.fetch(new Request("https://classifier.dev/v1/skills/release-notes-from-git", { method: "DELETE", headers }), { ...env, INTERNAL_API_KEY: "internal-fixture" }, ctx);
     expect((await del()).status).toBe(404);
     expect((await del({ authorization: "Bearer wrong" })).status).toBe(404);
-    expect((await del({ authorization: "Bearer operator" })).status).toBe(200);
+    expect((await del({ authorization: "Bearer internal-fixture" })).status).toBe(200);
     expect((await get(env, "/skills/release-notes-from-git")).status).toBe(404);
     expect((await get(env, "/v1/skills/release-notes-from-git")).status).toBe(404);
     expect(((await (await get(env, "/v1/skills")).json()) as { count: number }).count).toBe(0);
@@ -365,16 +362,16 @@ describe("the pages", () => {
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 
-  test("are discoverable from the home page, the sitemap, the agent view and the spec", async () => {
+  test("internal skills are absent from public discovery", async () => {
     const env = {} as Env;
-    expect(await (await get(env, "/", { accept: "text/html", "user-agent": "Mozilla/5.0" })).text()).toContain('href="/skills"');
-    expect(await (await get(env, "/", { "user-agent": "curl/8" })).text()).toContain("https://classifier.dev/skills");
-    expect(await (await get(env, "/sitemap.xml")).text()).toContain("<loc>https://classifier.dev/skills</loc>");
+    expect(await (await get(env, "/", { accept: "text/html", "user-agent": "Mozilla/5.0" })).text()).not.toContain('href="/skills"');
+    expect(await (await get(env, "/", { "user-agent": "curl/8" })).text()).not.toContain("https://classifier.dev/skills");
+    expect(await (await get(env, "/sitemap.xml")).text()).not.toContain("<loc>https://classifier.dev/skills</loc>");
     const view = (await (await get(env, "/api")).json()) as { api: { skills: { submit: { url: string } } } };
-    expect(view.api.skills.submit.url).toBe("https://classifier.dev/v1/skills");
-    expect(Object.keys(OPENAPI.paths)).toEqual(expect.arrayContaining(["/v1/skills", "/v1/skills/{name}"]));
+    expect(view.api.skills).toBeUndefined();
+    expect(Object.keys(OPENAPI.paths)).not.toContain("/v1/skills");
     for (const c of ["skill_invalid", "duplicate_skill", "rate_limit_hour", "review_unavailable"]) expect(ERROR_CODES).toContain(c);
-    expect(await (await get(env, "/llms.txt")).text()).toContain("/v1/skills");
-    expect(await (await get(env, "/agents.md")).text()).toContain("/v1/skills");
+    expect(await (await get(env, "/llms.txt")).text()).not.toContain("/v1/skills");
+    expect(await (await get(env, "/agents.md")).text()).not.toContain("/v1/skills");
   });
 });

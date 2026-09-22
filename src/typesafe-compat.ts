@@ -1,3 +1,5 @@
+import { providerFetch } from "./spending/permit";
+import { SpendingError } from "./spending/policy";
 /**
  * Wire-compatible TypeSafe API surface.
  *
@@ -57,13 +59,18 @@ export async function typeSafeCompatibleResponse(
 
   // Only trusted account execution supplies this hook. Reserve the maximum
   // provider exposure before the paid request leaves the Worker.
-  // The request itself remains untouched, so TypeSafe aliases retain their
-  // native behavior; an unexpected future response model stays held for review.
+  // Pin aliases to the priced model; unexpected response models stay held for review.
+  if (meter?.beforeCall && body) {
+    let parsed;
+    try { parsed = JSON.parse(body); } catch { throw new SpendingError(400, "invalid_request", "Send valid JSON."); }
+    if (parsed.model && !["jev-latest", JEV_ACCOUNT_MODEL].includes(parsed.model)) throw new SpendingError(400, "unpriced_model", "This TypeSafe model is not configured for spending.");
+    body = JSON.stringify({ ...parsed, model: JEV_ACCOUNT_MODEL });
+  }
   await meter?.beforeCall?.("typesafe", JEV_ACCOUNT_MODEL, 0);
 
   let response: Response;
   try {
-    response = await fetch(upstream, {
+    response = await providerFetch(meter, "typesafe", JEV_ACCOUNT_MODEL, 0, upstream, {
       method: request.method,
       headers,
       body,

@@ -9,7 +9,7 @@ export function pricingHtml(signedIn = false) {
   const pro = BILLING_PLANS.pro;
   const tokenRows = retailRates.models
     .map(
-      (rate) => `<tr><th scope="row">${rate.provider === "typesafe" ? "Jev" : rate.provider === "openrouter" ? "Gemini escalation" : esc(rate.model)}</th>
+      (rate) => `<tr><th scope="row">${rate.provider === "typesafe" ? "Jev" : rate.model === "google/gemini-3.8-flash" ? "Gemini escalation" : esc(rate.model)}</th>
         <td>${Number(rate.inputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.inputUsdPerMillion)}`}</td>
         <td>${Number(rate.cachedInputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.cachedInputUsdPerMillion)}`}</td>
         <td>${Number(rate.outputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.outputUsdPerMillion)}`}</td></tr>`,
@@ -82,6 +82,9 @@ export function pricingHtml(signedIn = false) {
       <tr><th scope="row">Pro</th><td>30,000/min · 200,000/day</td><td>2,000/min · 20,000/day</td></tr>
     </tbody></table></div>
     <p class="pricing-note">Limits count classifications and are shared across workspace keys and agents. Public access is limited per IP. Laya trial limits apply to every plan.</p>
+    <p>Free inference also has a $0.01 provider-cost allowance per request, $0.50 per IP network per UTC day, and a $100 shared daily pool. Up to four requests may run at once per IP; IPv6 addresses share a /64 allowance. Smart requests must fit the same allowance, so large inputs or batches need a funded key.</p>
+    <p>A funded workspace uses its own balance, skips free-pool and proxy checks, and has a default $10 provider-cost ceiling per request. Actual usage is billed at the token prices above. Signup credit alone uses the free limits. Every request body is limited to 1 MB.</p>
+    <p class="pricing-note">Free access may pause when its shared pool or verification capacity is exhausted. Anonymous proxy networks require a funded key. See <a href="/developers">spending limits and retry guidance</a>.</p>
   </section>
   ${FOOT}
 </main></div>`,

@@ -13,7 +13,7 @@ import {
   mayRenderPublicHtml,
   publicNavigationAuth,
 } from "./server/public-navigation-auth";
-export { RateLimiter, QuotaCoordinator } from "./index";
+export { RateLimiter, QuotaCoordinator, FreeBudget } from "./index";
 
 const start = createStartHandler(defaultStreamHandler);
 export default {

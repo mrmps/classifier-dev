@@ -34,7 +34,6 @@ export const PAGES: { path: string; priority: number; changefreq: string }[] = [
   { path: "/benchmark", priority: 0.8, changefreq: "weekly" },
   { path: "/developers", priority: 0.9, changefreq: "weekly" },
   { path: "/mcp-setup", priority: 0.8, changefreq: "monthly" },
-  { path: "/skills", priority: 0.8, changefreq: "daily" },
   { path: "/pricing", priority: 0.7, changefreq: "monthly" },
   { path: "/about", priority: 0.5, changefreq: "monthly" },
   { path: "/contact", priority: 0.5, changefreq: "monthly" },

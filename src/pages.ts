@@ -8,6 +8,7 @@
  * canonical document and nothing can drift between the three.
  */
 
+import { SPENDING_LIMITS } from "./docs";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
@@ -283,6 +284,8 @@ AUTHENTICATION
   credential here: caller credentials are not forwarded to TypeSafe.
 
 
+${SPENDING_LIMITS}
+
 EXAMPLES
 
   curl:
@@ -425,6 +428,14 @@ FREE
   request are 1,000 classifications. Multi-label counts once per text, not per
   label.
 
+  Free provider spending is capped at $0.01 per request, $0.50 per IP network
+  per UTC day and $100 across everyone per UTC day. Up to four free requests
+  may run at once per IP; IPv6 addresses share a /64 allowance. Smart requests
+  must fit the same allowance. Large inputs or batches need a funded key.
+  Free access pauses when the shared pool or verification capacity is spent;
+  anonymous proxy networks require a funded key. Signup credit uses these
+  same free limits. Every request body is limited to 1 MB.
+
 
 PRO
 
@@ -437,6 +448,11 @@ PRO
   Usage is charged to the workspace balance at the published token prices.
   Smart costs the same as Fast when no escalation is needed. Usage stops when
   the balance reaches zero; there are no automatic top-ups.
+
+  Funded workspaces skip the shared free pool and proxy checks. Each request
+  has a default $10 provider-cost ceiling, bounded by the available workspace
+  balance at the published retail prices. Unused reservations are released
+  after inference; uncertain provider usage remains held for billing review.
 
 
 ENTERPRISE
@@ -619,6 +635,13 @@ PUBLIC SERVICE LOGS
   caller is a keyed hash of the IP that changes daily, so a record cannot be
   read back to an address or followed across days. The address itself serves
   the per-IP limits while the request is in flight and is not written down.
+  To prevent abuse of free inference, the caller IP is sent to Spur's
+  Context API on a cache miss. We store only a daily keyed network
+  fingerprint and an allow/deny result, never the raw address. IPv6 /64
+  networks share a spending allowance. Funded workspace requests skip Spur.
+  Free spending reservations and reputation entries are removed after their
+  retention window (up to three UTC days); monthly lookup counts contain
+  no caller identity.
   These records feed the usage counts and the alerting, and are kept for 90
   days in Cloudflare Analytics Engine.
 
@@ -722,7 +745,7 @@ partner key with one.
 WHAT YOU GET
 
   A zero-shot text classification API over HTTP, two MCP servers, a CLI, a
-  skill and a skills directory, all at https://classifier.dev, with no account
+  skill, all at https://classifier.dev, with no account
   and no key, within the per-IP limits at https://classifier.dev/pricing. The
   limits, the models and the endpoints can change; the API reference and the
   changelog say when they do, and a versioned path stays as documented while

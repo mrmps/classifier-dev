@@ -832,10 +832,10 @@ const navLink = (label: string, href: string, here: string, key: string) =>
 const MARK = `<svg class="site-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><rect x="6" y="9" width="20" height="4" rx="2" fill="var(--ink)"/><rect x="6" y="16" width="11" height="4" rx="2" fill="#765db9"/><rect x="6" y="23" width="6" height="4" rx="2" fill="#765db9"/></svg>`;
 
 const navLinks = (here: string, opensChat = true) =>
-  `${navLink("Home", "/", here, "home")}${navLink("Benchmark", "/benchmark", here, "benchmark")}${navLink("Docs", "/docs", here, "developers")}${navLink("Pricing", "/pricing", here, "pricing")}<a class="site-link" href="/chat"${here === "chat" ? ' aria-current="page"' : ""}${opensChat ? ' data-chat-open aria-controls="chat" aria-expanded="false"' : ""}>Chat</a>`;
+  `${navLink("Home", "/", here, "home")}${navLink("Benchmark", "/benchmark", here, "benchmark")}${navLink("Docs", "/docs", here, "developers")}${navLink("Pricing", "/pricing", here, "pricing")}`;
 
 const resourceLinks = (here: string) =>
-  `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}${navLink("Skills", "/skills", here, "skills")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
+  `${navLink("MCP setup", "/mcp-setup", here, "mcp-setup")}<a class="site-link" href="/openapi.json">OpenAPI</a><a class="site-link" href="/skill.md">Agent skill</a><a class="site-link" href="/llms.txt">llms.txt</a><a class="site-link" href="https://github.com/mrmps/classifier-dev">GitHub</a>`;
 
 const resourceMenu = (here: string) => {
   const active = ["mcp-setup", "skills"].includes(here);
@@ -935,7 +935,7 @@ classify relevant,"not relevant" --review 0.7 &lt; snippets.txt</code>   <span c
   ${FOOT}
 </article></main></div>
 ${subscribeDock()}
-${chatPanel(!!o.chat)}`,
+`,
     script: COPY_SCRIPT + SUBSCRIBE_SCRIPT + WEBMCP_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
@@ -959,7 +959,7 @@ export function docHtml(o: { title: string; desc: string; doc: string; path: str
   ${renderDoc(o.doc, true, o.swap ?? {})}
   ${FOOT}
 </article></main></div>
-${chatPanel()}`,
+`,
     script: COPY_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }
@@ -976,7 +976,7 @@ export function benchmarkHtml(signedIn = false): string {
   ${renderDoc(BENCHMARK, true)}
   ${FOOT}
 </article></main></div>
-${chatPanel()}`,
+`,
     script: COPY_SCRIPT + CHAT_SCRIPT + HL_SCRIPT,
   });
 }

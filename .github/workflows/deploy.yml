@@ -92,6 +92,13 @@ jobs:
       # maintainer deploys with locally.
       - name: Build application
         run: npm run build
+      - name: Verify spending through the built Worker and real Durable Objects
+        run: npm run test:e2e:spending
+      - name: Save spending verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spending-e2e
+          path: captures/spending-e2e.json
 
       - name: Migrate account database
         env:

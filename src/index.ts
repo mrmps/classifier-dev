@@ -1,3 +1,7 @@
+import { withFreeSpending, boundedRequest, freePreflight, type SpendingEnv } from "./spending";
+import { SpendingError, errorResponse } from "./spending/policy";
+import { providerFetch } from "./spending/permit";
+export { FreeBudget } from "./spending";
 import { HL_ORIGIN } from "./ui";
 import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
@@ -32,7 +36,7 @@ import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount } from "./typesafe-compat";
 
-export interface Env extends LayaEnv {
+export interface Env extends LayaEnv, SpendingEnv {
   QUOTAS?: DurableObjectNamespace;
   QUOTA_COORDINATOR_ENABLED?: string;
   OPENROUTER_API_KEY: string;
@@ -291,16 +295,7 @@ const agentView = (origin: string) => ({
       limits: "5 signups/min, 50/day per IP; retry a 429 after Retry-After seconds",
       unsubscribe: "Reply to an update to unsubscribe.",
     },
-    skills: {
-      list: { method: "GET", url: `${origin}/${skills.API_PATH}`, description: "Skills by agents, reviewed and ranked. Each is raw Markdown at /skills/{name}.md." },
-      submit: {
-        method: "POST", url: `${origin}/${skills.API_PATH}`, content_type: "application/json",
-        body: { skill: "<the SKILL.md text>", author: "optional handle or URL", source: "optional https URL" },
-        description: "Submit a SKILL.md for review by a scanner, the decision model and a reasoning model. The answer is the review either way; 201 when listed.",
-        limits: `${skills.PER_IP_PER_HOUR} reviews/hour per IP, ${skills.GLOBAL_PER_DAY}/day for everyone`,
-      },
-      page: `${origin}/${skills.SKILLS_PATH}`,
-    },
+
     feedback: {
       discovery: `${origin}/.well-known/agent-feedback.json`,
       policy: `${origin}/api/v1/policy`,
@@ -644,7 +639,7 @@ async function callModel(
     await meter?.beforeCall?.("openrouter", cfg.model, Number(body.max_tokens));
     let res: Response;
     try {
-      res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      res = await providerFetch(meter, "openrouter", cfg.model, Number(body.max_tokens), "https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
@@ -1186,10 +1181,39 @@ export type ClassificationExecution = {
   meter?: Meter;
   account?: { id: string; multiplier: number };
   viewer?: { signedIn: boolean };
+  spending?: boolean;
+  funded?: boolean;
+  internal?: boolean;
 };
 
 const worker = {
   async fetch(req: Request, env: Env, ctx: ExecutionContext, execution?: ClassificationExecution): Promise<Response> {
+    const endpoint = new URL(req.url).pathname.replace(/\/+$/, "");
+    let internalEndpoint = false;
+    try { internalEndpoint = /^\/(?:v1\/)?(?:chat|skills)(?:\/|\.md$|$)/.test(decodeURIComponent(endpoint).replace(/^\/+/, "/")); } catch { /* Invalid routes are handled below. */ }
+    if (internalEndpoint && !execution?.internal) {
+      const credential = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+      if (!env.INTERNAL_API_KEY || !await secretEquals(credential, env.INTERNAL_API_KEY))
+        return new Response("not found\n", { status: 404, headers: { "cache-control": "no-store" } });
+      const response = await worker.fetch(await boundedRequest(req), env, ctx, { ...execution, spending: true, internal: true });
+      const headers = new Headers(response.headers);
+      headers.set("cache-control", "private, no-store");
+      return new Response(response.body, { status: response.status, headers });
+    }
+    if (env.SPENDING_ENABLED === "true" && !execution?.spending) {
+      try {
+        req = await boundedRequest(req);
+        const body = req.method === "POST" ? await req.clone().json().catch(() => undefined) as Record<string, unknown> | undefined : undefined;
+        const querySmart = new URL(req.url).searchParams.get("tier") === "smart";
+        if (!execution?.funded) freePreflight(req, env, querySmart ? { tier: "smart" } : body);
+        const meter = execution?.meter ?? newMeter();
+        const next = () => worker.fetch(req, env, ctx, { ...execution, meter, spending: true });
+        return execution?.funded ? await next() : await withFreeSpending(req, env, ctx, meter, next);
+      } catch (error) {
+        if (error instanceof SpendingError) return errorResponse(error);
+        throw error;
+      }
+    }
     const workerStarted = performance.now();
     const account = execution?.account;
     const signedIn = execution?.viewer?.signedIn === true;
@@ -1280,7 +1304,7 @@ const worker = {
       } catch (e) {
         return json({ error: (e as Error).message, code: "invalid_request" }, 400);
       }
-      const gate = await limited(env, "smart", ip, CHAT_COST);
+      const gate = internalEndpoint ? { limited: false, resetIn: undefined } : await limited(env, "smart", ip, CHAT_COST);
       if (gate.limited) {
         return json({ error: `Chat limit reached; try again in ${gate.resetIn ?? 60}s`, code: "rate_limited" }, 429, {
           "retry-after": String(gate.resetIn ?? 60),
@@ -1349,6 +1373,8 @@ const worker = {
     // value only satisfies the SDK's local non-empty-key check; it is never
     // forwarded. The service credential is the sole credential sent upstream.
     if (path === "v1/systemone" || path === "v1/models") {
+      if (env.SPENDING_ENABLED === "true" && req.method !== (path === "v1/systemone" ? "POST" : "GET"))
+        return json({ error: "Method not allowed", code: "method_not_allowed" }, 405);
       const hasBody = req.method !== "GET" && req.method !== "HEAD";
       const body = hasBody ? await req.text() : undefined;
       const decisions = path === "v1/systemone" && req.method === "POST"
@@ -1381,7 +1407,7 @@ const worker = {
         req,
         env.TYPESAFE_API_KEY,
         body,
-        decisions && meter.beforeCall ? meter : undefined,
+        decisions ? meter : undefined,
       );
       const headers = new Headers(response.headers);
       // Own the browser policy at this boundary. An upstream credentialed CORS
@@ -1512,7 +1538,7 @@ const worker = {
         // The operator's takedown, on the same key as the report preview. 404
         // without it, so the endpoint says nothing about itself.
         const given = (req.headers.get("authorization") ?? "").replace(/^[Bb]earer\s+/, "");
-        if (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY))) return text("not found\n", 404);
+        if (!execution?.internal && (!env.REPORT_KEY || !given || !(await secretEquals(given, env.REPORT_KEY)))) return text("not found\n", 404);
         return (await skills.remove(env, slug)) ? json({ ok: true, removed: slug }) : json({ error: "no such skill", code: "not_found" }, 404);
       }
       if (req.method === "POST" && !slug) {
@@ -1524,7 +1550,7 @@ const worker = {
         }
         const started = Date.now();
         try {
-          const outcome = await skills.submit(env, ctx, body, ip, origin, meter, enterprise);
+          const outcome = await skills.submit(env, ctx, body, ip, origin, meter, enterprise || internalEndpoint);
           const ms = Date.now() - started;
           if (outcome.accepted) {
             return json({ accepted: true, url: outcome.url, raw: `${outcome.url}.md`, skill: skills.skillJson(outcome.skill, origin), ms }, 201, { location: outcome.url, "cache-control": "no-store" });
@@ -1696,11 +1722,8 @@ const worker = {
       if (wantsHtml) return html(homeHtml({ signedIn }), 200, link);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
-    // The front page with the sidebar already open. curl gets told where the chat is.
-    if (req.method === "GET" && path === "chat") {
-      if (wantsHtml) return html(homeHtml({ chat: true, signedIn }), 200, { link: LINKS(origin) });
-      return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
-    }
+    if (req.method === "GET" && path === "chat") return notFound(req, origin);
+
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
       if (url.searchParams.get("format") === "json" || (/\bapplication\/json\b/.test(accept) && !wantsHtml)) {
         return json(VS_JEV, 200, { vary: "accept", ...CACHE_HOUR });
@@ -1818,7 +1841,7 @@ const worker = {
       return json({ error: "Account classification supports POST /v1/classify.", code: "account_route_required" }, 400,
         { "cache-control": "no-store" });
     }
-    if (!enterprise && !account && req.headers.has("authorization")) {
+    if (!enterprise && !account && !execution?.internal && req.headers.has("authorization")) {
       return json({ error: "Invalid API key. Create a workspace key at /app/keys.", code: "invalid_api_key" }, 401, { "cache-control": "no-store", "x-api-version": API_VERSION });
     }
     const multiplier = account?.multiplier ?? 1;

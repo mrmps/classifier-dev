@@ -36,5 +36,5 @@ test("Smart adds only actual escalation usage, without a tier fee or double-coun
 test("unpriced fallback, gateway and changed model versions never inherit a guessed price", () => {
   expect(priceTokens(card, [{ ...jev(1), model: "jev-new" }])).toBeNull();
   expect(priceTokens(card, [{ ...jev(1), provider: "vercel", model: "jev@vercel" }])).toBeNull();
-  expect(priceTokens(card, [{ ...gemini(1, 1), model: "inclusionai/ling-3.0-flash" }])).toBeNull();
+  expect(priceTokens(card, [{ ...gemini(1, 1), model: "unconfigured/fallback" }])).toBeNull();
 });

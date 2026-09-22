@@ -7,6 +7,13 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: spending-test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -23,6 +30,10 @@ jobs:
           NEON_MIGRATION_TEST_URL: ${{ secrets.NEON_MIGRATION_TEST_URL }}
       - run: node --test
         working-directory: cli
+      - name: Verify paid reservations with concurrent PostgreSQL connections
+        run: bun test tests/spending.e2e.test.ts
+        env:
+          POSTGRES_TEST_URL: postgres://postgres:spending-test@localhost:5432/postgres
       - name: Render secret-free build configuration
         env:
           CLOUDFLARE_ACCOUNT_ID: "00000000000000000000000000000000"
@@ -31,3 +42,10 @@ jobs:
         run: node .github/render-wrangler.mjs
       - name: Build application
         run: npm run build
+      - name: Verify spending through the built Worker and real Durable Objects
+        run: npm run test:e2e:spending
+      - name: Save spending verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: spending-e2e
+          path: captures/spending-e2e.json

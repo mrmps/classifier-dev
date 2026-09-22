@@ -1,3 +1,4 @@
+import { SPENDING_ERROR_CODES } from "./spending/policy";
 import { DIMENSIONS_SCHEMA } from "./dimensions";
 import { ACCOUNT_PATHS } from "./account-openapi";
 import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
@@ -10,6 +11,7 @@ import { MAX_DESIRED_LATENCY_MS, MIN_DESIRED_LATENCY_MS, ROADMAP, ROADMAP_KEYS }
  * carry the upstream HTTP status and are described by the pattern below.
  */
 export const ERROR_CODES = [
+  ...SPENDING_ERROR_CODES,
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
@@ -57,7 +59,7 @@ const TYPESAFE_REQUEST_ID_HEADER = {
 };
 const ACCOUNT_BILLING_HEADERS = {
   "x-request-id": { schema: { type: "string" }, description: "Workspace usage request ID. Present when a classifier_agent_ key is used." },
-  "x-billing-status": { schema: { type: "string", enum: ["settled", "refunded", "review"] }, description: "Workspace charge result. Present when a classifier_agent_ key is used." },
+  "x-billing-status": { schema: { type: "string", enum: ["pending", "settled", "refunded", "review"] }, description: "Workspace charge result. Present when a classifier_agent_ key is used." },
 };
 const TYPESAFE_ENTRY = {
   anyOf: [
@@ -176,7 +178,6 @@ export const OPENAPI = {
     { name: "classify", description: "Sort texts into labels, with a calibrated confidence." },
     { name: "docs", description: "Documentation served over HTTP." },
     { name: "feedback", description: "Structured feedback from agents (feedback.now protocol): submit, then poll a receipt." },
-    { name: "skills", description: "Skills by agents, for agents: submit a SKILL.md for review, list the ones that passed, read one." },
   ],
   servers: [{ url: "https://classifier.dev" }],
   paths: {
@@ -246,65 +247,7 @@ export const OPENAPI = {
         },
       },
     },
-    "/v1/skills": {
-      get: {
-        operationId: "listSkills",
-        summary: "The skills that passed review, ranked",
-        description: "Every listed skill with its score, category, tags, the reviewer's one-line summary and where its raw SKILL.md is. Ranked by score, highest first. The human page is /skills.",
-        tags: ["skills"],
-        security: [],
-        responses: {
-          "200": { description: "The leaderboard.", content: { "application/json": { schema: { $ref: "#/components/schemas/SkillList" } } } },
-          ...ERRORS,
-        },
-      },
-      post: {
-        operationId: "submitSkill",
-        summary: "Submit a SKILL.md for review; listed if it passes",
-        description:
-          "Send the text of a SKILL.md (YAML front matter with name and description, then Markdown; 200 to 24,000 characters). It is reviewed in three passes, each a gate: " +
-          "a static scanner blocks instruction overrides, hidden text, credential reads, exfiltration, remote code execution, destructive and persistent commands, secrets and obfuscation; " +
-          "the decision model (Jev) scores intent, genuineness, usefulness and spam as calibrated probabilities; a reasoning model then scores safety, usefulness, novelty and clarity out of 10 with reasons. " +
-          "The answer is the review either way: 201 with the listing when accepted, 200 with {accepted: false, stage, reasons} when not, and nothing is stored on a rejection. " +
-          "Do not put instructions to the reviewer in the skill; they are treated as evidence of manipulation. 5 reviews an hour per IP, 200 a day for everyone.",
-        tags: ["skills"],
-        security: [],
-        requestBody: {
-          required: true,
-          content: { "application/json": { schema: {
-            type: "object", required: ["skill"],
-            properties: {
-              skill: { type: "string", minLength: 200, maxLength: 24000, description: "The SKILL.md text, front matter included." },
-              author: { type: "string", maxLength: 64, description: "Shown beside the listing: a handle, a name or a URL. Optional." },
-              source: { type: "string", format: "uri", maxLength: 256, description: "An https link to where the skill lives. Optional." },
-            },
-          } } },
-        },
-        responses: {
-          "201": { description: "Accepted and listed.", headers: { Location: { schema: { type: "string", format: "uri" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/SkillAccepted" } } } },
-          "200": { description: "Reviewed and not listed. `stage` says which pass refused it and `reasons` say why.", content: { "application/json": { schema: { $ref: "#/components/schemas/SkillRejected" } } } },
-          "400": err("The body is not {skill: string}, the text is too long, or `source` is not an https URL. `code` is bad_json or skill_invalid."),
-          "409": err("The same skill text is already listed; the body carries its `url`. `code` is duplicate_skill."),
-          "429": err("Over the review budget. `code` is rate_limit_hour (this IP) or rate_limit_day (everyone).", { "Retry-After": { schema: { type: "integer" } } }),
-          "503": err("A review model is unavailable; nothing was stored. `code` is review_unavailable; retry after Retry-After.", { "Retry-After": { schema: { type: "integer" } } }),
-          default: ERRORS.default,
-        },
-      },
-    },
-    "/v1/skills/{name}": {
-      get: {
-        operationId: "getSkill",
-        summary: "One listed skill, with its review and text",
-        tags: ["skills"],
-        security: [],
-        parameters: [{ name: "name", in: "path", required: true, schema: { type: "string", pattern: "^[a-z0-9-]{1,64}$" } }],
-        responses: {
-          "200": { description: "The record. `raw` is the URL of the bare SKILL.md.", content: { "application/json": { schema: { $ref: "#/components/schemas/Skill" } } } },
-          "404": err("No skill by that name. `code` is not_found."),
-          default: ERRORS.default,
-        },
-      },
-    },
+
     "/v1/health": {
       get: {
         operationId: "getHealth",
@@ -1226,6 +1169,12 @@ export const OPENAPI = {
               "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable, inference_unavailable (provider credentials are not configured).",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
+          retryable: { type: "boolean", description: "Whether retrying later can resolve a spending refusal. Use backoff and Retry-After; do not loop on false." },
+          action: { type: "string", description: "Concrete changes or next steps for the caller." },
+          docs: { type: "string", format: "uri" },
+          limitUsd: { type: "number", description: "The applicable provider spending ceiling in USD." },
+          availableUsd: { type: "number", description: "Unreserved provider allowance remaining in USD." },
+          requestId: { type: "string", description: "Original workspace operation ID on a duplicate." },
           upgrade: { type: "string", format: "uri", description: "On a free-tier 429: the page where a plan lifts this limit (https://classifier.dev/pricing). Absent on Pro and partner keys." },
           usage: { type: "string", description: "GET forms only, on a 400: the two URL shapes." },
           try: { type: "string", format: "uri", description: "GET forms only, on a 400: a URL built from what was sent that would have worked." },
@@ -1237,8 +1186,8 @@ export const OPENAPI = {
         name: "Idempotency-Key",
         in: "header",
         required: false,
-        schema: { type: "string", maxLength: 255 },
-        description: "Optional. Classification has no side effects, so any retry is already safe; the key is accepted and echoed back unchanged so generic retry logic keeps working.",
+        schema: { type: "string", maxLength: 200 },
+        description: "Optional replay protection. A previously admitted key returns 409 without executing again; responses are not cached. Free keys are scoped to the IP network and UTC day. Workspace keys are scoped to the workspace. Changing the request body does not make a used key reusable.",
       },
     },
     securitySchemes: {
@@ -1332,14 +1281,6 @@ Served from this domain via RFC 8615 discovery, no repository involved:
 [/.well-known/agent-skills/index.json](https://classifier.dev/.well-known/agent-skills/index.json)
 and [/skill.md](https://classifier.dev/skill.md), which is readable as-is.
 
-## Skills directory
-
-Skills written by agents, reviewed by a scanner, the decision model and a
-reasoning model, ranked at [/skills](https://classifier.dev/skills); JSON at
-[/v1/skills](https://classifier.dev/v1/skills), each raw at /skills/{name}.md.
-Submit one, no key: \`POST /v1/skills {"skill": "<SKILL.md text>", "author": "..."}\`.
-The answer is the review, with the reasons either way.
-
 ## Multiple dimensions
 
 POST /v1/classify with {"items":["Checkout charges me twice"],"dimensions":{"team":["billing","identity","platform"],"kind":["bug","request","question"]}}.
@@ -1380,6 +1321,13 @@ for the accepted categories and limits, then POST a report to
 needed, and the receipt you get back can be polled at \`/api/v1/receipts/{id}\`.
 
 ## Limits
+
+Free provider spending is capped at $0.01/request, $0.50/IP/UTC day and
+$100/day across all free traffic, with four concurrent requests per IP.
+IPv6 addresses share a /64. Smart requests must fit the request allowance.
+Funded workspace keys use their balance and bypass the shared subsidy and
+proxy check; the default maximum request allowance is $10. Request bodies
+are limited to 1 MB. Billing settles asynchronously after the response.
 
 Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
