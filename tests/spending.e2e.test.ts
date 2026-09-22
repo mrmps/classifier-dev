@@ -159,7 +159,7 @@ test("uncertain attempts consume allowance, retries cannot exceed a penny, and f
   expect((await worker.fetch(request(), s.env, s.ctx)).status).toBe(429);
 });
 
-test("funded HTTP classification skips Spur/free budget, reserves once, returns before settlement, and bills actual tokens", async () => {
+test("funded HTTP classification skips Spur/free budget and bills the published input-token price", async () => {
   const s = setup();
   const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
   await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
@@ -279,7 +279,7 @@ test("funded requests accept work above the free request ceiling and concurrent 
   expect((await worker.fetch(request(undefined, undefined, body), env, s.ctx)).status).toBe(402);
   const large = await accountClassification(request(undefined, undefined, body, { authorization: `Bearer ${key.secret}` }), env, "API", s.ctx);
   expect(large?.status).toBe(200); await s.flush();
-  await env.APP_DB.prepare("UPDATE app_accounts SET balance=1000,paid_balance=1000,fractional_spend_nano=0 WHERE id='local-demo'").run();
+  await env.APP_DB.prepare("UPDATE app_accounts SET balance=276,paid_balance=276,fractional_spend_nano=0 WHERE id='local-demo'").run();
   const second = await performAction("local-demo", { type: "enroll", client: "Claude" }, env);
   let release!: () => void;
   const barrier = new Promise<void>(resolve => { release = resolve; });
@@ -292,7 +292,7 @@ test("funded requests accept work above the free request ceiling and concurrent 
   expect(statuses.filter(status => status === 402)).toHaveLength(11);
   await s.flush();
   const balance = await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='local-demo'").first<{ balance: number }>();
-  expect(Number(balance!.balance)).toBe(999);
+  expect(Number(balance!.balance)).toBe(275);
   expect(s.stored.size).toBe(0);
 });
 
@@ -311,4 +311,58 @@ test.skipIf(process.env.LIVE_TOKEN_BILLING !== "true")("live TypeSafe inference 
   expect(row!.status).toBe("completed");
   expect(Number(row!.nano)).toBeGreaterThan(0);
   expect(s.stored.size).toBe(0);
+});
+
+test("Smart bills only successful escalations at the fixed price, independent of provider token usage", async () => {
+  const s = setup();
+  const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
+  await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  await env.APP_DB.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
+  const key = await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
+  globalThis.fetch = (async (_url, init) => {
+    const b = JSON.parse(String(init?.body));
+    if (b.model === "google/gemini-3.8-flash") return Response.json({ model: b.model, choices: [{ message: { content: "A" } }], usage: { prompt_tokens: 700, completion_tokens: 1000, cost: 0.004275 } });
+    return Response.json({ model: "jev-1.13.0", usage: { input_tokens: 9000, output_tokens: 0 }, answers: Object.fromEntries(Object.entries(b.questions).map(([id, q], i) => {
+      const keys = Object.keys((q as { criteria: object }).criteria); const score = i === 0 ? 0.51 : 0.99;
+      return [id, { choice: keys[0], confidence: score, probabilities: Object.fromEntries(keys.map((k, j) => [k, j ? 1-score : score])) }];
+    })) });
+  }) as typeof fetch;
+  const response = await accountClassification(request(undefined, undefined, { inputs: ["Unclear request", "Invoice", "Payment"], labels: ["billing", "support"], tier: "smart" }, { authorization: `Bearer ${key.secret}` }), env, "API", s.ctx);
+  expect(response?.status).toBe(200);
+  expect((await response!.json() as { usage: { escalated: number } }).usage.escalated).toBe(1);
+  await s.flush();
+  expect(await env.APP_DB.prepare("SELECT credits::integer AS credits,actual_nano::text AS nano,metering_mode FROM app_usage WHERE id=?").bind(response!.headers.get("x-request-id")).first()).toEqual({ credits: 238, nano: "2378000", metering_mode: "tokens" });
+});
+
+test("failed Smart reviews charge only base input and a failed request returns its entire hold", async () => {
+  const s = setup();
+  const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
+  await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  await env.APP_DB.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
+  const key = await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
+  const primary = providers();
+  const successful = globalThis.fetch;
+  globalThis.fetch = (async (url, init) => {
+    if (String(url).includes("openrouter.ai")) return Response.json({ error: "unavailable" }, { status: 403 });
+    const response = await successful(url, init);
+    const body = await response.json() as { answers: Record<string, { confidence: number }> };
+    for (const answer of Object.values(body.answers)) answer.confidence = 0.51;
+    return Response.json(body);
+  }) as typeof fetch;
+  const headers = { authorization: `Bearer ${key.secret}` };
+  const response = await accountClassification(request(undefined, undefined, { input: "Ambiguous invoice", labels: ["billing", "support"], tier: "smart" }, headers), env, "API", s.ctx);
+  expect(response?.status).toBe(200);
+  expect(response!.headers.get("x-usage-cost-usd")).toBe("0.000004200");
+  const body = await response!.json() as { usage: { escalated: number; escalation_failed: number } };
+  expect(body.usage.escalated).toBe(0);
+  expect(body.usage.escalation_failed).toBe(1);
+  await s.flush();
+  expect(primary).toHaveLength(1);
+  const before = await env.APP_DB.prepare("SELECT balance::text FROM app_accounts WHERE id='local-demo'").first();
+  globalThis.fetch = (async () => Response.json({ detail: { error_type: "insufficient_credits" } }, { status: 402 })) as typeof fetch;
+  const failed = await accountClassification(request(undefined, "/v1/systemone", { model: "jev-latest", state: [], questions: {} }, headers), env, "API", s.ctx);
+  expect(failed?.status).toBe(402);
+  await s.flush();
+  expect(await env.APP_DB.prepare("SELECT balance::text FROM app_accounts WHERE id='local-demo'").first()).toEqual(before);
+  expect(await env.APP_DB.prepare("SELECT status FROM app_usage WHERE id=?").bind(failed!.headers.get("x-request-id")).first()).toEqual({ status: "refunded" });
 });

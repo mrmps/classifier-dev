@@ -89,9 +89,9 @@ test("hosted dashboard never scans the usage ledger and renders loading rather t
       navigate() {},
     }),
   );
-  expect(plans).toContain("Token prices");
+  expect(plans).toContain("Simple usage prices");
   expect(plans).toContain("$0.042");
-  expect(plans).toContain("$4.5");
+  expect(plans).toContain("+$2.00 / 1,000");
   expect(plans).not.toContain("Upgrade to Max");
   expect(plans).not.toContain("Upgrade to Scale");
 });

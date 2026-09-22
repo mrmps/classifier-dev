@@ -108,6 +108,8 @@ export const app_usage = pgTable("app_usage", {
 	actual_nano: bigint({ mode: "bigint" }),
 	rate_version: text(),
 	metering_mode: text().default('credits').notNull(),
+	classifications: integer(),
+	escalations: integer(),
 	reporting_status: text().default('not_ready').notNull(),
 }, (table) => [
 	index("app_usage_account").using("btree", table.account_id.asc().nullsLast().op("text_ops"), table.created_at.asc().nullsLast().op("text_ops")),
@@ -124,6 +126,8 @@ export const app_usage = pgTable("app_usage", {
 			name: "app_usage_agent_id_fkey"
 		}),
 	check("app_usage_actual_nano_check", sql`actual_nano >= 0`),
+	check("app_usage_classifications_check", sql`classifications >= 0`),
+	check("app_usage_escalations_check", sql`escalations >= 0`),
 	check("app_usage_metering_mode_check", sql`metering_mode = ANY (ARRAY['credits'::text, 'tokens'::text, 'legacy'::text])`),
 	check("app_usage_reporting_status_check", sql`reporting_status = ANY (ARRAY['not_ready'::text, 'review'::text, 'pending'::text, 'reported'::text, 'exempt'::text])`),
 ]);
