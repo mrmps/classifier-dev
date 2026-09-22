@@ -651,6 +651,7 @@ async function callModel(
         signal: AbortSignal.timeout(cfg.reasoning ? 60_000 : 15_000),
       });
     } catch (e) {
+      if (e instanceof SpendingError) throw e;
       const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
       last = timeout ? "upstream timeout" : "upstream network failure";
       if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
@@ -742,6 +743,7 @@ async function runChain(
     try {
       return await callModel(env, cfg, input, labels, instructions, multi, meter);
     } catch (e) {
+      if (e instanceof SpendingError) throw e;
       last = e;
     }
   }
@@ -959,7 +961,7 @@ async function classifyMany(
         jev = await (layaRun ?? startLaya(env, layaPlan, meter, layaTiming));
       } else jev = await jevClassify(keys!, inputs, labels, instructions, !!multi, meter);
     } catch (e) {
-      if (layaPlan) throw e;
+      if (layaPlan || e instanceof SpendingError || meter?.permit?.error) throw meter?.permit?.error ?? e;
       console.warn(`jev failed, falling back: ${(e as Error).message}`);
     }
     if (jev) {
@@ -994,7 +996,7 @@ async function classifyMany(
       return { results, escalationFailed };
     }
   }
-  if (inputs.length > FALLBACK_MAX_INPUTS) {
+  if (!meter?.permit && inputs.length > FALLBACK_MAX_INPUTS) {
     throw new Error(`batch classification is temporarily unavailable; send up to ${FALLBACK_MAX_INPUTS} inputs or retry shortly`);
   }
   return { results: await llmClassifyMany(env, inputs, labels, tier, instructions, multi, meter), escalationFailed: 0 };
@@ -1010,9 +1012,12 @@ async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[
     jev = inputs.map((_, i) => flat.slice(i * dimensions.length, (i + 1) * dimensions.length));
   } else if (keys) {
     try { jev = await classifyDimensions(keys, batches, meter); }
-    catch (e) { console.warn(`dimensions Jev failed: ${(e as Error).message}`); }
+    catch (e) {
+      if (e instanceof SpendingError || meter.permit?.error) throw meter.permit?.error ?? e;
+      console.warn(`dimensions Jev failed: ${(e as Error).message}`);
+    }
   }
-  if (!jev && inputs.length * dimensions.length > FALLBACK_MAX_INPUTS) {
+  if (!jev && !meter.permit && inputs.length * dimensions.length > FALLBACK_MAX_INPUTS) {
     throw new Error(`batch classification is temporarily unavailable; send up to ${FALLBACK_MAX_INPUTS} decisions or retry shortly`);
   }
   const results: Result[][] = inputs.map(() => []);
@@ -1873,8 +1878,8 @@ const worker = {
 
     // Every API answer, success or not, says which version answered, how much
     // room is left (IETF RateLimit header fields), and echoes an idempotency
-    // key if the caller sent one — classification has no side effects, so the
-    // echo is all a retrying client needs.
+    // key if the caller sent one. Spending admission rejects duplicate work;
+    // responses are not cached for replay.
     const apiHeaders = (remaining = -1): Record<string, string> => {
       const isLaya = selectedModel !== "jev";
       const limit = isLaya ? Math.min(LAYA_LIMITS[processing].rpm, TIERS[tier].rpm * multiplier) : TIERS[tier].rpm * multiplier;
@@ -1893,7 +1898,7 @@ const worker = {
       if (idem) h["idempotency-key"] = idem.slice(0, 255);
       return h;
     };
-    const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, string> = {}) => {
+    const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, unknown> = {}) => {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : layaModel(selectedModel),
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
@@ -2128,7 +2133,14 @@ const worker = {
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
       } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun));
+      if (meter.permit?.error) throw meter.permit.error;
     } catch (e) {
+      const spending = e instanceof SpendingError ? e : meter.permit?.error;
+      if (spending) {
+        const response = errorResponse(spending);
+        return fail(spending.message, spending.status, spending.code as ErrorCode,
+          Object.fromEntries(response.headers), Date.now() - started, -1, await response.json() as Record<string, unknown>);
+      }
       if (e instanceof LayaError) return fail(e.message, e.status,
         e.status === 400 ? "laya_input" : e.status === 429 ? "laya_rate_limit" : "laya_unavailable",
         e.status === 400 ? {} : { "retry-after": String(e.retryAfter) }, Date.now() - started);

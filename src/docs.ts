@@ -314,8 +314,8 @@ MULTIPLE DIMENSIONS
   Confidence and scores can also be null when the provider returns no score.
 
   usage reports items, dimensions, classifications (decisions), escalated,
-  fallback, and ms. If Jev is unavailable, the LLM fallback accepts at most
-  20 decisions; larger requests return 502 batch_unavailable. A failed field
+  fallback, and ms. If Jev is unavailable, fallback processes the batch with
+  bounded concurrency inside the same request spending allowance. A failed field
   fails the whole request rather than returning an incomplete matrix.
 
 
@@ -428,7 +428,7 @@ TIERS
 
   The models are not fixed. They are benchmarked as candidates appear and
   swapped when a measurement, not a launch post, says to. If the decision
-  model is unavailable, requests of up to twenty inputs fall back to a chain of
+  model is unavailable, requests fall back within their spending allowance to a chain of
   language models on different providers; JSON responses always report which
   model actually answered.
 
@@ -478,8 +478,9 @@ ERRORS
         the limit (https://classifier.dev/pricing)
   502   typesafe or typesafe_<status> when the decision model failed;
         openrouter_<status>, chain_exhausted or timeout when the fallback
-        chain did; batch_unavailable for more than twenty inputs while the
-        decision model is down; upstream_other. Retry with backoff.
+        chain did; upstream_other. Retry with backoff.
+  402   request_spending_limit: send fewer or shorter inputs, or use a funded
+        workspace key. Do not repeatedly retry an unchanged over-budget request.
 
   The full list, in the shape a client can validate against, is
   components.schemas.Error in https://classifier.dev/openapi.json

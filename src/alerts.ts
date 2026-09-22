@@ -257,7 +257,7 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
     alerts.push({
       id: "dimensions_fallback", severity: "warning",
       title: "Multidimensional classification is using the LLM fallback",
-      detail: `${dimensionFallback} fields used the fallback in the last ${WINDOW_MIN}m. Check Jev availability; requests above 20 decisions cannot use this fallback.`,
+      detail: `${dimensionFallback} fields used the fallback in the last ${WINDOW_MIN}m. Check Jev availability. Fallback uses bounded concurrency and the request spending allowance.`,
     });
   }
 

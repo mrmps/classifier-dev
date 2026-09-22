@@ -124,7 +124,7 @@ const errors = (plain: boolean) => ({
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
     ...RATE_LIMIT_HEADERS,
   }, plain),
-  "502": err("The model provider failed after retries; retry with backoff. `code` is typesafe_<status> or typesafe (the decision model), openrouter_<status>, chain_exhausted or timeout (the fallback chain), batch_unavailable (more than 20 inputs while the decision model is down) or upstream_other.", RATE_LIMIT_HEADERS, plain),
+  "502": err("The model provider failed after retries; retry with backoff. `code` is typesafe_<status> or typesafe (the decision model), openrouter_<status>, chain_exhausted or timeout (the fallback chain), batch_unavailable or upstream_other. Fallback remains bounded by the request spending allowance.", RATE_LIMIT_HEADERS, plain),
   default: err("Any other error, same {error, code} shape.", undefined, plain),
 });
 const ERRORS = errors(false);
@@ -1291,8 +1291,8 @@ Each results[i].dimensions[name] has a label, confidence, scores and model.
 Up to 20 dimensions and 1,000 item × dimension decisions; each decision counts
 against the quota. Each dimension may instead be {"labels":[...],"instructions":"..."}.
 Do not combine dimensions with labels, multi or max_labels. Smart escalation is
-per field; escalated fields have null confidence and scores. LLM fallback is
-limited to 20 decisions; larger requests return 502 if Jev is unavailable.
+per field; escalated fields have null confidence and scores. Fallback processes
+the batch with bounded concurrency inside the same request spending allowance.
 
 ## Multi-label
 

@@ -1,4 +1,5 @@
 import { providerFetch } from "./spending/permit";
+import { SpendingError } from "./spending/policy";
 /**
  * TypeSafe's Jev, the model behind both tiers.
  *
@@ -515,6 +516,7 @@ async function postBeam(key: string, body: JevBody, backend: Backend, meter?: Me
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]) : AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
     } catch (e) {
+      if (e instanceof SpendingError) throw e;
       const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
       observe(timeout ? 504 : 0, timeout ? "timeout" : "network");
       last = new JevError(`beam ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
@@ -584,6 +586,7 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
     } catch (e) {
+      if (e instanceof SpendingError) throw e;
       const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
       observe(timeout ? 504 : 0, timeout ? "timeout" : "network");
       last = new JevError(`typesafe ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");

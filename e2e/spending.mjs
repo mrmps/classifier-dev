@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const report = { runtime: 'workerd + SQLite Durable Objects', upstream: 'deterministic HTTP provider fixtures; no live inference', results: [] };
 await mkdir('captures', { recursive: true });
 
-let calls = 0, lookups = 0, release;
+let calls = 0, lookups = 0, release, jevUnavailable = false;
 let barrier = Promise.resolve();
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => p.endsWith('.js')).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
@@ -15,7 +15,8 @@ const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending
     if (request.url.startsWith('https://api.spur.us/')) { lookups++; return WorkerResponse.json({}); }
     calls++; await barrier;
     const body = await request.json();
-    if (request.url.includes('openrouter.ai')) return WorkerResponse.json({ model: body.model, usage: { cost: 0.0007125, prompt_tokens: 200, completion_tokens: 150, prompt_tokens_details: { cached_tokens: 0 } }, choices: [{ message: { content: 'A' } }] });
+    if (jevUnavailable && request.url.includes('typesafe.ai')) return WorkerResponse.json({ detail: { error_type: 'insufficient_credits' } }, { status: 402 });
+    if (request.url.includes('openrouter.ai')) return WorkerResponse.json({ model: body.model, usage: { cost: jevUnavailable ? 0.000001812 : 0.0007125, prompt_tokens: jevUnavailable ? 100 : 200, completion_tokens: jevUnavailable ? 1 : 150, prompt_tokens_details: { cached_tokens: 0 } }, choices: [{ message: { content: 'A' } }] });
     const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => { const keys = Object.keys(q.criteria); return [id, { choice: keys[0], confidence: 0.51, probabilities: Object.fromEntries(keys.map((k, i) => [k, i ? 0.49 : 0.51])) }]; }));
     return WorkerResponse.json({ model: 'jev-1.13.0', usage: { input_tokens: 100, output_tokens: 0 }, answers });
   },
@@ -45,6 +46,12 @@ try {
   const duplicate = await request('203.0.113.4', undefined, undefined, { 'idempotency-key': 'one' });
   assert.equal(duplicate.status, 409);
   report.results.push({ name: 'durable idempotency', first: first.status, duplicate: duplicate.status });
+  jevUnavailable = true;
+  const recovered = await request('203.0.113.5', { inputs: Array(119).fill('Invoice'), labels: ['billing', 'support'] });
+  assert.equal(recovered.status, 200);
+  const recoveredBody = await recovered.json();
+  assert.equal(recoveredBody.results.length, 119);
+  report.results.push({ name: '119-item batch during primary outage', status: recovered.status, results: recoveredBody.results.length });
   await writeFile('captures/spending-e2e.json', JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } finally { await mf.dispose(); }

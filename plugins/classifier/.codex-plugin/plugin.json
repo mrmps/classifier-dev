@@ -1,6 +1,6 @@
 {
   "name": "classifier",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sort up to 1,000 texts into your own labels in one call, with a calibrated confidence per answer. No API key.",
   "author": {
     "name": "Michael Ryaboy",

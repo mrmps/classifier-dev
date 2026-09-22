@@ -619,7 +619,7 @@ const JSON_LD = () => {
         {
           "@type": "Question",
           name: "When should an agent call classifier.dev instead of classifying text itself?",
-          acceptedAnswer: { "@type": "Answer", text: "When reading the input is the expensive part: filtering search results before opening them, bucketing logs or tickets, routing a pipeline branch deterministically. One request classifies up to 1,000 texts in about a second. Under about five items you can already see, just decide yourself." },
+          acceptedAnswer: { "@type": "Answer", text: "When reading the input is the expensive part: filtering search results before opening them, bucketing logs or tickets, routing a pipeline branch by label. One request classifies up to 1,000 texts in about a second. Under about five items you can already see, just decide yourself." },
         },
         {
           "@type": "Question",
