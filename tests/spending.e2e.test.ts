@@ -1,11 +1,38 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
+import { SQL } from "bun";
+import { readFileSync, readdirSync } from "node:fs";
 import worker, { type Env } from "../src/index";
 import { FreeBudget } from "../src/spending/free-budget";
-import { database } from "./support/postgres";
+import { database as portableDatabase } from "./support/postgres";
 import { provisionTestAccount } from "./support/account";
 import { performAction } from "../src/server/agents";
 import { accountClassification } from "../src/http/classification";
-import type { AppEnv } from "../src/server/db";
+import { postgresDatabase, type AppEnv } from "../src/server/db";
+
+function database() {
+  if (!process.env.POSTGRES_TEST_URL) return portableDatabase();
+  const sql = new SQL(process.env.POSTGRES_TEST_URL, { max: 16 });
+  const schema = `spending_${crypto.randomUUID().replaceAll("-", "")}`;
+  const ready = sql.begin(async connection => {
+    await connection.unsafe(`CREATE SCHEMA ${schema}; SET LOCAL search_path TO ${schema}`).simple();
+    const directory = new URL("../migrations/postgres/", import.meta.url);
+    for (const name of readdirSync(directory).filter(name => name.endsWith(".sql")).sort())
+      await connection.unsafe(readFileSync(new URL(name, directory), "utf8")).simple();
+  });
+  afterAll(async () => { await ready; await sql.unsafe(`DROP SCHEMA ${schema} CASCADE`); await sql.close(); });
+  return postgresDatabase(async queries => {
+    await ready;
+    return sql.begin("ISOLATION LEVEL READ COMMITTED", async connection => {
+      await connection.unsafe(`SET LOCAL search_path TO ${schema}`);
+      const results = [];
+      for (const query of queries) {
+        const rows = await connection.unsafe(query.sql, query.params);
+        results.push({ results: Array.from(rows), meta: { changes: rows.count } });
+      }
+      return results;
+    });
+  });
+}
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -164,6 +191,48 @@ test("ordinary smart inference escalates to Gemini within the free allowance", a
   await s.flush();
 });
 
+test("an explicit provider credit refusal leaves the free allowance available for smart fallback", async () => {
+  const s = setup();
+  const calls: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    if (String(url).startsWith("https://api.spur.us/")) return Response.json({});
+    const b = JSON.parse(String(init?.body)); calls.push(b.model);
+    if (String(url).includes("typesafe.ai")) return Response.json({ detail: { error_type: "insufficient_credits" } }, { status: 402 });
+    return Response.json({ model: b.model, choices: [{ message: { content: "A" } }], usage: { prompt_tokens: 200, completion_tokens: 150, cost: 0.0007125 } });
+  }) as typeof fetch;
+  const r = await worker.fetch(request(undefined, undefined, { inputs: ["Please help me with my invoice"], labels: ["billing", "support"], tier: "smart" }), s.env, s.ctx);
+  expect(r.status).toBe(200);
+  expect(calls).toContain("google/gemini-3.8-flash");
+  await s.flush();
+});
+
+test("a Spur outage fails closed and repeated callers do not exhaust its lookup budget", async () => {
+  const s = setup(); let calls = 0;
+  globalThis.fetch = (async () => { calls++; return Response.json({}, { status: 503 }); }) as typeof fetch;
+  for (let i = 0; i < 3; i++) {
+    const response = await worker.fetch(request(), s.env, s.ctx);
+    expect(response.status).toBe(503);
+    expect((await response.json() as { code: string }).code).toBe("reputation_unavailable");
+  }
+  expect(calls).toBe(1);
+});
+
+test("operator alert previews expose exhausted subsidy and unresolved billing without caller data", async () => {
+  const s = setup({ REPORT_KEY: "operator", FREE_DAILY_USD: "0.01" });
+  const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
+  await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
+  await env.APP_DB.prepare("INSERT INTO app_usage(id,account_id,agent_id,items,credits,status,created_at,metering_mode) SELECT 'lost',account_id,id,1,100,'pending',?,'tokens' FROM app_agents WHERE account_id='local-demo' LIMIT 1").bind(new Date(Date.now()-600000).toISOString()).run();
+  providers();
+  const stub = s.env.FREE_BUDGET!.get(s.env.FREE_BUDGET!.idFromName("one"));
+  expect((await stub.fetch("https://budget/reserve", { method: "POST", body: JSON.stringify({ ip: "203.0.113.1" }) })).status).toBe(200);
+  const response = await worker.fetch(new Request("https://classifier.dev/alerts", { headers: { authorization: "Bearer operator" } }), env, s.ctx);
+  const message = await response.text();
+  expect(message).toContain("free spending pool");
+  expect(message).toContain("billing reservations need review");
+  expect(message).not.toContain("203.0.113.1");
+});
+
 test("chat and skill APIs require the internal secret, including for paid and enterprise callers", async () => {
   const s = setup({ INTERNAL_API_KEY: "internal-only", ENTERPRISE_API_KEY: "external-enterprise" });
   const calls = providers();
@@ -174,4 +243,55 @@ test("chat and skill APIs require the internal secret, including for paid and en
   }
   expect(calls).toHaveLength(0);
   expect((await worker.fetch(request(undefined, "/v1/chat", {}, { authorization: "Bearer internal-only" }), s.env, s.ctx)).status).toBe(400);
+});
+
+test("budget errors teach agents when to retry and when to change the request", async () => {
+  const s = setup({ FREE_DAILY_USD: '0.005' }); providers();
+  const response = await worker.fetch(request(), s.env, s.ctx);
+  const error = await response.json() as Record<string, unknown>;
+  expect(response.status).toBe(429);
+  expect(error.code).toBe('free_daily_budget');
+  expect(error.action).toContain('funded');
+  expect(error.docs).toBe('https://classifier.dev/developers');
+  expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+});
+
+test("a current paid subscription uses its paid allowance without a purchased top-up", async () => {
+  const s = setup();
+  const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: 'true', API_KEY_ENCRYPTION_KEY: 'test-only-key-encryption-secret-32-characters' } as Env & AppEnv;
+  await provisionTestAccount(new Request('http://localhost/auth/demo', { headers: { origin: 'http://localhost' } }), env);
+  await env.APP_DB.prepare("UPDATE app_accounts SET billing_plan='pro',reset_at=?,paid_balance=0 WHERE id='local-demo'").bind(new Date(Date.now()+86400000).toISOString()).run();
+  const key = await performAction('local-demo', { type: 'enroll', client: 'Codex' }, env);
+  providers();
+  const response = await accountClassification(request(undefined, undefined, undefined, { authorization: `Bearer ${key.secret}` }), env, 'API', s.ctx);
+  expect(response?.status).toBe(200); await s.flush();
+  expect(s.stored.size).toBe(0);
+});
+
+test("funded requests accept work above the free request ceiling and concurrent keys share one balance", async () => {
+  const s = setup();
+  const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
+  await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  await env.APP_DB.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
+  const key = await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
+  providers();
+  const body = { inputs: ["invoice ".repeat(2000)], labels: ["billing", "support"], tier: "smart" };
+  expect((await worker.fetch(request(undefined, undefined, body), env, s.ctx)).status).toBe(402);
+  const large = await accountClassification(request(undefined, undefined, body, { authorization: `Bearer ${key.secret}` }), env, "API", s.ctx);
+  expect(large?.status).toBe(200); await s.flush();
+  await env.APP_DB.prepare("UPDATE app_accounts SET balance=1000,paid_balance=1000,fractional_spend_nano=0 WHERE id='local-demo'").run();
+  const second = await performAction("local-demo", { type: "enroll", client: "Claude" }, env);
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  const calls = providers(() => barrier);
+  const running = Array.from({ length: 12 }, (_, i) => accountClassification(request(undefined, undefined, undefined, { authorization: `Bearer ${i % 2 ? key.secret : second.secret}` }), env, "API", s.ctx));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  expect(calls).toHaveLength(1); release();
+  const statuses = (await Promise.all(running)).map(r => r?.status);
+  expect(statuses.filter(status => status === 200)).toHaveLength(1);
+  expect(statuses.filter(status => status === 402)).toHaveLength(11);
+  await s.flush();
+  const balance = await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='local-demo'").first<{ balance: number }>();
+  expect(Number(balance!.balance)).toBe(999);
+  expect(s.stored.size).toBe(0);
 });

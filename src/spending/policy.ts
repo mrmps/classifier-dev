@@ -15,7 +15,7 @@ export interface SpendingEnv extends PrivacyEnv {
   SPUR_MONTHLY_LOOKUPS?: string;
 }
 export class SpendingError extends Error {
-  constructor(public status: number, public code: string, message: string) { super(message); }
+  constructor(public status: number, public code: string, message: string, public details: Record<string, unknown> = {}) { super(message); }
 }
 export function setting(value: string | undefined, fallback: number): number {
   const n = value === undefined ? fallback : Number(value);
@@ -91,6 +91,19 @@ export async function fingerprint(env: SpendingEnv, value: string): Promise<stri
   const key = await crypto.subtle.importKey("raw", enc.encode(salt), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(value)))].map(v => v.toString(16).padStart(2, "0")).join("");
 }
+export const SPENDING_ERROR_CODES = ["free_daily_budget", "free_ip_daily_budget", "free_ip_concurrency", "free_capacity", "request_spending_limit", "request_finished", "unpriced_model", "caller_identity", "spending_configuration", "spending_unavailable", "reputation_unavailable", "reputation_budget", "proxy_requires_payment", "duplicate_request", "invalid_settlement", "payload_too_large", "invalid_request", "insufficient_balance", "invalid_api_key", "inactive_api_key"] as const;
 export function errorResponse(error: SpendingError): Response {
-  return Response.json({ error: error.message, code: error.code }, { status: error.status, headers: { "cache-control": "no-store", "access-control-allow-origin": "*", ...(error.status === 429 || error.status === 503 ? { "retry-after": "60" } : {}) } });
+  const retryable = (error.status === 429 || error.status === 503) && !["reputation_budget", "spending_configuration", "unpriced_model"].includes(error.code);
+  const retryAfter = retryable ? Number(error.details.retryAfter ?? 60) : undefined;
+  const action = error.code === "duplicate_request" ? "Do not repeat this operation with a new key: it may already have run. Use the original response or request ID. Cached responses are not stored."
+    : error.code === "payload_too_large" || error.code === "request_spending_limit" ? "Split the batch, shorten input text, labels or instructions, or use a funded workspace API key. Repeating the same request will not increase its allowance."
+    : error.code === "insufficient_balance" ? "Wait for in-flight reservations to settle, add funds at https://classifier.dev/app/billing, or contact support with the request ID if billing is under review."
+    : error.code === "caller_identity" ? "Send the request directly to https://classifier.dev, or use a funded workspace key. Caller-supplied forwarding headers cannot establish a free allowance."
+    : error.code === "invalid_api_key" || error.code === "inactive_api_key" ? "Use an active workspace key from https://classifier.dev/app/keys in the Authorization: Bearer header."
+    : error.code === "unpriced_model" ? "Choose a documented model. The TypeSafe-compatible endpoint accepts jev-1.13.0 and jev-latest."
+    : error.code === "free_ip_concurrency" || error.code === "free_capacity" ? "Wait for in-flight requests to finish, then retry with backoff. Use a funded workspace key for a separate paid allowance."
+    : "Use a funded workspace API key to continue outside the shared free allowance.";
+  return Response.json({ error: error.message, code: error.code, retryable, action, docs: "https://classifier.dev/developers", ...error.details }, {
+    status: error.status, headers: { "cache-control": "no-store", "access-control-allow-origin": "*", ...(retryAfter === undefined ? {} : { "retry-after": String(Math.max(1, Math.ceil(retryAfter))) }) },
+  });
 }

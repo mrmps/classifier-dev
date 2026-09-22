@@ -273,7 +273,7 @@ export function Plans({
               {retailRates.models.map((rate) => (
                 <tr key={rate.model} className="border-t border-border">
                   <th scope="row" className="p-4 font-medium">
-                    {rate.provider === "typesafe" ? "Jev" : rate.provider === "openrouter" ? "Gemini escalation" : rate.model}
+                    {rate.provider === "typesafe" ? "Jev" : rate.model === "google/gemini-3.8-flash" ? "Gemini escalation" : rate.model}
                   </th>
                   {[
                     rate.inputUsdPerMillion,

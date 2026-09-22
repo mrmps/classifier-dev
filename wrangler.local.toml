@@ -31,6 +31,7 @@ binding = "ACCOUNT_AE"
 dataset = "classifier_account_events"
 
 [vars]
+SPENDING_ENABLED = "true"
 APP_ACCOUNTS_ENABLED = "true"
 # Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.
 AI_GATEWAY_DISABLED = "true"
@@ -61,3 +62,11 @@ new_sqlite_classes = ["BillingAccount"]
 [[migrations]]
 tag = "v3-workspace-billing"
 deleted_classes = ["BillingAccount"]
+
+[[durable_objects.bindings]]
+name = "FREE_BUDGET"
+class_name = "FreeBudget"
+
+[[migrations]]
+tag = "v5-free-spending"
+new_sqlite_classes = ["FreeBudget"]

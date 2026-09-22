@@ -1,4 +1,4 @@
-import { newMeter, type Meter } from "../cost";
+import type { Meter } from "../cost";
 import { Permit } from "./permit";
 import { SpendingError, errorResponse, network, policy, type SpendingEnv } from "./policy";
 export { FreeBudget } from "./free-budget";
@@ -17,10 +17,10 @@ export async function withFreeSpending(request: Request, env: SpendingEnv, ctx: 
     const response = await stub().fetch("https://budget/reserve", { method: "POST", body: JSON.stringify({ ip, idempotency: request.headers.get("idempotency-key") ?? undefined }) });
     if (!response.ok) {
       const error = await response.json() as { error: string; code: string };
-      throw new SpendingError(response.status, error.code, error.error);
+      throw new SpendingError(response.status, error.code, error.error, error);
     }
     hold = await response.json();
-    meter.permit = new Permit(hold!.amount, hold!.expires);
+    meter.permit = new Permit(hold!.amount, hold!.expires, meter.accountAllowance);
   })();
   try {
     const result = await execute();
@@ -48,6 +48,8 @@ export async function withFreeSpending(request: Request, env: SpendingEnv, ctx: 
   }
 }
 export async function boundedRequest(request: Request): Promise<Request> {
+  if ((request.headers.get("idempotency-key")?.length ?? 0) > 200)
+    throw new SpendingError(400, "invalid_request", "Idempotency-Key must contain at most 200 characters.");
   if (!request.body) return request;
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];

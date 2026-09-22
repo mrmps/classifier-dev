@@ -9,6 +9,15 @@ export class FreeBudget {
   async fetch(request: Request): Promise<Response> {
     try {
       if (await this.state.storage.getAlarm() === null) await this.state.storage.setAlarm(Date.now() + 86400000);
+      if (new URL(request.url).pathname === "/status") {
+        const limits = policy(this.env);
+        const day = new Date().toISOString().slice(0, 10);
+        const oldest = new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
+        const total = await this.state.storage.get<Total>(`total:${day}`) ?? empty();
+        const counts = await this.state.storage.list<number>({ prefix: "spur:" });
+        return Response.json({ used: total.spent, limit: limits.daily,
+          lookups: [...counts].filter(([key]) => key.slice(5) >= oldest).reduce((sum, [, value]) => sum + value, 0), lookupLimit: limits.spurMonthly });
+      }
       const body = await request.json() as Record<string, unknown>;
       if (new URL(request.url).pathname === "/settle") {
         await this.settle(String(body.id), Number(body.used));
@@ -22,27 +31,38 @@ export class FreeBudget {
   private async reputation(ip: string, owner: string): Promise<boolean> {
     const existing = this.lookups.get(owner);
     if (existing) return existing;
+    if (this.lookups.size >= policy(this.env).concurrency) throw new SpendingError(503, "reputation_unavailable", "Free access verification is at capacity.");
     const run = this.lookup(ip, owner);
     this.lookups.set(owner, run);
     try { return await run; } finally { this.lookups.delete(owner); }
   }
   private async lookup(ip: string, owner: string): Promise<boolean> {
     const key = `rep:${owner}`;
-    const cached = await this.state.storage.get<{ allowed: boolean; expires: number }>(key);
-    if (cached && cached.expires > Date.now()) return cached.allowed;
+    const cached = await this.state.storage.get<{ allowed: boolean | null; expires: number }>(key);
+    if (cached && cached.expires > Date.now()) {
+      if (cached.allowed === null) throw new SpendingError(503, "reputation_unavailable", "Free access verification is temporarily unavailable.", { retryAfter: 30 });
+      return cached.allowed;
+    }
     if (!this.env.SPUR_API_KEY) throw new SpendingError(503, "reputation_unavailable", "Free access verification is unavailable; use a funded API key.");
-    const month = new Date().toISOString().slice(0, 7);
+    const day = new Date().toISOString().slice(0, 10);
+    const oldest = new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
     await this.state.storage.transaction(async tx => {
-      const used = await tx.get<number>(`spur:${month}`) ?? 0;
+      const counts = await tx.list<number>({ prefix: "spur:" });
+      const used = [...counts].filter(([key]) => key.slice(5) >= oldest).reduce((sum, [, value]) => sum + value, 0);
       if (used >= policy(this.env).spurMonthly) throw new SpendingError(503, "reputation_budget", "Free access verification is at capacity; use a funded API key.");
-      await tx.put(`spur:${month}`, used + 1);
+      await tx.put(`spur:${day}`, (counts.get(`spur:${day}`) ?? 0) + 1);
     });
-    const response = await fetch(`https://api.spur.us/v2/context/${encodeURIComponent(ip)}`, { headers: { Token: this.env.SPUR_API_KEY }, signal: AbortSignal.timeout(1500) });
-    if (!response.ok) throw new SpendingError(503, "reputation_unavailable", "Free access verification is unavailable; use a funded API key.");
-    const context = await response.json() as { tunnels?: { anonymous?: boolean; categories?: string[] }[]; risks?: string[]; client?: { proxies?: unknown[] } };
-    const allowed = !context.tunnels?.some(t => t.anonymous === true || t.categories?.includes("RESIDENTIAL_PROXY")) && !context.risks?.includes("CALLBACK_PROXY") && !context.client?.proxies?.length;
-    await this.state.storage.put(key, { allowed: !!allowed, expires: Date.now() + 86400000 });
-    return !!allowed;
+    try {
+      const response = await fetch(`https://api.spur.us/v2/context/${encodeURIComponent(ip)}`, { headers: { Token: this.env.SPUR_API_KEY }, signal: AbortSignal.timeout(1500) });
+      if (!response.ok) throw new Error("Spur refused the lookup");
+      const context = await response.json() as { tunnels?: { anonymous?: boolean; categories?: string[] }[]; risks?: string[]; client?: { proxies?: unknown[] } };
+      const allowed = !context.tunnels?.some(t => t.anonymous === true || t.categories?.includes("RESIDENTIAL_PROXY")) && !context.risks?.includes("CALLBACK_PROXY") && !context.client?.proxies?.length;
+      await this.state.storage.put(key, { allowed: !!allowed, expires: Date.now() + 86400000 });
+      return !!allowed;
+    } catch {
+      await this.state.storage.put(key, { allowed: null, expires: Date.now() + 30000 });
+      throw new SpendingError(503, "reputation_unavailable", "Free access verification is temporarily unavailable.", { retryAfter: 30 });
+    }
   }
   private async reserve(body: Record<string, unknown>) {
     const ip = String(body.ip ?? "");
@@ -60,8 +80,15 @@ export class FreeBudget {
       const active = Object.values(mine.holds).filter(t => t > Date.now()).length + Object.values(yesterday.holds).filter(t => t > Date.now()).length;
       const globalPrior = await tx.get<Total>(`total:${previous}`) ?? empty();
       const allActive = Object.values(global.holds).filter(t => t > Date.now()).length + Object.values(globalPrior.holds).filter(t => t > Date.now()).length;
-      if (global.spent + amount > limits.daily || mine.spent + amount > limits.ipDaily || active >= limits.ipConcurrency || allActive >= limits.concurrency)
-        throw new SpendingError(429, "free_budget", "Free spending or concurrency limit reached; use a funded API key or retry later.");
+      const retryAfter = Math.ceil((Date.parse(`${day}T00:00:00Z`) + 86400000 - Date.now()) / 1000);
+      if (global.spent + amount > limits.daily)
+        throw new SpendingError(429, "free_daily_budget", `The shared free budget is spent or reserved ($${limits.daily / 1e9} per UTC day).`, { retryAfter, limitUsd: limits.daily / 1e9, availableUsd: Math.max(0, limits.daily - global.spent) / 1e9 });
+      if (mine.spent + amount > limits.ipDaily)
+        throw new SpendingError(429, "free_ip_daily_budget", `This IP network's free budget is spent or reserved ($${limits.ipDaily / 1e9} per UTC day).`, { retryAfter, limitUsd: limits.ipDaily / 1e9, availableUsd: Math.max(0, limits.ipDaily - mine.spent) / 1e9 });
+      if (active >= limits.ipConcurrency)
+        throw new SpendingError(429, "free_ip_concurrency", `At most ${limits.ipConcurrency} free requests may run at once per IP network.`, { retryAfter: 2, limit: limits.ipConcurrency });
+      if (allActive >= limits.concurrency)
+        throw new SpendingError(429, "free_capacity", "The free inference pool is at capacity.", { retryAfter: 2 });
       const idem = typeof body.idempotency === "string" ? await fingerprint(this.env, `${owner}:${body.idempotency}`) : undefined;
       if (idem && await tx.get(`idem:${day}:${idem}`)) throw new SpendingError(409, "duplicate_request", "This idempotency key was already admitted today. No additional work was started.");
       if (!commit) return;
@@ -104,7 +131,7 @@ export class FreeBudget {
         if ((key.startsWith("hold:") && (value as Hold).day < cutoff) ||
             (/^(ip|idem|total):/.test(key) && key.split(":")[1] < cutoff) ||
             (key.startsWith("rep:") && (value as { expires: number }).expires < Date.now()) ||
-            (key.startsWith("spur:") && key.slice(5) < cutoff.slice(0, 7))) await this.state.storage.delete(key);
+            (key.startsWith("spur:") && key.slice(5) < new Date(Date.now() - 32 * 86400000).toISOString().slice(0, 10))) await this.state.storage.delete(key);
       }
     }
     await this.state.storage.setAlarm(Date.now() + 86400000);

@@ -1,14 +1,14 @@
-import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions, Response as WorkerResponse } from 'miniflare';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
 const report = { runtime: 'workerd + SQLite Durable Objects', upstream: 'deterministic HTTP provider fixtures; no live inference', results: [] };
 await mkdir('captures', { recursive: true });
-await build({ entryPoints: ['src/index.ts'], outfile: 'captures/spending-worker.mjs', bundle: true, format: 'esm', platform: 'browser', target: 'es2022', loader: { '.md': 'text' } });
+
 let calls = 0, lookups = 0, release;
 let barrier = Promise.resolve();
-const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules: true, scriptPath: 'captures/spending-worker.mjs', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
+const modules = (await readdir('dist/server', { recursive: true })).filter(p => p.endsWith('.js')).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: 'ESModule', path: `dist/server/${p}` }));
+const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
   bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture' },
   outboundService: async request => {

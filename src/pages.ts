@@ -8,6 +8,7 @@
  * canonical document and nothing can drift between the three.
  */
 
+import { SPENDING_LIMITS } from "./docs";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
@@ -283,6 +284,8 @@ AUTHENTICATION
   credential here: caller credentials are not forwarded to TypeSafe.
 
 
+${SPENDING_LIMITS}
+
 EXAMPLES
 
   curl:
@@ -425,6 +428,14 @@ FREE
   request are 1,000 classifications. Multi-label counts once per text, not per
   label.
 
+  Free provider spending is capped at $0.01 per request, $0.50 per IP network
+  per UTC day and $100 across everyone per UTC day. Up to four free requests
+  may run at once per IP; IPv6 addresses share a /64 allowance. Smart requests
+  must fit the same allowance. Large inputs or batches need a funded key.
+  Free access pauses when the shared pool or verification capacity is spent;
+  anonymous proxy networks require a funded key. Signup credit uses these
+  same free limits. Every request body is limited to 1 MB.
+
 
 PRO
 
@@ -437,6 +448,11 @@ PRO
   Usage is charged to the workspace balance at the published token prices.
   Smart costs the same as Fast when no escalation is needed. Usage stops when
   the balance reaches zero; there are no automatic top-ups.
+
+  Funded workspaces skip the shared free pool and proxy checks. Each request
+  has a default $10 provider-cost ceiling, bounded by the available workspace
+  balance at the published retail prices. Unused reservations are released
+  after inference; uncertain provider usage remains held for billing review.
 
 
 ENTERPRISE

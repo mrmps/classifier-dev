@@ -23,7 +23,7 @@ export class Permit {
       bound = price.bound;
       while (this.used + bound > this.amount && this.pending.size && bound <= this.amount && !this.closed)
         await Promise.race([...this.pending].map(p => p.catch(() => {})));
-      if (this.closed || Date.now() >= this.expires || this.used + bound > this.amount) throw new SpendingError(402, "request_spending_limit", "This request exceeds its spending allowance. Use a funded API key for more expensive work.");
+      if (this.closed || Date.now() >= this.expires || this.used + bound > this.amount) throw new SpendingError(402, "request_spending_limit", "This request cannot fit another provider attempt within its allowance.", { limitUsd: this.amount / 1e9, spentOrReservedUsd: this.used / 1e9, requiredAttemptUsd: bound / 1e9 });
       if (this.retail) {
         const priced = priceTokens(this.retail.card, [{ provider, model, calls: 1, inputTokens: price.context, outputTokens: output, cachedInputTokens: 0 }]);
         if (!priced) throw new SpendingError(503, "unpriced_model", "This model is not configured for account billing.");
@@ -50,6 +50,12 @@ export class Permit {
         }
         const payload = await response.clone().json().catch(() => null) as Record<string, unknown> | null;
         const usage = payload?.usage as Record<string, unknown> | undefined;
+        // TypeSafe rejects authentication/credit failures before inference.
+        if (provider === "typesafe" && [401, 402, 403].includes(response.status) && payload?.detail && !usage) {
+          this.used -= bound;
+          this.retailHeld -= retailBound;
+          return response;
+        }
         const count = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
         const inputTokens = count(provider === "openrouter" ? usage?.prompt_tokens : usage?.input_tokens);
         const outputTokens = count(provider === "openrouter" ? usage?.completion_tokens : usage?.output_tokens);

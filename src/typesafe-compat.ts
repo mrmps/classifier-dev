@@ -59,8 +59,7 @@ export async function typeSafeCompatibleResponse(
 
   // Only trusted account execution supplies this hook. Reserve the maximum
   // provider exposure before the paid request leaves the Worker.
-  // The request itself remains untouched, so TypeSafe aliases retain their
-  // native behavior; an unexpected future response model stays held for review.
+  // Pin aliases to the priced model; unexpected response models stay held for review.
   if (meter?.beforeCall && body) {
     let parsed;
     try { parsed = JSON.parse(body); } catch { throw new SpendingError(400, "invalid_request", "Send valid JSON."); }

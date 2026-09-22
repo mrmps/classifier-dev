@@ -11,7 +11,7 @@ test("account plans identify the Beam trial rates without advertising free Gemin
   await provisionTestAccount(new Request("http://localhost/login"), env);
   const html = renderToStaticMarkup(createElement(Plans, { snapshot: await getSnapshot("local-demo", env), navigate: () => {} }));
   const names = Array.from(html.matchAll(/<th scope="row"[^>]*>(.*?)<\/th>/g), match => match[1]);
-  expect(names).toEqual(["Jev", "Gemini escalation", "jev/laya", "jev/kev"]);
+  expect(names).toEqual(["Jev", "Gemini escalation", "jev/laya", "jev/kev", "ibm-granite/granite-4.0-h-micro", "deepseek/deepseek-v4-flash", "inclusionai/ling-3.0-flash", "inception/mercury-2.5", "ibm-granite/granite-4.2-8b"]);
   expect(html).toContain("Laya inference is free during the trial");
   expect(html).toContain("Smart reviews are still billed");
 });

@@ -16,6 +16,7 @@
 import type { Env } from "./index";
 import { jevAttemptsQuery } from "./jev-observability";
 import { sql } from "./report";
+import { appEnvironment } from "./server/environment";
 
 const DATASET = "classifier_events";
 const WINDOW_MIN = 60;
@@ -125,6 +126,26 @@ const num = (v: unknown) => {
 export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: boolean; note: string }> {
   const probed = await probeJev(env).catch(() => null);
   const pre: Alert[] = probed ? [probed] : [];
+  if (env.SPENDING_ENABLED === "true") {
+    try {
+      if (!env.FREE_BUDGET) throw new Error("Missing spending coordinator");
+      const response = await env.FREE_BUDGET.get(env.FREE_BUDGET.idFromName("free-spending"), { locationHint: "wnam" }).fetch("https://budget/status");
+      if (!response.ok) throw new Error("Spending coordinator unavailable");
+      const budget = await response.json() as { used: number; limit: number; lookups: number; lookupLimit: number };
+      if (budget.used >= budget.limit * 0.8) pre.push({ id: "free_budget", severity: "warning", title: "free spending pool is nearly exhausted",
+        detail: `$${(budget.used / 1e9).toFixed(2)} spent or reserved of $${budget.limit / 1e9} this UTC day. Free admission stops at the ceiling; funded traffic continues. Review traffic before changing FREE_DAILY_USD.` });
+      if (budget.lookups >= budget.lookupLimit * 0.9) pre.push({ id: "spur_budget", severity: "warning", title: "free IP verification is near its lookup ceiling",
+        detail: `${budget.lookups} of ${budget.lookupLimit} lookups in the rolling 32-day window. New uncached free callers will be refused at the ceiling. Check the Spur subscription before changing SPUR_MONTHLY_LOOKUPS.` });
+      const app = appEnvironment(env);
+      if (app.APP_ACCOUNTS_ENABLED === "true") {
+        const row = await app.APP_DB.prepare("SELECT count(*) AS count FROM app_usage WHERE metering_mode='tokens' AND (reporting_status='review' OR (status='pending' AND created_at::timestamptz<now()-interval '5 minutes'))").first<{ count: number }>();
+        if (Number(row?.count) > 0) pre.push({ id: "billing_review", severity: "warning", title: "billing reservations need review",
+          detail: `${row!.count} token reservations have uncertain usage or have remained pending for over five minutes. Funds remain held. Reconcile app_usage request IDs against provider usage before settling or refunding; do not blindly release these reservations.` });
+      }
+    } catch {
+      pre.push({ id: "spending_monitor", severity: "critical", title: "spending monitoring is unavailable", detail: "Check the free-budget Durable Object and account database. Admission remains fail-closed; this alert must clear before assuming spending and billing are healthy." });
+    }
+  }
 
   let recent: Row[] = [];
   let baseline: Row[] = [];

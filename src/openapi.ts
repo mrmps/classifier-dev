@@ -1,3 +1,4 @@
+import { SPENDING_ERROR_CODES } from "./spending/policy";
 import { DIMENSIONS_SCHEMA } from "./dimensions";
 import { ACCOUNT_PATHS } from "./account-openapi";
 import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
@@ -10,6 +11,7 @@ import { MAX_DESIRED_LATENCY_MS, MIN_DESIRED_LATENCY_MS, ROADMAP, ROADMAP_KEYS }
  * carry the upstream HTTP status and are described by the pattern below.
  */
 export const ERROR_CODES = [
+  ...SPENDING_ERROR_CODES,
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
@@ -57,7 +59,7 @@ const TYPESAFE_REQUEST_ID_HEADER = {
 };
 const ACCOUNT_BILLING_HEADERS = {
   "x-request-id": { schema: { type: "string" }, description: "Workspace usage request ID. Present when a classifier_agent_ key is used." },
-  "x-billing-status": { schema: { type: "string", enum: ["settled", "refunded", "review"] }, description: "Workspace charge result. Present when a classifier_agent_ key is used." },
+  "x-billing-status": { schema: { type: "string", enum: ["pending", "settled", "refunded", "review"] }, description: "Workspace charge result. Present when a classifier_agent_ key is used." },
 };
 const TYPESAFE_ENTRY = {
   anyOf: [
@@ -1167,6 +1169,12 @@ export const OPENAPI = {
               "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable, inference_unavailable (provider credentials are not configured).",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
+          retryable: { type: "boolean", description: "Whether retrying later can resolve a spending refusal. Use backoff and Retry-After; do not loop on false." },
+          action: { type: "string", description: "Concrete changes or next steps for the caller." },
+          docs: { type: "string", format: "uri" },
+          limitUsd: { type: "number", description: "The applicable provider spending ceiling in USD." },
+          availableUsd: { type: "number", description: "Unreserved provider allowance remaining in USD." },
+          requestId: { type: "string", description: "Original workspace operation ID on a duplicate." },
           upgrade: { type: "string", format: "uri", description: "On a free-tier 429: the page where a plan lifts this limit (https://classifier.dev/pricing). Absent on Pro and partner keys." },
           usage: { type: "string", description: "GET forms only, on a 400: the two URL shapes." },
           try: { type: "string", format: "uri", description: "GET forms only, on a 400: a URL built from what was sent that would have worked." },
@@ -1178,8 +1186,8 @@ export const OPENAPI = {
         name: "Idempotency-Key",
         in: "header",
         required: false,
-        schema: { type: "string", maxLength: 255 },
-        description: "Optional. Classification has no side effects, so any retry is already safe; the key is accepted and echoed back unchanged so generic retry logic keeps working.",
+        schema: { type: "string", maxLength: 200 },
+        description: "Optional replay protection. A previously admitted key returns 409 without executing again; responses are not cached. Free keys are scoped to the IP network and UTC day. Workspace keys are scoped to the workspace. Changing the request body does not make a used key reusable.",
       },
     },
     securitySchemes: {
