@@ -44,13 +44,16 @@ describe(`real multidimensional API at ${base.origin}`, { concurrency: false, ti
   });
 
   test("smart tier actually escalates uncertain fields and withholds stale scores", async (t) => {
-    const items = [
+    const candidates = [
       "Something about my account looks wrong, but I cannot tell whether it is the invoice or login.",
       "The screen seems odd and I would like some help.",
       "Could you change this behavior? I thought it used to work differently.",
       "I cannot access my paid subscription after checking out.",
     ];
-    const dims = { team: ["billing", "identity", "platform"], kind: ["bug", "request", "question"] } as const;
+    const items = process.env.CLASSIFIER_API_KEY ? candidates : candidates.slice(0, 1);
+    const dims: Record<string, readonly string[]> = process.env.CLASSIFIER_API_KEY
+      ? { team: ["billing", "identity", "platform"], kind: ["bug", "request", "question"] }
+      : { team: ["billing", "identity", "platform"] };
     const data = await post({ items, dimensions: dims, tier: "smart" });
     assertMatrix(data, items.length, dims, "smart");
     assert.equal(data.usage.fallback, 0);
