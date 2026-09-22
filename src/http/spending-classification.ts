@@ -55,7 +55,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
       if (!reason) throw new SpendingError(401, "invalid_api_key", "This workspace API key is not valid.");
       if (!["pending", "connected"].includes(reason.status)) throw new SpendingError(403, "inactive_api_key", "This workspace API key is paused or revoked.");
       if (reason.request_id) throw new SpendingError(409, "duplicate_request", "This workspace already admitted the idempotency key.", { requestId: reason.request_id });
-      throw new SpendingError(402, "insufficient_balance", reason.billing_hold ? "Workspace billing is awaiting review; funds remain held." : "The workspace cannot fund a new request. Add funds to clear any debt or cover the free-credit reservation, or wait for in-flight reservations to settle.", { requiredUsd: quote / 100000 });
+      throw new SpendingError(402, "insufficient_balance", reason.billing_hold ? "Workspace billing is awaiting review; funds remain held." : "The workspace cannot fund a new request. Add funds to clear any debt or cover the free-credit reservation, or wait for in-flight reservations to settle.", { reservationUsd: quote / 100000 });
     }
     const meter = newMeter();
     const permit = result.funded ? new Permit(limits.paidRequest, Date.now() + 90000) : undefined;
