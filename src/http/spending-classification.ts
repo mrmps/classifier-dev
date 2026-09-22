@@ -38,7 +38,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
       INSERT INTO app_usage(id,account_id,agent_id,items,credits,status,created_at,paid_credits,usage_type,metering_mode,idempotency_key,classifications)
       SELECT ?,id,agent_id,?,?::bigint,'pending',?,
         GREATEST(0,?::bigint-(balance-paid_balance)),?,'tokens',?,?
-      FROM owner WHERE balance>0 AND balance>=? ON CONFLICT DO NOTHING RETURNING *
+      FROM owner WHERE balance>0 AND (funded OR balance>=?) ON CONFLICT DO NOTHING RETURNING *
     ), debited AS (
       UPDATE app_accounts a SET balance=a.balance-h.credits,paid_balance=a.paid_balance-h.paid_credits
       FROM held h WHERE a.id=h.account_id RETURNING a.id
@@ -55,7 +55,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
       if (!reason) throw new SpendingError(401, "invalid_api_key", "This workspace API key is not valid.");
       if (!["pending", "connected"].includes(reason.status)) throw new SpendingError(403, "inactive_api_key", "This workspace API key is paused or revoked.");
       if (reason.request_id) throw new SpendingError(409, "duplicate_request", "This workspace already admitted the idempotency key.", { requestId: reason.request_id });
-      throw new SpendingError(402, "insufficient_balance", reason.billing_hold ? "Workspace billing is awaiting review; funds remain held." : "The workspace needs enough available balance for the maximum input tokens and possible Smart escalations. Unused funds are released after the request.", { requiredUsd: quote / 100000 });
+      throw new SpendingError(402, "insufficient_balance", reason.billing_hold ? "Workspace billing is awaiting review; funds remain held." : "The workspace cannot fund a new request. Add funds to clear any debt or cover the free-credit reservation, or wait for in-flight reservations to settle.", { requiredUsd: quote / 100000 });
     }
     const meter = newMeter();
     const permit = result.funded ? new Permit(limits.paidRequest, Date.now() + 90000) : undefined;
@@ -64,7 +64,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     let response: Response;
     try {
       response = await worker.fetch(request, env as Env, ctx, { meter, account: { id: result.account_id, multiplier: result.funded ? 10 : 1 }, funded: result.funded });
-      if (permit?.error) response = errorResponse(permit.error);
+      if (permit?.error && !(response.ok && permit.error.code === "request_spending_limit")) response = errorResponse(permit.error);
     } catch (error) {
       response = error instanceof SpendingError ? errorResponse(error) : Response.json({ error: "Classification failed." }, { status: 502 });
     }
