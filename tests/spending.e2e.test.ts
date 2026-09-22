@@ -295,3 +295,20 @@ test("funded requests accept work above the free request ceiling and concurrent 
   expect(Number(balance!.balance)).toBe(999);
   expect(s.stored.size).toBe(0);
 });
+
+test.skipIf(process.env.LIVE_TOKEN_BILLING !== "true")("live TypeSafe inference settles the new funded HTTP path", async () => {
+  const s = setup({ TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY });
+  const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
+  await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  await env.APP_DB.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
+  const key = await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
+  const response = await accountClassification(request(undefined, undefined, { input: "Your invoice is overdue.", labels: ["billing", "technical"] }, { authorization: `Bearer ${key.secret}` }), env, "API", s.ctx);
+  expect(response?.status).toBe(200);
+  const body = await response!.json() as { results: { label: string }[] };
+  expect(body.results[0].label).toBe("billing");
+  await s.flush();
+  const row = await env.APP_DB.prepare("SELECT status,actual_nano::text AS nano FROM app_usage WHERE id=?").bind(response!.headers.get("x-request-id")).first<{ status: string; nano: string }>();
+  expect(row!.status).toBe("completed");
+  expect(Number(row!.nano)).toBeGreaterThan(0);
+  expect(s.stored.size).toBe(0);
+});
