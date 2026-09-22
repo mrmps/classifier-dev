@@ -59,6 +59,9 @@ const TYPESAFE_REQUEST_ID_HEADER = {
 };
 const ACCOUNT_BILLING_HEADERS = {
   "x-request-id": { schema: { type: "string" }, description: "Workspace usage request ID. Present when a classifier_agent_ key is used." },
+  "x-billed-input-tokens": { schema: { type: "integer", minimum: 0 }, description: "Successful base-classifier input tokens billed at the published rate; excludes Smart and fallback provider tokens." },
+  "x-smart-escalations": { schema: { type: "integer", minimum: 0 }, description: "Successful Smart reviews billed at the flat escalation price." },
+  "x-usage-cost-usd": { schema: { type: "string" }, description: "Customer charge in USD before credit rounding. Settlement may still be pending." },
   "x-billing-status": { schema: { type: "string", enum: ["pending", "settled", "refunded", "review"] }, description: "Workspace charge result. Present when a classifier_agent_ key is used." },
 };
 const TYPESAFE_ENTRY = {

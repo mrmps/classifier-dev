@@ -12,7 +12,7 @@ import { SPENDING_LIMITS } from "./docs";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
-import retailRates from "./retail-rates.json";
+import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND } from "./lib/classification-pricing";
 
 export const MCP_SETUP = `classifier.dev MCP
 
@@ -349,8 +349,10 @@ KEYS AND LIMITS
   and MCP APIs. GET /v1/models does not spend quota or credits. TypeSafe-native
   validation, rate-limit and service errors retain their status and body;
   x-typesafe-request-id, Retry-After and Retry-After-Ms are preserved. Workspace
-  responses also expose x-request-id and x-billing-status (settled, refunded or
-  review).
+  responses also expose x-request-id and x-billing-status (pending, settled, refunded or
+  review). Successful workspace responses include x-billed-input-tokens,
+  x-smart-escalations and x-usage-cost-usd. The price is $${INPUT_PRICE_PER_MILLION.toFixed(3)} per million
+  base input tokens plus $${(ESCALATION_PRICE_PER_THOUSAND / 1000).toFixed(3)} per successful Smart escalation.
 
 
 SANDBOX
@@ -445,14 +447,14 @@ PRO
   Rate limits              10x Free, shared across workspace keys and agents
   Billing                  https://classifier.dev/app/plans
 
-  Usage is charged to the workspace balance at the published token prices.
+  Usage is charged to the workspace balance at the published input-token and escalation prices.
   Smart costs the same as Fast when no escalation is needed. Usage stops when
   the balance reaches zero; there are no automatic top-ups.
 
   Funded workspaces skip the shared free pool and proxy checks. Each request
   has a default $10 provider-cost ceiling, bounded by the available workspace
-  balance at the published retail prices. Unused reservations are released
-  after inference; uncertain provider usage remains held for billing review.
+  balance at the published customer prices. Unused reservations are released
+  after inference; missing input-token measurements remain held for billing review.
 
 
 ENTERPRISE
@@ -476,22 +478,18 @@ ENTERPRISE
   own data before you commit.
 
 
-TOKEN PRICES
+USAGE PRICES
 
-  Prices per million tokens. Fast uses Jev at cost. Smart adds Gemini at cost
-  plus 20% only when it escalates.
+  Input tokens           $${INPUT_PRICE_PER_MILLION.toFixed(3)} per million
+  Smart escalations      +$${ESCALATION_PRICE_PER_THOUSAND.toFixed(2)} per 1,000
 
-  Jev input               $${Number(retailRates.models[0].inputUsdPerMillion)}
-  Jev cached input        $${Number(retailRates.models[0].cachedInputUsdPerMillion)}
-  Jev output              free
-  Gemini input            $${Number(retailRates.models[1].inputUsdPerMillion)}
-  Gemini cached input     $${Number(retailRates.models[1].cachedInputUsdPerMillion)}
-  Gemini output           $${Number(retailRates.models[1].outputUsdPerMillion)}
+  Smart starts with Fast and reviews uncertain answers. You pay extra only
+  for successful Smart escalations. No escalation means no extra charge.
+  1 million input tokens with 50 Smart escalations cost $0.142.
 
-  Laya trial lanes        free during the trial, subject to shared capacity
-
-  Smart requests without escalation cost the same as Fast. Gemini output
-  includes reasoning tokens. Usage stops when your balance reaches zero.
+  Output tokens are free. Input usage includes text, labels and instructions
+  processed by the base classifier. Retries, fallback routing and Smart model
+  tokens add no separate charges. Usage stops when your balance runs out.
 
 
 INCLUDED ON EVERY PLAN

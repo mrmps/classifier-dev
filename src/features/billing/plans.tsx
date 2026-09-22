@@ -21,7 +21,7 @@ import {
   type BillingPlanId,
 } from "@/lib/billing";
 import type { AppSnapshot } from "@/server/contracts";
-import retailRates from "../../retail-rates.json";
+import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND } from "@/lib/classification-pricing";
 
 const date = (value: string) =>
   new Date(value).toLocaleDateString("en-US", {
@@ -250,50 +250,19 @@ export function Plans({
         ))}
       </section>
 
-      <section aria-labelledby="token-prices" className="flex flex-col gap-4">
-        <h2 id="token-prices" className="text-lg font-semibold">
-          Token prices
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Prices per million tokens. Default Fast uses Jev at cost. Smart adds Gemini at
-          cost plus 20% only when it escalates. Laya inference is free during the trial;
-          Smart reviews are still billed.
-        </p>
+      <section aria-labelledby="usage-prices" className="flex flex-col gap-4">
+        <h2 id="usage-prices" className="text-lg font-semibold">Simple usage prices</h2>
         <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="w-full min-w-[540px] text-left text-sm">
-            <thead>
-              <tr className="bg-muted/20">
-                <th className="p-4">Model</th>
-                <th className="p-4">Input</th>
-                <th className="p-4">Cached input</th>
-                <th className="p-4">Output</th>
-              </tr>
-            </thead>
+          <table className="w-full text-left text-sm">
+            <thead><tr><th className="p-4">Usage</th><th className="p-4">Price</th></tr></thead>
             <tbody>
-              {retailRates.models.map((rate) => (
-                <tr key={rate.model} className="border-t border-border">
-                  <th scope="row" className="p-4 font-medium">
-                    {rate.provider === "typesafe" ? "Jev" : rate.model === "google/gemini-3.8-flash" ? "Gemini escalation" : rate.model}
-                  </th>
-                  {[
-                    rate.inputUsdPerMillion,
-                    rate.cachedInputUsdPerMillion,
-                    rate.outputUsdPerMillion,
-                  ].map((value, index) => (
-                    <td key={index} className="p-4 tabular-nums">
-                      {Number(value) === 0 ? "Free" : `$${Number(value)}`}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              <tr className="border-t border-border"><th scope="row" className="p-4 font-medium">Input tokens</th><td className="p-4 tabular-nums">${INPUT_PRICE_PER_MILLION.toFixed(3)} / million</td></tr>
+              <tr className="border-t border-border"><th scope="row" className="p-4 font-medium">Smart escalations</th><td className="p-4 tabular-nums">+${ESCALATION_PRICE_PER_THOUSAND.toFixed(2)} / 1,000</td></tr>
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Smart requests without escalation cost the same as Fast. Gemini output
-          includes reasoning tokens. Usage stops when your balance is depleted;
-          there are no automatic top-ups.
-        </p>
+        <p className="text-sm text-muted-foreground">Smart reviews uncertain answers. You pay extra only for successful escalations. For example, 1 million input tokens with 50 Smart escalations cost $0.142.</p>
+        <p className="text-xs text-muted-foreground">Output tokens are free. Input usage includes text, labels and instructions. Retries, fallback routing and Smart model tokens add no separate charges. No automatic top-ups.</p>
       </section>
 
       <Card className="shadow-none">

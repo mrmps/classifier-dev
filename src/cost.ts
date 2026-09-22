@@ -37,7 +37,6 @@ export type ModelTokenUsage = TokenCounts & {
 
 /** Per-request accumulator. Token counts are upstream usage, not a retail price. */
 export type Meter = {
-  accountAllowance?: { card: import("./server/token-pricing").TokenRateCard; credits: number };
   permit?: import("./spending/permit").Permit;
   usd: number;
   tokens: ModelTokenUsage[];

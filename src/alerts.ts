@@ -140,7 +140,7 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
       if (app.APP_ACCOUNTS_ENABLED === "true") {
         const row = await app.APP_DB.prepare("SELECT count(*) AS count FROM app_usage WHERE metering_mode='tokens' AND (reporting_status='review' OR (status='pending' AND created_at::timestamptz<now()-interval '5 minutes'))").first<{ count: number }>();
         if (Number(row?.count) > 0) pre.push({ id: "billing_review", severity: "warning", title: "billing reservations need review",
-          detail: `${row!.count} token reservations have uncertain usage or have remained pending for over five minutes. Funds remain held. Reconcile app_usage request IDs against provider usage before settling or refunding; do not blindly release these reservations.` });
+          detail: `${row!.count} usage reservations have uncertain outcomes or have remained pending for over five minutes. Funds remain held. Reconcile app_usage request IDs against provider usage before settling or refunding; do not blindly release these reservations.` });
       }
     } catch {
       pre.push({ id: "spending_monitor", severity: "critical", title: "spending monitoring is unavailable", detail: "Check the free-budget Durable Object and account database. Admission remains fail-closed; this alert must clear before assuming spending and billing are healthy." });

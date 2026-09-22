@@ -20,7 +20,7 @@ export async function withFreeSpending(request: Request, env: SpendingEnv, ctx: 
       throw new SpendingError(response.status, error.code, error.error, error);
     }
     hold = await response.json();
-    meter.permit = new Permit(hold!.amount, hold!.expires, meter.accountAllowance);
+    meter.permit = new Permit(hold!.amount, hold!.expires);
   })();
   try {
     const result = await execute();

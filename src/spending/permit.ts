@@ -1,21 +1,18 @@
 import { addTokens, type Meter, type ModelTokenUsage } from "../cost";
-import { priceTokens, type TokenRateCard } from "../server/token-pricing";
 import { modelPrice, SpendingError, type Provider } from "./policy";
 
 export class Permit {
   used = 0;
-  retailHeld = 0;
   tokens: ModelTokenUsage[] = [];
   unknown = false;
   error?: SpendingError;
   private closed = false;
   close() { this.closed = true; }
   private pending = new Set<Promise<unknown>>();
-  constructor(readonly amount: number, readonly expires: number, private retail?: { card: TokenRateCard; credits: number }) {}
+  constructor(readonly amount: number, readonly expires: number) {}
   async drain() { while (this.pending.size) await Promise.allSettled([...this.pending]); }
   async fetch(provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit): Promise<Response> {
     let bound: number;
-    let retailBound = 0;
     try {
       if (this.closed) throw new SpendingError(402, "request_finished", "The request allowance has closed.");
       if (this.error) throw this.error;
@@ -24,12 +21,6 @@ export class Permit {
       while (this.used + bound > this.amount && this.pending.size && bound <= this.amount && !this.closed)
         await Promise.race([...this.pending].map(p => p.catch(() => {})));
       if (this.closed || Date.now() >= this.expires || this.used + bound > this.amount) throw new SpendingError(402, "request_spending_limit", "This request cannot fit another provider attempt within its allowance.", { limitUsd: this.amount / 1e9, spentOrReservedUsd: this.used / 1e9, requiredAttemptUsd: bound / 1e9 });
-      if (this.retail) {
-        const priced = priceTokens(this.retail.card, [{ provider, model, calls: 1, inputTokens: price.context, outputTokens: output, cachedInputTokens: 0 }]);
-        if (!priced) throw new SpendingError(503, "unpriced_model", "This model is not configured for account billing.");
-        retailBound = Number((priced.nanodollars + 9999n) / 10000n);
-        if (this.retailHeld + retailBound > this.retail.credits) throw new SpendingError(402, "request_spending_limit", "The request exceeds its reserved balance.");
-      }
       if (provider === "openrouter") {
         const body = JSON.parse(String(init.body));
         body.provider = { ...body.provider, max_price: { prompt: price.input, completion: price.output }, require_parameters: true };
@@ -40,7 +31,6 @@ export class Permit {
       throw this.error;
     }
     this.used += bound;
-    this.retailHeld += retailBound;
     const execute = async () => {
       try {
         const response = await fetch(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
@@ -53,7 +43,6 @@ export class Permit {
         // TypeSafe rejects authentication/credit failures before inference.
         if (provider === "typesafe" && [401, 402, 403].includes(response.status) && payload?.detail && !usage) {
           this.used -= bound;
-          this.retailHeld -= retailBound;
           return response;
         }
         const count = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
@@ -65,11 +54,6 @@ export class Permit {
           const details = usage?.prompt_tokens_details as { cached_tokens?: unknown } | undefined;
           const meter = { usd: 0, tokens: this.tokens };
           addTokens(meter, provider, model, { inputTokens, outputTokens, cachedInputTokens: provider === "openrouter" ? count(details?.cached_tokens) ?? 0 : 0 });
-          if (this.retail) {
-            const actual = priceTokens(this.retail.card, [{ provider, model, calls: 1, inputTokens, outputTokens, cachedInputTokens: provider === "openrouter" ? count(details?.cached_tokens) ?? 0 : 0 }]);
-            if (actual) this.retailHeld -= retailBound - Number((actual.nanodollars + 9999n) / 10000n);
-            else this.unknown = true;
-          }
         } else this.unknown = true;
         return response;
       } catch (error) { this.unknown = true; throw error; }

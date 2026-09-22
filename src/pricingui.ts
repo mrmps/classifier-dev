@@ -1,20 +1,12 @@
 import { FOOT, HOME_CSS, META, NAV } from "./home";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
-import retailRates from "./retail-rates.json";
+import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND } from "./lib/classification-pricing";
 import { esc, page } from "./ui";
 
 const feature = (text: string) => `<li>${esc(text)}</li>`;
 
 export function pricingHtml(signedIn = false) {
   const pro = BILLING_PLANS.pro;
-  const tokenRows = retailRates.models
-    .map(
-      (rate) => `<tr><th scope="row">${rate.provider === "typesafe" ? "Jev" : rate.model === "google/gemini-3.8-flash" ? "Gemini escalation" : esc(rate.model)}</th>
-        <td>${Number(rate.inputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.inputUsdPerMillion)}`}</td>
-        <td>${Number(rate.cachedInputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.cachedInputUsdPerMillion)}`}</td>
-        <td>${Number(rate.outputUsdPerMillion) === 0 ? "Free" : `$${Number(rate.outputUsdPerMillion)}`}</td></tr>`,
-    )
-    .join("");
   const description =
     "Simple plans with upfront usage for classifier.dev workspaces.";
   return page({
@@ -68,10 +60,14 @@ export function pricingHtml(signedIn = false) {
       <ul>${feature("Volume-based capacity")}${feature("Dedicated deployment")}${feature("Private inference options")}${feature("Measured accuracy on your data")}</ul>
       <a class="plan-action" href="mailto:contact@classifier.dev">Contact sales</a></article>
   </section>
-  <section class="pricing-section" aria-label="Token prices"><h2>Token prices</h2>
-    <p>Prices per million tokens. Fast uses Jev at cost. Smart adds Gemini at cost plus 20% only when it escalates.</p>
-    <div class="pricing-table"><table><thead><tr><th scope="col">Model</th><th scope="col">Input</th><th scope="col">Cached input</th><th scope="col">Output</th></tr></thead><tbody>${tokenRows}</tbody></table></div>
-    <p class="pricing-note">Smart requests without escalation cost the same as Fast. Gemini output includes reasoning tokens. Usage stops when your balance reaches zero; no automatic top-ups. Laya lanes are free during the trial, subject to shared capacity limits.</p>
+  <section class="pricing-section" aria-label="Usage prices"><h2>Usage prices</h2>
+    <div class="pricing-table rate-limits"><table><thead><tr><th scope="col">Usage</th><th scope="col">Price</th></tr></thead><tbody>
+      <tr><th scope="row">Input tokens</th><td>$${INPUT_PRICE_PER_MILLION.toFixed(3)} / million</td></tr>
+      <tr><th scope="row">Smart escalation</th><td>+$${ESCALATION_PRICE_PER_THOUSAND.toFixed(2)} / 1,000</td></tr>
+    </tbody></table></div>
+    <p>Smart starts with Fast and reviews uncertain answers. You pay the extra charge only for answers that are successfully reviewed. No escalation means no extra charge.</p>
+    <p>For example, 1 million input tokens with 50 Smart escalations cost <strong>$0.142</strong>.</p>
+    <p class="pricing-note">Output tokens are free. Input usage includes the text, labels and instructions processed by the base classifier. Retries, fallback routing and Smart model tokens add no separate charges. Usage stops when your balance runs out; no automatic top-ups.</p>
   </section>
   <section class="pricing-section" aria-label="Included on every plan"><h2>Included on every plan</h2>
     <p>Fast and Smart classification with your own labels through REST, MCP or the CLI.</p>
@@ -82,9 +78,8 @@ export function pricingHtml(signedIn = false) {
       <tr><th scope="row">Pro</th><td>30,000/min · 200,000/day</td><td>2,000/min · 20,000/day</td></tr>
     </tbody></table></div>
     <p class="pricing-note">Limits count classifications and are shared across workspace keys and agents. Public access is limited per IP. Laya trial limits apply to every plan.</p>
-    <p>Free inference also has a $0.01 provider-cost allowance per request, $0.50 per IP network per UTC day, and a $100 shared daily pool. Up to four requests may run at once per IP; IPv6 addresses share a /64 allowance. Smart requests must fit the same allowance, so large inputs or batches need a funded key.</p>
-    <p>A funded workspace uses its own balance, skips free-pool and proxy checks, and has a default $10 provider-cost ceiling per request. Actual usage is billed at the token prices above. Signup credit alone uses the free limits. Every request body is limited to 1 MB.</p>
-    <p class="pricing-note">Free access may pause when its shared pool or verification capacity is exhausted. Anonymous proxy networks require a funded key. See <a href="/developers">spending limits and retry guidance</a>.</p>
+    <p>Free access shares daily capacity and allows four requests at once per IP. A funded workspace has its own allowance and supports larger Smart requests. Signup credit alone uses the free limits.</p>
+    <p class="pricing-note">See <a href="/developers">request limits and retry guidance</a>. Usage is reserved before a request and unused funds are released afterward. Anonymous proxy networks require a funded key.</p>
   </section>
   ${FOOT}
 </main></div>`,
