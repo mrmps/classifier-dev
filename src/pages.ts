@@ -456,13 +456,18 @@ PRO
   Billing                  https://classifier.dev/app/plans
 
   Usage is charged to the workspace balance at the published input-token and escalation prices.
-  Smart costs the same as Fast when no escalation is needed. Usage stops when
-  the balance reaches zero; there are no automatic top-ups.
+  Smart costs the same as Fast when no escalation is needed. A paid request
+  admitted with a positive available balance can finish and leave a negative
+  balance. New requests stop at zero or below until funds are added. There are
+  no automatic top-ups.
 
   Funded workspaces skip the shared free pool and proxy checks. Each request
-  has a default $10 provider-cost ceiling, bounded by the available workspace
-  balance at the published customer prices. Unused reservations are released
-  after inference; missing input-token measurements remain held for billing review.
+  has a default $10 provider-cost ceiling. Its maximum customer charge is held
+  atomically before inference, so concurrent keys cannot repeatedly overdraw.
+  Unused reservations are released after inference; missing input-token
+  measurements remain held for billing review. If further Smart reviews cannot
+  fit the provider ceiling, completed classifications are returned with
+  escalation_failed; only successful reviews are billed.
 
 
 ENTERPRISE
@@ -497,7 +502,8 @@ USAGE PRICES
 
   Output tokens are free. Input usage includes text, labels and instructions
   processed by the base classifier. Retries, fallback routing and Smart model
-  tokens add no separate charges. Usage stops when your balance runs out.
+  tokens add no separate charges. Paid requests already admitted can finish and
+  leave a negative balance. New requests require a positive available balance.
 
 
 INCLUDED ON EVERY PLAN

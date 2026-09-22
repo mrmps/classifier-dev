@@ -2133,7 +2133,7 @@ const worker = {
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
       } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun));
-      if (meter.permit?.error) throw meter.permit.error;
+      if (meter.permit?.error && !(execution?.funded && meter.permit.error.code === "request_spending_limit")) throw meter.permit.error;
     } catch (e) {
       const spending = e instanceof SpendingError ? e : meter.permit?.error;
       if (spending) {

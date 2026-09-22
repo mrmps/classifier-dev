@@ -67,7 +67,7 @@ export function pricingHtml(signedIn = false) {
     </tbody></table></div>
     <p>Smart starts with Fast and reviews uncertain answers. You pay the extra charge only for answers that are successfully reviewed. No escalation means no extra charge.</p>
     <p>For example, 1 million input tokens with 50 Smart escalations cost <strong>$0.142</strong>.</p>
-    <p class="pricing-note">Output tokens are free. Input usage includes the text, labels and instructions processed by the base classifier. Retries, fallback routing and Smart model tokens add no separate charges. Usage stops when your balance runs out; no automatic top-ups.</p>
+    <p class="pricing-note">Output tokens are free. Input usage includes the text, labels and instructions processed by the base classifier. Retries, fallback routing and Smart model tokens add no separate charges. Paid requests already admitted can finish and leave a negative balance. New requests require a positive available balance. No automatic top-ups.</p>
   </section>
   <section class="pricing-section" aria-label="Included on every plan"><h2>Included on every plan</h2>
     <p>Fast and Smart classification with your own labels through REST, MCP or the CLI.</p>
