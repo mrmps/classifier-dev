@@ -262,9 +262,14 @@ ENDPOINTS
   GET     /api/v1/receipts/{id}     Poll whether an agent report landed
   GET     /api/v1/policy            Feedback categories, evidence types and limits
 
-  Response for POST: {"tier", "model", "results": [{"label", "confidence", "scores"}...], "usage"}
-  in input order. Multi-label results carry "labels" (every label >= 0.7) and
-  independent "scores". Full field reference: https://classifier.dev (PARAMETERS).
+  Single-label response for POST: {"tier", "model", "results": [{"label", "confidence", "scores"}...], "usage"}
+
+  Results preserve input order. Confidence and scores may be null; check for
+  null before numeric comparisons. Multi-label results instead have labels
+  (an array), independent scores and model, with no singular label or confidence.
+  Labels scoring at least 0.7 are returned. Repeated inference can vary; it is
+  not an exact deterministic computation. Full field reference:
+  https://classifier.dev (PARAMETERS).
 
 
 AUTHENTICATION
@@ -381,12 +386,13 @@ ERRORS
   bad_json. 404: not_found. 429: rate_limit_minute, rate_limit_day (with
   Retry-After). 502: typesafe or typesafe_<status> when the decision model
   failed; openrouter_<status>, chain_exhausted or timeout when the fallback
-  chain did; batch_unavailable for more than twenty inputs while the decision
-  model is down; upstream_other. Retry 502s with backoff.
-  401: invalid_api_key for unsupported credentials. Workspace authentication
-  also returns 401 for invalid, paused or revoked keys; workspace errors carry
-  an error message without a code. 402: insufficient balance for inference.
-  403: the key is inactive or the workspace cannot authorize usage.
+  chain did; upstream_other. A 402 request_spending_limit means the batch
+  needs fewer or shorter inputs, or a funded workspace key. Retry 502s with backoff.
+  401: invalid_api_key for unsupported credentials. 403: inactive_api_key for
+  paused or revoked workspace keys; proxy_requires_payment when a free caller
+  uses anonymous proxy infrastructure. 402: insufficient_balance or
+  request_spending_limit. Follow action and retryable in spending errors;
+  retrying an unchanged over-budget request will not make it fit.
   The list a client can validate against: components.schemas.Error in
   https://classifier.dev/openapi.json
 
@@ -399,8 +405,10 @@ VERSIONING
   current major. Every response carries an x-api-version header. A breaking
   change would ship as /v2 alongside /v1, and /v1 would then carry Deprecation
   and Sunset headers for at least six months before removal. Classification is
-  idempotent by nature; an Idempotency-Key header is accepted and echoed so
-  retry logic that expects one keeps working.
+  side-effect-free, but inference has a cost. Send Idempotency-Key to prevent
+  duplicate work: a repeated admitted key returns 409 duplicate_request, not
+  a cached result. Keep the original response or request ID; changing the key
+  starts a new billable operation.
 
 
 SOURCE AND SUPPORT

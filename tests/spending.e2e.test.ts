@@ -366,3 +366,50 @@ test("failed Smart reviews charge only base input and a failed request returns i
   expect(await env.APP_DB.prepare("SELECT balance::text FROM app_accounts WHERE id='local-demo'").first()).toEqual(before);
   expect(await env.APP_DB.prepare("SELECT status FROM app_usage WHERE id=?").bind(failed!.headers.get("x-request-id")).first()).toEqual({ status: "refunded" });
 });
+
+test("free admission denials are recorded as quota responses, never provider failures", async () => {
+  const points: { doubles: number[]; blobs: string[] }[] = [];
+  const s = setup({ FREE_DAILY_USD: "0.005", AE: { writeDataPoint(point: { doubles: number[]; blobs: string[] }) { points.push(point); } } });
+  providers();
+  const response = await worker.fetch(request(undefined, undefined, { inputs: Array(119).fill("Invoice"), labels: ["billing", "support"] }), s.env, s.ctx);
+  expect(response.status).toBe(429);
+  await s.flush();
+  expect(points.length).toBeGreaterThan(0);
+  expect(points.some(p => Number(p.blobs[3]) >= 500)).toBe(false);
+  expect(points.some(p => p.blobs.includes("free_daily_budget"))).toBe(true);
+});
+
+test("a protected 119-item batch can recover from a Jev outage within its spending allowance", async () => {
+  const s = setup(); let fallbackCalls = 0;
+  globalThis.fetch = (async (url, init) => {
+    if (String(url).startsWith("https://api.spur.us/")) return Response.json({});
+    if (String(url).includes("typesafe.ai")) return Response.json({ detail: { error_type: "insufficient_credits" } }, { status: 402 });
+    fallbackCalls++;
+    const b = JSON.parse(String(init?.body));
+    return Response.json({ model: b.model, choices: [{ message: { content: "A" } }], usage: { prompt_tokens: 100, completion_tokens: 1, cost: 0.000001812 } });
+  }) as typeof fetch;
+  const response = await worker.fetch(request(undefined, undefined, { inputs: Array(119).fill("Invoice"), labels: ["billing", "support"] }), s.env, s.ctx);
+  expect(response.status).toBe(200);
+  expect((await response.json() as { results: unknown[] }).results).toHaveLength(119);
+  expect(fallbackCalls).toBe(119);
+  await s.flush();
+});
+
+test("a Smart request that exhausts its permit records the final 402, not a successful classification", async () => {
+  const points: { blobs: string[] }[] = [];
+  const s = setup({ AE: { writeDataPoint(point: { blobs: string[] }) { points.push(point); } } });
+  providers(); const primary = globalThis.fetch;
+  globalThis.fetch = (async (url, init) => {
+    const response = await primary(url, init);
+    if (String(url).startsWith("https://api.spur.us/")) return response;
+    const body = await response.json() as { usage: { input_tokens: number }; answers: Record<string, { confidence: number }> };
+    body.usage.input_tokens = 60000;
+    for (const answer of Object.values(body.answers)) answer.confidence = 0.51;
+    return Response.json(body);
+  }) as typeof fetch;
+  const response = await worker.fetch(request(undefined, undefined, { input: "Invoice", labels: ["billing", "support"], tier: "smart" }), s.env, s.ctx);
+  expect(response.status).toBe(402);
+  await s.flush();
+  expect(points.filter(p => p.blobs[3] === "200")).toHaveLength(0);
+  expect(points.some(p => p.blobs[3] === "402" && p.blobs.includes("request_spending_limit"))).toBe(true);
+});

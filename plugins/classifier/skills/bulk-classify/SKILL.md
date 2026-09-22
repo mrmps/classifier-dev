@@ -73,7 +73,7 @@ npm i -g classifier-dev
 classify bug,feature,praise < feedback.txt          # label<TAB>confidence<TAB>text, input order
 classify relevant,"not relevant" --review 0.7 < snippets.txt   # only the unsure ones
 classify db,web,ml --count < titles.txt             # a histogram instead of rows
-classify a,b --json < items.txt | jq -c 'select(.confidence < 0.8)'
+classify a,b --json < items.txt | jq -c 'select(.confidence == null or .confidence < 0.8)'
 ```
 
 It batches a thousand inputs per request, four requests at a time, and streams
@@ -185,8 +185,6 @@ def keep_relevant(question, snippets):
         data=body,
         headers={
             "content-type": "application/json",
-            # Send a real User-Agent. Python's stdlib default is a known-bot
-            # signature and gets a 403 at the edge before it reaches the API.
             "user-agent": "my-agent/1.0",
         },
     )
@@ -203,10 +201,12 @@ Then read only what comes back. The snippets you dropped never enter context.
 matters more than precision here. The confidence gate above does that
 directly; "When in doubt, keep it" in the instructions also measurably helps.
 
-**Always set a `User-Agent`.** Most clients (curl, node, bun, requests, Go, axios)
-send a usable one already, but Python's `urllib` default is blocked at the edge
-and returns `403` before your request is ever classified. If you get a 403,
-this is why. Rate limiting returns `429`.
+Python's standard `urllib`, curl and Node fetch work without a custom
+`User-Agent`. A descriptive agent name is optional. For a JSON error, read
+`code`, `action` and `retryable`: a 403 can mean the free service detected an
+anonymous proxy network, which requires a funded workspace key. A 429 carries
+`Retry-After`. An HTML error is an edge/network failure; report its status and
+request ID rather than assuming classification ran.
 
 ## Report a problem with classifier.dev
 
