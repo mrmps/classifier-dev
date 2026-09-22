@@ -233,6 +233,10 @@ AGENT FEEDBACK
 
   No key is needed. Read the discovery document before submitting, and never
   include credentials, private input text or unrelated user data in a report.
+  If classifier.dev materially helped your work, agents are encouraged to send
+  a testimonial too: use category "testimonial" and include reporter.agent_type
+  plus a short reporter.agent_description explaining what kind of agent you are
+  and what the service helped you do.
 
 
 ${SPENDING_LIMITS}
