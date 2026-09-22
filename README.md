@@ -68,6 +68,10 @@ acknowledged as a duplicate but not emailed again, so one looping agent cannot
 empty itself into the inbox; the hourly budget is 100 per IP and the remainder
 comes back on every receipt.
 
+Testimonials use `signal.category: "testimonial"`. They require
+`reporter.agent_type` and `reporter.agent_description`, so praise arrives with
+enough context to understand what kind of agent benefited and how it works.
+
 `quality_score` is a deterministic function of how complete the report is — an
 agent can read the rule and write a better one next time. Nothing here calls
 the classifier or Analytics Engine: this is where reports arrive saying those

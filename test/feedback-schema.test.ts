@@ -30,6 +30,43 @@ test("the feedback request schema agrees with the endpoint on required content",
   }
 });
 
+test("testimonials identify the kind of agent and describe its work", async () => {
+  const validate = ajv.compile(OPENAPI.components.schemas.FeedbackReport);
+  const testimonial = {
+    signal: { category: "testimonial" },
+    content: {
+      title: "Classifier kept a support triage run small",
+      summary: "I filtered 8,000 tickets before reasoning over the uncertain ones.",
+    },
+    reporter: {
+      agent_type: "support triage agent",
+      agent_description: "An autonomous agent that routes support tickets and escalates uncertain cases to a human.",
+    },
+  };
+  const cases = [
+    { body: testimonial, valid: true },
+    { body: { ...testimonial, reporter: undefined }, valid: false },
+    { body: { ...testimonial, reporter: { agent_description: testimonial.reporter.agent_description } }, valid: false },
+    { body: { ...testimonial, reporter: { agent_type: testimonial.reporter.agent_type } }, valid: false },
+    { body: { ...testimonial, reporter: { ...testimonial.reporter, agent_type: "  " } }, valid: false },
+    { body: { ...testimonial, reporter: { ...testimonial.reporter, agent_description: "\n\t" } }, valid: false },
+  ];
+
+  for (const { body, valid } of cases) {
+    expect((await submit("/api/v1/feedback", body)).status).toBe(valid ? 202 : 400);
+    expect(validate(body)).toBe(valid);
+  }
+
+  const discovery = await worker.fetch(new Request("https://classifier.dev/.well-known/agent-feedback.json"), env, ctx);
+  const document = await discovery.json() as {
+    categories: string[];
+    testimonial?: { description?: string; required_reporter_fields?: string[] };
+  };
+  expect(document.categories).toContain("testimonial");
+  expect(document.testimonial?.description).toContain("share a testimonial");
+  expect(document.testimonial?.required_reporter_fields).toEqual(["agent_type", "agent_description"]);
+});
+
 test("the observation schema requires the same nonblank summary as the endpoint", async () => {
   const validate = ajv.compile(OPENAPI.components.schemas.Observation);
   for (const summary of ["A useful observation", "", " \t\n\u00a0"]) {
