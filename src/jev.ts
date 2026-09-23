@@ -537,7 +537,7 @@ async function postBeam(key: string, body: JevBody, backend: Backend, meter?: Me
     const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider, outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
     let res: Response;
     try {
-      res = await providerFetch(meter, "beam", body.model, 0, backend.url, {
+      res = await providerFetch(meter, provider, body.model, 0, backend.url, {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         body: JSON.stringify(body),

@@ -3,6 +3,8 @@ import worker, { type Env } from "../src/index";
 import { CHUNKLAYA_BACKEND } from "../src/jev";
 import { parseTokenRateCard, priceTokens } from "../src/server/token-pricing";
 import { providerCallBound } from "../src/server/token-reservation";
+import { Permit } from "../src/spending/permit";
+import { newMeter } from "../src/cost";
 import rates from "../src/retail-rates.json";
 
 /**
@@ -152,4 +154,21 @@ test("account billing prices chunklaya at zero and bounds a call by its document
   const card = parseTokenRateCard(JSON.stringify(rates))!;
   expect(providerCallBound(card, "chunklaya", "chunklaya/multilingual", 0)).toBe(0);
   expect(priceTokens(card, [{ provider: "chunklaya", model: "chunklaya/multilingual", calls: 1, inputTokens: 250_000, outputTokens: 0, cachedInputTokens: 0 }])?.nanodollars).toBe(0n);
+});
+
+test("under a spending permit the route is priced as chunklaya, not as Beam", async () => {
+  // Production wraps every anonymous or funded request in a Permit whose fetch
+  // prices each provider call before sending it. The first deploy priced this
+  // route under Beam's name and refused it as unpriced_model.
+  const calls = mockPod();
+  const meter = newMeter();
+  meter.permit = new Permit(10_000_000_000, Date.now() + 90_000);
+  meter.beforeCall = async () => {};
+  const response = await worker.fetch(new Request("https://classifier.dev/v1/classify", {
+    method: "POST", body: JSON.stringify({ input: LONG, labels: ["billing", "technical"] }) }), env, ctx, { meter } as never);
+  expect(response.status).toBe(200);
+  expect(meter.permit.error).toBeUndefined();
+  expect(calls).toHaveLength(1);
+  expect(meter.permit.tokens.map((row) => [row.provider, row.model, row.inputTokens])).toEqual([["chunklaya", "chunklaya/multilingual", 4200]]);
+  expect(meter.permit.used).toBe(0); // billed by the hour, not the token
 });
