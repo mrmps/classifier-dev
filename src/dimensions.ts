@@ -7,6 +7,9 @@ import {
   type JevQuestionGroup,
   type JevResult,
   type Question,
+  type Limits,
+  type Backend,
+  JEV_BACKEND,
 } from "./jev";
 import type { Meter } from "./cost";
 
@@ -57,7 +60,8 @@ type Cell = { item: number; dimension: number; id: string; question: Extract<Que
 export type DimensionBatch = JevBatch<Cell>;
 
 /** State is shared across questions. Respect BOTH Jev context limits, with headroom. */
-export function packDimensions(inputs: string[], dimensions: Dimension[], shared?: string): DimensionBatch[] {
+/** `limits` packs for another backend; chunklaya takes one document per request and has no token budget to respect. */
+export function packDimensions(inputs: string[], dimensions: Dimension[], shared?: string, limits?: Limits): DimensionBatch[] {
   const groups: JevQuestionGroup<Cell>[] = [];
   inputs.forEach((text, item) => dimensions.forEach((d, dimension) => {
       const question: Question = {
@@ -69,7 +73,7 @@ export function packDimensions(inputs: string[], dimensions: Dimension[], shared
       groups.push({ state: { id: `i${item}`, text }, questions: { [cell.id]: question }, value: cell });
     }));
   try {
-    return prepareJevBatches(groups, { rejectOversized: true });
+    return prepareJevBatches(groups, { rejectOversized: !limits, limits });
   } catch (error) {
     if (error instanceof JevContextError) {
       throw new DimensionError("An input and dimension exceed Jev's context budget; shorten the input or dimension instructions");
@@ -79,9 +83,9 @@ export function packDimensions(inputs: string[], dimensions: Dimension[], shared
 }
 
 /** One result per matrix cell. Splitting by question also handles a single wide item. */
-export async function classifyDimensions(keys: JevKeys, batches: DimensionBatch[], meter?: Meter): Promise<JevResult[][]> {
+export async function classifyDimensions(keys: JevKeys, batches: DimensionBatch[], meter?: Meter, backend: Backend = JEV_BACKEND): Promise<JevResult[][]> {
   const results: JevResult[][] = [];
-  for (const { value: cell, model, answers } of await runJevBatches(keys, batches, meter)) {
+  for (const { value: cell, model, answers } of await runJevBatches(keys, batches, meter, backend)) {
     const answer = answers[cell.id]; // The shared runner validates every answer before returning.
     (results[cell.item] ??= [])[cell.dimension] = {
       label: answer.choice!, confidence: answer.confidence!,

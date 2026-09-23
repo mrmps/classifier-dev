@@ -13,6 +13,7 @@ import { MAX_DESIRED_LATENCY_MS, MIN_DESIRED_LATENCY_MS, ROADMAP, ROADMAP_KEYS }
 export const ERROR_CODES = [
   ...SPENDING_ERROR_CODES,
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
+  "chunklaya_input", "chunklaya_busy", "chunklaya_unavailable",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
   "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid", "account_route_required",
@@ -977,10 +978,10 @@ export const OPENAPI = {
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
-          model: { type: "string", enum: ["jev", "laya", "kev"], description: "When omitted, uses Jev unless processing is supplied, which implies Laya. Laya and Kev are experimental models hosted by Beam: \"laya\" is ModernBERT-large with a 512-token context, \"kev\" is Qwen2.5-0.5B with a pointer head and an 8,192-token context. Both take 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. A result is labelled jev/laya or jev/kev; Beam does not report which checkpoint answered. Jev calibration claims do not apply to either." },
+          model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "When omitted, uses Jev unless processing is supplied, which implies Laya, or an input exceeds 32,000 characters, which routes the request to chunklaya, our long-document model (up to 4,000,000 characters and 20 inputs per request; the result is labelled chunklaya/multilingual; tier smart is not available). \"chunklaya\" selects it explicitly. Laya and Kev are experimental models hosted by Beam: \"laya\" is ModernBERT-large with a 512-token context, \"kev\" is Qwen2.5-0.5B with a pointer head and an 8,192-token context. Both take 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. A result is labelled jev/laya or jev/kev; Beam does not report which checkpoint answered. Jev calibration claims do not apply to either." },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Implies Laya when model is omitted. Accepted but has no effect with explicit model jev, which handles batching automatically. When omitted for Laya, automatically selects fast for one decision with up to 4 yes/no questions, otherwise bulk. Explicit Laya lanes are honored. Fast allows 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
           dimensions: DIMENSIONS_SCHEMA,
-          items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 32000 }, description: "Alias for inputs in dimensions mode. Do not combine with input or inputs." },
+          items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 4000000 }, description: "Alias for inputs in dimensions mode; each up to 32,000 characters, or 4,000,000 when routed to chunklaya. Do not combine with input or inputs." },
           input: { type: "string", description: "A single text. Provide this or inputs; a string under `inputs` is read as one text too." },
           inputs: {
             type: "array",
@@ -1374,7 +1375,8 @@ are limited to 1 MB. Billing settles asynchronously after the response.
 
 Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
-characters; free requests accept 1,000 inputs on fast or 200 on smart.
+characters, or 4,000,000 for documents routed to chunklaya (at most 20 per
+request); free requests accept 1,000 inputs on fast or 200 on smart.
 Pro workspaces get 10x minute and daily limits shared across keys and agents,
 and up to 1,000 inputs on either tier. Current plans are at
 https://classifier.dev/pricing.

@@ -140,6 +140,35 @@ LAYA AND KEV
     node cli/classify.js billing,technical --model kev --processing bulk < tickets.txt
 
 
+LONG DOCUMENTS
+
+  An input over 32,000 characters is answered by chunklaya, our own
+  long-document service, when it is configured; otherwise it is refused with
+  input_too_long as before. chunklaya is Laya behind a harness: the document
+  is split into passages and indexed once, and every question in the request
+  is answered off that index, so a request with dimensions asks all of them
+  in one pass. Up to 4,000,000 characters per input and 20 inputs per
+  request. The result is labelled chunklaya/multilingual. Nothing at or under
+  32,000 characters changes, and an explicit model: "jev" keeps the 32,000
+  ceiling; model: "chunklaya" selects it for shorter text too.
+
+    {"input": "<a 300,000-character contract>",
+     "dimensions": {"kind": ["lease", "employment", "supply"],
+                    "renews": ["automatically", "on notice", "never"]}}
+
+  What it will not do. tier: "smart" is refused with bad_tier: the reviewing
+  model cannot read the document. A document with more passages than the
+  service scores in one request (256 paragraphs), or a request with more
+  questions than fit, is refused with chunklaya_input rather than answered
+  from part of the text. A busy service answers 429 chunklaya_busy with
+  Retry-After; an unreachable one 503 chunklaya_unavailable. There is no
+  fallback to another model.
+
+  Accuracy on long documents has not been measured against Jev on
+  classifier.dev traffic; the harness's own results are in its repository,
+  github.com/myxamediyar/chunklaya. No retail charge during this trial.
+
+
 AGAINST THE MODEL IT RUNS ON
 
 ${vsJevText(false)}
@@ -327,7 +356,9 @@ PARAMETERS
 
   labels        Two to one hundred categories. Required unless dimensions is supplied.
   dimensions    Named label sets for independent decisions; see MULTIPLE DIMENSIONS.
-  input         The text to classify, up to 32,000 characters.
+  input         The text to classify, up to 32,000 characters. Longer
+                documents, up to 4,000,000, are answered by chunklaya; see
+                LONG DOCUMENTS.
   inputs        Up to one thousand strings classified in a single call.
   tier          Either fast (the default) or smart, in any case. Anything
                 else is a 400 with code bad_tier, never a silent fast.
@@ -470,14 +501,15 @@ ERRORS
   and try as fields.
 
   400   bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels,
-        empty_label, duplicate_labels, empty_input, input_too_long, bad_tier
+        empty_label, duplicate_labels, empty_input, input_too_long, bad_tier,
+        chunklaya_input
   401   invalid_api_key for unsupported credentials. Workspace authentication
         also rejects invalid, paused or revoked keys with an error message;
         workspace errors do not include a code.
   402   insufficient workspace balance for inference
   403   the key is inactive or the workspace cannot authorize usage
   404   not_found
-  429   rate_limit_minute, rate_limit_day, with Retry-After; on the free
+  429   rate_limit_minute, rate_limit_day, chunklaya_busy, with Retry-After; on the free
         tier the body also carries upgrade, the URL of the plan that lifts
         the limit (https://classifier.dev/pricing)
   502   typesafe or typesafe_<status> when the decision model failed;

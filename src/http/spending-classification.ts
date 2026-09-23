@@ -27,7 +27,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     const keyHash = await hashToken(request.headers.get("authorization")!.replace(/^Bearer\s+/i, ""));
     const maxCredits = Math.ceil(limits.paidRequest / 10000);
     const decisions = items * (body.dimensions && typeof body.dimensions === "object" ? Math.max(1, Object.keys(body.dimensions).length) : 1);
-    const trial = body.model === "laya" || body.model === "kev";
+    const trial = body.model === "laya" || body.model === "kev" || body.model === "chunklaya";
     const quote = Number((classificationCharge(trial ? 0 : 65536 * decisions, body.tier === "smart" ? decisions : 0).nanodollars + 9999n) / 10000n);
     if (quote > maxCredits) throw new SpendingError(402, "request_spending_limit", "This request exceeds the workspace request allowance. Split the batch.");
     const idempotencyHash = idem ? await fingerprint(env, `account-idempotency:${idem}`) : null;

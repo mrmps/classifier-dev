@@ -22,7 +22,7 @@ import { runAlerts } from "./alerts";
 import * as feedback from "./feedback";
 import * as newsletter from "./newsletter";
 import * as skills from "./skills";
-import { jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
+import { jevClassify, jevKeys, MULTI_THRESHOLD, JEV_BACKEND, CHUNKLAYA_BACKEND, JevError, type Backend } from "./jev";
 import { LAYA_LIMITS, LayaError, planLaya, runLaya, limitLaya, layaModel, readQuotaTiming, type QuotaTiming, type LayaEnv, type LayaPlan, type LayaTiming, type Processing, type LayaModel } from "./laya";
 import { readDimensions, packDimensions, classifyDimensions, dimensionInstructions, MAX_DECISIONS, type Dimension, type DimensionBatch } from "./dimensions";
 import { newMeter, addUsd, addTokens, type Meter } from "./cost";
@@ -43,6 +43,16 @@ export interface Env extends LayaEnv, SpendingEnv {
   TYPESAFE_API_KEY?: string;
   /** Beam workspace token; the credential for the Beam-hosted Laya and Kev. */
   BEAM_API_KEY?: string;
+  /**
+   * chunklaya, our own long-document service: Laya behind a chunk-and-index
+   * harness on a pod (github.com/myxamediyar/chunklaya, serve/). An input over
+   * MAX_CHARS goes there when both secrets are set and CHUNKLAYA_ENABLED is
+   * "true"; otherwise it keeps answering input_too_long. The URL is the pod's
+   * proxy address and the token its bearer; both are Worker secrets.
+   */
+  CHUNKLAYA_URL?: string;
+  CHUNKLAYA_TOKEN?: string;
+  CHUNKLAYA_ENABLED?: string;
   /**
    * Vercel AI Gateway, which serves Jev on a free monthly credit. With it set,
    * Jev is asked there first and TYPESAFE_API_KEY catches what the gateway
@@ -99,6 +109,12 @@ const MAX_LABELS_SINGLE = 26;
 // The fallback is one upstream call per input, so it cannot take a real batch.
 const FALLBACK_MAX_INPUTS = 20;
 const MAX_CHARS = 32_000;
+// Past MAX_CHARS a document goes to chunklaya, which indexes it once and answers
+// every question in the request off the index. The service refuses more than
+// this: a million tokens of prose, roughly.
+const CHUNKLAYA_MAX_CHARS = 4_000_000;
+// One document is one upstream request there, so a batch is bounded by count.
+const CHUNKLAYA_MAX_INPUTS = 20;
 /** The schedule that runs the alert check rather than the digest. */
 const ALERT_CRON = "*/15 * * * *";
 // Smart tier: a fast answer below this confidence is re-asked of the reasoning chain.
@@ -951,6 +967,7 @@ async function classifyMany(
   layaPlan?: LayaPlan,
   layaTiming?: LayaRequestTiming,
   layaRun?: LayaRun,
+  backend: Backend = JEV_BACKEND,
 ): Promise<{ results: Result[]; escalationFailed: number }> {
   const keys = jevKeys(env);
   if (keys || layaPlan) {
@@ -959,9 +976,11 @@ async function classifyMany(
     try {
       if (layaPlan) {
         jev = await (layaRun ?? startLaya(env, layaPlan, meter, layaTiming));
-      } else jev = await jevClassify(keys!, inputs, labels, instructions, !!multi, meter);
+      } else jev = await jevClassify(keys!, inputs, labels, instructions, !!multi, meter, backend);
     } catch (e) {
-      if (layaPlan || e instanceof SpendingError || meter?.permit?.error) throw meter?.permit?.error ?? e;
+      // A document too long for Jev is too long for the LLM chain as well: a
+      // chunklaya failure is reported, never quietly answered by another model.
+      if (layaPlan || backend.id === "chunklaya" || e instanceof SpendingError || meter?.permit?.error) throw meter?.permit?.error ?? e;
       console.warn(`jev failed, falling back: ${(e as Error).message}`);
     }
     if (jev) {
@@ -1003,7 +1022,7 @@ async function classifyMany(
 }
 
 /** Keep each field independent, including smart escalation and the bounded LLM fallback. */
-async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter, layaPlan?: LayaPlan, layaTiming?: LayaRequestTiming, layaRun?: LayaRun) {
+async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[], batches: DimensionBatch[], tier: Tier, instructions: string | undefined, meter: Meter, layaPlan?: LayaPlan, layaTiming?: LayaRequestTiming, layaRun?: LayaRun, backend: Backend = JEV_BACKEND) {
   const started = Date.now();
   let jev: Awaited<ReturnType<typeof classifyDimensions>> | undefined;
   const keys = jevKeys(env);
@@ -1011,9 +1030,9 @@ async function classifyMatrix(env: Env, inputs: string[], dimensions: Dimension[
     const flat = await (layaRun ?? startLaya(env, layaPlan, meter, layaTiming));
     jev = inputs.map((_, i) => flat.slice(i * dimensions.length, (i + 1) * dimensions.length));
   } else if (keys) {
-    try { jev = await classifyDimensions(keys, batches, meter); }
+    try { jev = await classifyDimensions(keys, batches, meter, backend); }
     catch (e) {
-      if (e instanceof SpendingError || meter.permit?.error) throw meter.permit?.error ?? e;
+      if (backend.id === "chunklaya" || e instanceof SpendingError || meter.permit?.error) throw meter.permit?.error ?? e;
       console.warn(`dimensions Jev failed: ${(e as Error).message}`);
     }
   }
@@ -1858,7 +1877,9 @@ const worker = {
     let inputs: string[] = [];
     let labels: string[] = [];
     let tier: Tier = "fast";
-    let selectedModel: "jev" | LayaModel = "jev";
+    let selectedModel: "jev" | LayaModel | "chunklaya" = "jev";
+    // Set when the body named a model, so a long input under an explicit "jev" stays refused rather than rerouted.
+    let explicitModel = false;
     let processing: Processing = "fast";
     let automaticProcessing = true;
     let layaPlan: LayaPlan | undefined;
@@ -1881,7 +1902,7 @@ const worker = {
     // key if the caller sent one. Spending admission rejects duplicate work;
     // responses are not cached for replay.
     const apiHeaders = (remaining = -1): Record<string, string> => {
-      const isLaya = selectedModel !== "jev";
+      const isLaya = selectedModel === "laya" || selectedModel === "kev";
       const limit = isLaya ? Math.min(LAYA_LIMITS[processing].rpm, TIERS[tier].rpm * multiplier) : TIERS[tier].rpm * multiplier;
       const daily = isLaya ? Math.min(LAYA_LIMITS[processing].daily, TIERS[tier].daily * multiplier) : TIERS[tier].daily * multiplier;
       const h: Record<string, string> = {
@@ -1899,7 +1920,7 @@ const worker = {
       return h;
     };
     const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, unknown> = {}) => {
-      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : layaModel(selectedModel),
+      record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.model : layaModel(selectedModel),
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
@@ -1927,12 +1948,14 @@ const worker = {
         return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
       }
       const b = body as Record<string, unknown>;
-      if (b.model !== undefined && b.model !== "jev" && b.model !== "laya" && b.model !== "kev")
-        return fail('model must be "jev", "laya" or "kev"', 400, "bad_model");
+      if (b.model !== undefined && b.model !== "jev" && b.model !== "laya" && b.model !== "kev" && b.model !== "chunklaya")
+        return fail('model must be "jev", "laya", "kev" or "chunklaya"', 400, "bad_model");
+      explicitModel = b.model !== undefined;
       // `processing` without a model still means Laya: it is the lane selector
       // for the Beam-hosted trial and Jev has no lanes.
       selectedModel = b.model === "laya" || b.model === "kev"
         ? (b.model as LayaModel)
+        : b.model === "chunklaya" ? "chunklaya"
         : b.model === undefined && b.processing !== undefined ? "laya" : "jev";
       if (b.processing !== undefined && b.processing !== "fast" && b.processing !== "bulk")
         return fail('processing must be "fast" or "bulk"', 400, "bad_processing");
@@ -2008,18 +2031,31 @@ const worker = {
     if (labels.some((l) => typeof l !== "string" || !l.trim())) return fail("Labels must be non-empty strings", 400, "empty_label");
     if (new Set(labels).size !== labels.length) return fail("Labels must be distinct", 400, "duplicate_labels");
     if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400, "empty_input");
-    if (inputs.some((i) => i.length > MAX_CHARS)) return fail(`Each input must be at most ${MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
+    // Past MAX_CHARS a document goes to chunklaya, when it is configured and the
+    // caller did not name a model. Everything at or under the ceiling is
+    // untouched, and an explicit "jev" keeps its ceiling: the reroute answers
+    // requests that used to fail, never changes one that used to work.
+    const longest = inputs.reduce((max, input) => Math.max(max, input.length), 0);
+    const chunklayaReady = env.CHUNKLAYA_ENABLED === "true" && !!jevKeys(env)?.chunklaya;
+    if (selectedModel === "jev" && !explicitModel && longest > MAX_CHARS && chunklayaReady) selectedModel = "chunklaya";
+    if (selectedModel === "chunklaya") {
+      if (!chunklayaReady) return fail("Long-document classification is currently unavailable", 503, "chunklaya_unavailable", { "retry-after": "60" });
+      if (longest > CHUNKLAYA_MAX_CHARS) return fail(`Each input must be at most ${CHUNKLAYA_MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
+      if (inputs.length > CHUNKLAYA_MAX_INPUTS) return fail(`Documents over ${MAX_CHARS.toLocaleString("en-US")} characters are classified at most ${CHUNKLAYA_MAX_INPUTS} per request`, 400, "too_many_inputs");
+      // The reviewing model cannot read the document, so there is nothing to escalate to.
+      if (tier === "smart") return fail(`tier "smart" is not available for documents over ${MAX_CHARS.toLocaleString("en-US")} characters; use fast`, 400, "bad_tier");
+    } else if (longest > MAX_CHARS) return fail(`Each input must be at most ${MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
 
     if (dimensions) {
       if (inputs.length * dimensions.length > MAX_DECISIONS) return fail(`Maximum ${MAX_DECISIONS} decisions (items × dimensions) per request`, 400, "too_many_decisions");
-      try { if (selectedModel === "jev") dimensionBatches = packDimensions(inputs, dimensions, instructions); }
+      try { if (selectedModel === "jev" || selectedModel === "chunklaya") dimensionBatches = packDimensions(inputs, dimensions, instructions, selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.limits : undefined); }
       catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
     } else mode = multi ? "multi" : "single";
     const decisions = inputs.length * (dimensions?.length ?? 1);
-    if (selectedModel !== "jev" && automaticProcessing) {
+    if ((selectedModel === "laya" || selectedModel === "kev") && automaticProcessing) {
       processing = decisions > 1 || (!!multi && labels.length > LAYA_LIMITS.fast.questions) ? "bulk" : "fast";
     }
-    if (selectedModel !== "jev") {
+    if (selectedModel === "laya" || selectedModel === "kev") {
       if (!account && !req.headers.has("authorization")) layaTiming = {};
       if (env.LAYA_ENABLED !== "true") return fail("Laya trial is currently unavailable", 503, "laya_unavailable");
       try {
@@ -2121,18 +2157,19 @@ const worker = {
     }
 
     const started = Date.now();
+    const backend = selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND : JEV_BACKEND;
     let results: Result[];
     let matrix: Result[][] | undefined;
     let fallbackDecisions = 0;
     let escalationFailed = 0;
     try {
       if (dimensions) {
-        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan, layaTiming, layaRun);
+        const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan, layaTiming, layaRun, backend);
         matrix = r.results;
         results = matrix.flat();
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
-      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun));
+      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun, backend));
       if (meter.permit?.error && !(execution?.funded && meter.permit.error.code === "request_spending_limit")) throw meter.permit.error;
     } catch (e) {
       const spending = e instanceof SpendingError ? e : meter.permit?.error;
@@ -2144,6 +2181,14 @@ const worker = {
       if (e instanceof LayaError) return fail(e.message, e.status,
         e.status === 400 ? "laya_input" : e.status === 429 ? "laya_rate_limit" : "laya_unavailable",
         e.status === 400 ? {} : { "retry-after": String(e.retryAfter) }, Date.now() - started);
+      if (selectedModel === "chunklaya" && e instanceof JevError) {
+        // Only our own words travel outward: the service's `detail` can describe the document.
+        const elapsed = Date.now() - started;
+        if (e.status === 400 || e.status === 413 || e.status === 422 || e.errorType === "invalid_request" || e.errorType === "max_tokens_exceeded")
+          return fail("The long-document model refused the request: the document has more passages, or the request more questions, than it scores at once. Split the document or ask fewer questions", 400, "chunklaya_input", {}, elapsed);
+        if (e.status === 429) return fail("The long-document model is busy; retry with backoff", 429, "chunklaya_busy", { "retry-after": "2" }, elapsed);
+        return fail("Long-document classification is currently unavailable", 503, "chunklaya_unavailable", { "retry-after": "10" }, elapsed);
+      }
       if (e instanceof ProviderConfigurationError) return fail(e.message, 503, "inference_unavailable", {}, Date.now() - started);
       const msg = (e as Error).message;
       return fail(`upstream: ${msg}`, 502, upstreamReason(msg), {}, Date.now() - started);

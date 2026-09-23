@@ -75,12 +75,14 @@ export function resetGatewayPause() {
 }
 
 /** Where Jev can be asked. Either key alone works; with both, the gateway goes first and TypeSafe catches what it drops. */
-export type JevKeys = { typesafe?: string; gateway?: string; beam?: string; analytics?: AnalyticsEngineDataset };
+export type JevKeys = { typesafe?: string; gateway?: string; beam?: string; chunklaya?: { url: string; token: string }; analytics?: AnalyticsEngineDataset };
 
-export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string; AI_GATEWAY_DISABLED?: string; BEAM_API_KEY?: string; JEV_AE?: AnalyticsEngineDataset }): JevKeys | null => {
+export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string; AI_GATEWAY_DISABLED?: string; BEAM_API_KEY?: string; CHUNKLAYA_URL?: string; CHUNKLAYA_TOKEN?: string; JEV_AE?: AnalyticsEngineDataset }): JevKeys | null => {
   const gateway = env.AI_GATEWAY_DISABLED === "true" ? undefined : env.AI_GATEWAY_API_KEY;
-  return env.TYPESAFE_API_KEY || gateway || env.BEAM_API_KEY
-    ? { typesafe: env.TYPESAFE_API_KEY, gateway, beam: env.BEAM_API_KEY, ...(env.JEV_AE ? { analytics: env.JEV_AE } : {}) }
+  // Both halves or neither: a URL without its token would send documents to a service that refuses them.
+  const chunklaya = env.CHUNKLAYA_URL && env.CHUNKLAYA_TOKEN ? { url: env.CHUNKLAYA_URL, token: env.CHUNKLAYA_TOKEN } : undefined;
+  return env.TYPESAFE_API_KEY || gateway || env.BEAM_API_KEY || chunklaya
+    ? { typesafe: env.TYPESAFE_API_KEY, gateway, beam: env.BEAM_API_KEY, chunklaya, ...(env.JEV_AE ? { analytics: env.JEV_AE } : {}) }
     : null;
 };
 
@@ -122,10 +124,10 @@ const BEAM_API = "https://app.beam.cloud/v1/systemone";
 export const BEAM_MAX_QUESTIONS = 32;
 
 export type Limits = { tokenBudget: number; stateQuestionBudget: number; maxItems: number; maxQuestions: number };
-export type BackendId = "jev" | "laya" | "kev";
+export type BackendId = "jev" | "laya" | "kev" | "chunklaya";
 export type Backend = {
   id: BackendId;
-  via: "typesafe" | "beam";
+  via: "typesafe" | "beam" | "chunklaya";
   url: string;
   /** Sent as `model`, and the label an answer is attributed to. */
   model: string;
@@ -139,6 +141,8 @@ export type Backend = {
    */
   attempts: number;
   limits: Limits;
+  /** Upstream deadline. The default suits Jev and Beam; a document service that indexes a megabyte first needs longer. */
+  timeoutMs?: number;
 };
 
 export const JEV_BACKEND: Backend = {
@@ -161,8 +165,25 @@ export const KEV_BACKEND: Backend = {
   id: "kev", via: "beam", url: BEAM_API, model: "jev/kev", accountModel: "jev/kev", attempts: 1,
   limits: { tokenBudget: 7_200, stateQuestionBudget: 7_200, maxItems: BEAM_MAX_QUESTIONS, maxQuestions: BEAM_MAX_QUESTIONS },
 };
-export const BACKENDS: Record<BackendId, Backend> = { jev: JEV_BACKEND, laya: LAYA_BACKEND, kev: KEV_BACKEND };
-export const isBackendId = (v: unknown): v is BackendId => v === "jev" || v === "laya" || v === "kev";
+/**
+ * chunklaya: Laya behind a chunk-and-index harness, on a pod of ours
+ * (github.com/myxamediyar/chunklaya, serve/). Same protocol as Beam, so the
+ * same transport, with three differences that live here: the URL and bearer
+ * come from the environment rather than a constant, one document is one
+ * request (the service indexes it once and answers every question off the
+ * index, so `maxItems` is 1 and there is no token budget to pack against),
+ * and it refuses oversized work with a 4xx that must not be retried by
+ * halving — its 422s never say "tokens", so `beamErrorType` reads them as
+ * `invalid_request`. The answer is labelled by the service itself.
+ */
+export const CHUNKLAYA_MAX_QUESTIONS = 32;
+export const CHUNKLAYA_BACKEND: Backend = {
+  id: "chunklaya", via: "chunklaya", url: "", model: "chunklaya/multilingual", accountModel: "chunklaya/multilingual", attempts: 1,
+  limits: { tokenBudget: Number.MAX_SAFE_INTEGER, stateQuestionBudget: Number.MAX_SAFE_INTEGER, maxItems: 1, maxQuestions: CHUNKLAYA_MAX_QUESTIONS },
+  timeoutMs: 60_000,
+};
+export const BACKENDS: Record<BackendId, Backend> = { jev: JEV_BACKEND, laya: LAYA_BACKEND, kev: KEV_BACKEND, chunklaya: CHUNKLAYA_BACKEND };
+export const isBackendId = (v: unknown): v is BackendId => v === "jev" || v === "laya" || v === "kev" || v === "chunklaya";
 
 /**
  * Tokens in a string, estimated. ASCII runs at about 3.5 characters a token;
@@ -465,6 +486,13 @@ async function post(keys: JevKeys, body: JevBody, meter?: Meter, backend: Backen
   // Beam hosts its own models; there is no gateway door and nothing to fall
   // back to, so an unconfigured key is an error rather than a silent reroute
   // to Jev, which would answer with a different model than the caller asked for.
+  // Our own document service: the same wire protocol as Beam, reached at the
+  // address in the environment. Unconfigured is an error for the same reason.
+  if (backend.via === "chunklaya") {
+    if (!keys.chunklaya) throw new JevError("chunklaya: not configured", 0, "unconfigured");
+    const url = keys.chunklaya.url.replace(/\/+$/, "") + "/v1/systemone";
+    return postBeam(keys.chunklaya.token, { ...body, model: backend.model }, { ...backend, url }, meter, keys.analytics, signal, "chunklaya");
+  }
   if (backend.via === "beam") {
     if (!keys.beam) throw new JevError("beam: no key configured", 0, "unconfigured");
     return postBeam(keys.beam, { ...body, model: backend.model }, backend, meter, keys.analytics, signal);
@@ -501,25 +529,25 @@ async function post(keys: JevKeys, body: JevBody, meter?: Meter, backend: Backen
  * `max_tokens_exceeded` so the caller halves the batch, which is the only
  * recovery that can work when an estimate underran a 512-token window.
  */
-async function postBeam(key: string, body: JevBody, backend: Backend, meter?: Meter, analytics?: AnalyticsEngineDataset, signal?: AbortSignal): Promise<JevPayload> {
-  let last: Error = new Error("beam: no attempt made");
+async function postBeam(key: string, body: JevBody, backend: Backend, meter?: Meter, analytics?: AnalyticsEngineDataset, signal?: AbortSignal, provider: "beam" | "chunklaya" = "beam"): Promise<JevPayload> {
+  let last: Error = new Error(`${provider}: no attempt made`);
   for (let attempt = 0; attempt < backend.attempts; attempt++) {
-    await meter?.beforeCall?.("beam", body.model, 0);
+    await meter?.beforeCall?.(provider, body.model, 0);
     const started = Date.now();
-    const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "beam", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
+    const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider, outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
     let res: Response;
     try {
       res = await providerFetch(meter, "beam", body.model, 0, backend.url, {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         body: JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]) : AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(backend.timeoutMs ?? UPSTREAM_TIMEOUT_MS)]) : AbortSignal.timeout(backend.timeoutMs ?? UPSTREAM_TIMEOUT_MS),
       });
     } catch (e) {
       if (e instanceof SpendingError) throw e;
       const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
       observe(timeout ? 504 : 0, timeout ? "timeout" : "network");
-      last = new JevError(`beam ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
+      last = new JevError(`${provider} ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
       // A caller that has withdrawn the request gets no further attempts.
       if (signal?.aborted || attempt >= backend.attempts - 1) break;
       await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
@@ -528,13 +556,14 @@ async function postBeam(key: string, body: JevBody, backend: Backend, meter?: Me
     const rawPayload = await res.json().catch(() => null);
     const payload = (isRecord(rawPayload) ? rawPayload : {}) as Partial<JevPayload> & { error?: unknown; detail?: unknown };
     if (res.ok && !payload.error && validPayload(payload, body)) {
-      addBeamCost(meter, payload.usage?.input_tokens);
-      addTokens(meter, "beam", payload.model, { inputTokens: payload.usage?.input_tokens, outputTokens: payload.usage?.output_tokens, cachedInputTokens: 0 });
+      // A pod of ours is billed by the hour, not the token; only Beam has a per-token price.
+      if (provider === "beam") addBeamCost(meter, payload.usage?.input_tokens);
+      addTokens(meter, provider, payload.model, { inputTokens: payload.usage?.input_tokens, outputTokens: payload.usage?.output_tokens, cachedInputTokens: 0 });
       observe(res.status);
       return payload;
     }
     observe(res.status, beamFailureReason(res.status, rawPayload));
-    last = new JevError(`beam ${res.status}: ${res.ok ? "malformed response" : beamErrorType(res.status, rawPayload)}`, res.status, beamErrorType(res.status, rawPayload));
+    last = new JevError(`${provider} ${res.status}: ${res.ok ? "malformed response" : beamErrorType(res.status, rawPayload)}`, res.status, beamErrorType(res.status, rawPayload));
     const retryable = res.status === 408 || res.status === 425 || res.status === 429 || res.status === 529 || res.status >= 500 || res.ok;
     if (!retryable || attempt >= backend.attempts - 1) break;
     await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));

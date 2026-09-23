@@ -30,7 +30,7 @@ export type TokenCounts = {
 };
 
 export type ModelTokenUsage = TokenCounts & {
-  provider: "typesafe" | "vercel" | "openrouter" | "beam";
+  provider: "typesafe" | "vercel" | "openrouter" | "beam" | "chunklaya";
   model: string;
   calls: number;
 };

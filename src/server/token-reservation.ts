@@ -9,6 +9,7 @@ export function providerCallBound(card: TokenRateCard, provider: ModelTokenUsage
   const inputLimit = provider === "typesafe" && model === JEV_ACCOUNT_MODEL ? 65_536
     : provider === "beam" && model === "jev/laya" ? 512
     : provider === "beam" && model === "jev/kev" ? 8_192
+    : provider === "chunklaya" && model === "chunklaya/multilingual" ? 1_048_576
     : provider === "openrouter" && model === "google/gemini-3.8-flash" ? 1_048_576 : null;
   const rate = card.models.find((row) => row.provider === provider && row.model === model);
   if (inputLimit === null || !rate || !Number.isSafeInteger(maxOutput) || maxOutput < 0 || maxOutput > 65_536)
