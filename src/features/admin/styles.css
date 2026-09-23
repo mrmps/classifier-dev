@@ -329,6 +329,50 @@ body:has(.admin-app) {
 .admin-app tr:last-child td {
   border: 0;
 }
+.admin-app .label-registry {
+  width: 100%;
+  table-layout: fixed;
+  font-size: 14px;
+}
+.admin-app .label-registry th {
+  padding: 12px;
+  position: static;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.admin-app .label-registry th:first-child {
+  width: 65%;
+}
+.admin-app .label-registry td {
+  vertical-align: top;
+  text-align: left;
+}
+.admin-app .label-values {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.admin-app .label-values li {
+  background: #19212e;
+  border-radius: 5px;
+  padding: 4px 8px;
+  max-width: 100%;
+}
+.admin-app .label-pages {
+  margin: 20px 0;
+}
+.admin-app .label-skip {
+  position: absolute;
+  left: -10000px;
+}
+.admin-app .label-skip:focus {
+  left: 16px;
+  top: 16px;
+  z-index: 1;
+}
 .admin-app .signals {
   display: grid;
   gap: 24px;

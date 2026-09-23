@@ -829,6 +829,7 @@ function Dashboard({ data: d, range }: { data: AdminData; range: RangeKey }) {
                 wide
                 unavailable={missing("topLabels")}
               >
+                <a className="control" href="/admin?view=labels">Browse all collected labels →</a>
                 <Table
                   rows={d.topLabels}
                   columns={[
