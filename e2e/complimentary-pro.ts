@@ -34,11 +34,15 @@ try {
   await db.prepare("INSERT INTO app_accounts(id,email,name,balance,paid_balance,reset_at,created_at) VALUES(?,?,?,500000,100000,?,?)")
     .bind(accountId, email, "Grantee", start, start).run();
   await db.prepare("INSERT INTO app_complimentary_pro(email,starts_at,ends_at) VALUES(?,?,?)")
-    .bind(email, start, end).run();
-  assert.equal(await hasActiveComplimentaryPro(env, accountId, new Date("2026-09-23T12:00:00.000Z")), true);
-  observations.push({ step: "unclaimed grant matches verified account email" });
+    .bind(email, "2025-09-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z").run();
+  assert.equal(await hasActiveComplimentaryPro(env, accountId, new Date(start)), false);
+  observations.push({ step: "unclaimed provisional dates do not shorten the award" });
 
-  await syncComplimentaryPro(env, email.toUpperCase(), accountId, new Date("2026-09-23T12:00:00.000Z"));
+  await syncComplimentaryPro(env, email.toUpperCase(), accountId, new Date(start));
+  const claimed = await db.prepare("SELECT starts_at,ends_at,account_id FROM app_complimentary_pro WHERE email=?")
+    .bind(email).first<{ starts_at: string; ends_at: string; account_id: string }>();
+  assert.deepEqual(claimed, { starts_at: start, ends_at: end, account_id: accountId });
+  assert.equal(await hasActiveComplimentaryPro(env, accountId, new Date(start)), true);
   let snapshot = await billingSnapshot(accountId, env);
   assert.equal(snapshot.plan, "pro");
   assert.equal(snapshot.availableCredits, snapshot.paidCredits + BILLING_PLANS.pro.includedCredits);

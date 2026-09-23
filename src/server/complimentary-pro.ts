@@ -41,10 +41,29 @@ export async function hasActiveComplimentaryPro(env: AppEnv, accountId: string, 
  * renews its allowance on a cron and removes it at the fixed end date. */
 export async function syncComplimentaryPro(env: AppEnv, email: string, accountId: string, now = new Date()): Promise<void> {
   const normalized = email.trim().toLowerCase();
-  const grant = await env.APP_DB.prepare("SELECT * FROM app_complimentary_pro WHERE email=?").bind(normalized).first<Grant>();
+  let grant = await env.APP_DB.prepare("SELECT * FROM app_complimentary_pro WHERE email=?").bind(normalized).first<Grant>();
   if (!grant) return;
   if (grant.account_id && grant.account_id !== accountId) throw new AppError(409, "Complimentary plan belongs to another account.");
   const timestamp = now.toISOString();
+  if (!grant.account_id && !grant.last_period_start) {
+    const end = new Date(now);
+    end.setUTCFullYear(end.getUTCFullYear() + 1);
+    const claimed = await env.APP_DB.prepare(`UPDATE app_complimentary_pro SET account_id=?,starts_at=?,ends_at=?
+      WHERE email=? AND account_id IS NULL AND last_period_start IS NULL
+      AND EXISTS(SELECT 1 FROM app_accounts WHERE id=? AND lower(email)=?)
+      AND NOT EXISTS(SELECT 1 FROM app_autumn_grants WHERE account_id=? AND period_end>? AND revoked_at IS NULL)
+      RETURNING *`)
+      .bind(accountId, timestamp, end.toISOString(), normalized, accountId, normalized, accountId, now.getTime()).first<Grant>();
+    grant = claimed ?? await env.APP_DB.prepare("SELECT * FROM app_complimentary_pro WHERE email=?").bind(normalized).first<Grant>();
+    if (grant?.account_id && grant.account_id !== accountId)
+      throw new AppError(409, "Complimentary plan belongs to another account.");
+    if (!grant?.account_id) {
+      const paid = await env.APP_DB.prepare("SELECT 1 FROM app_autumn_grants WHERE account_id=? AND period_end>? AND revoked_at IS NULL")
+        .bind(accountId, now.getTime()).first();
+      if (paid) return;
+      throw new AppError(503, "Complimentary plan could not be claimed.");
+    }
+  }
   const active = period(grant, now);
   if (!active) {
     if (now < new Date(grant.starts_at) || !grant.account_id) return;
