@@ -34,7 +34,7 @@ export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
-import { typeSafeCompatibleResponse, typeSafeDecisionCount } from "./typesafe-compat";
+import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv {
   QUOTAS?: DurableObjectNamespace;
@@ -1129,32 +1129,57 @@ function labelLimitEnabled(env: Env) {
 async function limitClassifier(env: Env, fingerprint: string, cost: number) {
   const rpm = configuredLabelLimit(env.FREE_LABEL_RPM, LABEL_LIMITS.rpm);
   const daily = configuredLabelLimit(env.FREE_LABEL_DAILY, LABEL_LIMITS.daily);
+  const id = env.LIMITER.idFromName(`classifier:${fingerprint}`);
+  const response = await env.LIMITER.get(id).fetch(
+    `https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}`,
+  );
+  const result = await response.json() as { limited?: unknown; scope?: unknown; resetIn?: unknown; remaining?: unknown };
+  if (!response.ok || typeof result.limited !== "boolean" ||
+      typeof result.remaining !== "number" || !Number.isFinite(result.remaining) || result.remaining < 0 ||
+      (result.limited && (!["day", "minute"].includes(String(result.scope)) ||
+        typeof result.resetIn !== "number" || !Number.isFinite(result.resetIn) || result.resetIn <= 0)))
+    throw new Error("Invalid classifier quota response");
+  return {
+    limited: result.limited,
+    scope: result.scope === "day" ? "day" as const : "minute" as const,
+    resetIn: typeof result.resetIn === "number" ? result.resetIn : 60,
+    limit: result.scope === "day" ? daily : rpm,
+    rpm,
+    daily,
+  };
+}
+
+type ClassifierRefusal = { message: string; status: number; code: ErrorCode; headers: Record<string, string> };
+
+async function classifierRefusal(env: Env, sets: { labels: string[]; cost: number }[]): Promise<ClassifierRefusal | null> {
+  if (!labelLimitEnabled(env)) return null;
   try {
-    const id = env.LIMITER.idFromName(`classifier:${fingerprint}`);
-    const response = await env.LIMITER.get(id).fetch(
-      `https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}`,
-    );
-    const result = await response.json() as { limited?: unknown; scope?: unknown; resetIn?: unknown; remaining?: unknown };
-    if (typeof result.limited !== "boolean") throw new Error("Invalid classifier quota response");
-    return {
-      limited: result.limited,
-      scope: result.scope === "day" ? "day" as const : "minute" as const,
-      resetIn: typeof result.resetIn === "number" && Number.isFinite(result.resetIn) ? result.resetIn : 60,
-      remaining: typeof result.remaining === "number" && Number.isFinite(result.remaining) ? result.remaining : -1,
-      limit: result.scope === "day" ? daily : rpm,
-      rpm,
-      daily,
-    };
+    const grouped = new Map<string, number>();
+    for (const set of sets) {
+      const fingerprint = await classifierId(env, set.labels);
+      if (fingerprint) grouped.set(fingerprint, (grouped.get(fingerprint) ?? 0) + set.cost);
+    }
+    for (const [fingerprint, cost] of grouped) {
+      const gate = await limitClassifier(env, fingerprint, cost);
+      if (gate.limited) return {
+        status: 429, code: "label_set_limit",
+        message: `The shared free allowance for this label set has reached ${gate.limit.toLocaleString("en-US")} classifications ${gate.scope === "day" ? "today" : "this minute"}. Use a funded workspace key for a separate allowance.`,
+        headers: {
+          "retry-after": String(Math.max(1, Math.ceil(gate.resetIn))),
+          "ratelimit-limit": String(gate.limit), "ratelimit-remaining": "0",
+          "ratelimit-policy": `${gate.rpm};w=60, ${gate.daily};w=86400`,
+        },
+      };
+    }
+    return null;
   } catch {
-    // The ordinary per-IP limiter already fails open on infrastructure errors;
-    // this additional abuse shield must not become a new availability dependency.
-    return { limited: false, scope: "minute" as const, resetIn: 60, remaining: -1, limit: rpm, rpm, daily };
+    return { status: 503, code: "label_set_unavailable", message: "Label-set admission is temporarily unavailable; retry with backoff.", headers: { "retry-after": "5" } };
   }
 }
 
 function retainedLabels(labels: string[]) {
-  const normalized = [...labels]
-    .map((label) => label.trim().toLowerCase().replace(/\s+/g, " "))
+  const normalized = [...new Set(labels
+    .map((label) => label.trim().toLowerCase().replace(/\s+/g, " ")))]
     .sort();
   if (!normalized.length || normalized.some((label) => !label) || JSON.stringify(normalized).length > MAX_RECORDED_LABEL_CHARS)
     return null;
@@ -1217,7 +1242,7 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   // Hashing is async, so the write moved off the response path entirely. The
   // point is unchanged apart from the two columns that used to carry the
   // caller: blob2 is a label-set fingerprint, index1 a day-scoped pseudonym.
-  // Neither can be read back into what the caller sent. See src/privacy.ts.
+  // The label registry can resolve blob2; it cannot recover raw IPs or inputs.
   ctx.waitUntil(
     (async () => {
       const [caller, labels] = await Promise.all([callerId(env, d.ip), classifierId(env, d.labels)]);
@@ -1234,7 +1259,7 @@ export function record(env: Env, ctx: ExecutionContext, d: {
         /* analytics must never break a request */
       }
       // Distinct classifier registry, for abuse review and the daily digest.
-      // Labels are aggregate configuration, never joined to caller or input data.
+      // The registry has no caller or input fields; analytics shares its key.
       try {
         if (d.status === 200 && d.mode !== "dimensions") await rememberClassifier(env, labels, d.labels);
       } catch {
@@ -1472,6 +1497,18 @@ const worker = {
       const decisions = path === "v1/systemone" && req.method === "POST"
         ? typeSafeDecisionCount(body ?? "")
         : 0;
+      const labelSets = decisions ? typeSafeLabelSets(body ?? "") : [];
+      const sdkStarted = Date.now();
+      const sdkRecord = (status: number, reason = "") => {
+        if (!decisions) return;
+        record(env, ctx, {
+          tier: "fast", n: status === 200 ? decisions : 0, ms: Date.now() - sdkStarted,
+          labels: labelSets.length === 1 ? labelSets[0].labels : labelSets.map(set => JSON.stringify(set.labels)),
+          mode: labelSets.length === 1 ? "single" : "dimensions",
+          ip, country, client, status, model: "typesafe", usd: meter.usd, reason, agent,
+          attempted: decisions, escalationFailed: 0,
+        });
+      };
       const multiplier = account?.multiplier ?? 1;
       const quotaOwner = account ? `account:${account.id}` : ip;
       const rpm = TIERS.fast.rpm * multiplier;
@@ -1495,12 +1532,20 @@ const worker = {
         }
       }
 
+      if (decisions && !account && !enterprise && !execution?.internal) {
+        const refusal = await classifierRefusal(env, labelSets);
+        if (refusal) {
+          sdkRecord(refusal.status, refusal.code);
+          return json({ error: refusal.message, code: refusal.code }, refusal.status, refusal.headers);
+        }
+      }
       const response = await typeSafeCompatibleResponse(
         req,
         env.TYPESAFE_API_KEY,
         body,
         decisions ? meter : undefined,
       );
+      sdkRecord(response.status, response.ok ? "" : `typesafe_${response.status}`);
       const headers = new Headers(response.headers);
       // Own the browser policy at this boundary. An upstream credentialed CORS
       // header combined with our wildcard origin would make an otherwise valid
@@ -2140,6 +2185,12 @@ const worker = {
     const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
     if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
+    if (!account && !enterprise && !execution?.internal) {
+      const refusal = await classifierRefusal(env, dimensions
+        ? dimensions.map(dimension => ({ labels: dimension.labels, cost: inputs.length }))
+        : [{ labels, cost: decisions }]);
+      if (refusal) return fail(refusal.message, refusal.status, refusal.code, refusal.headers);
+    }
     const regularQuotaStarted = performance.now();
     const combinedQuota = !!layaPlan && env.QUOTA_COORDINATOR_ENABLED === "true" && !!env.QUOTAS;
     let layaRun: LayaRun | undefined;
@@ -2208,30 +2259,6 @@ const worker = {
         0,
         paid ? {} : { upgrade: "https://classifier.dev/pricing" },
       );
-    }
-
-    // Per-IP admission cannot stop a fleet that rotates addresses. The stable,
-    // keyed classifier fingerprint supplies the missing cross-IP boundary while
-    // funded and operator traffic retain the capacity it paid for.
-    if (!account && !enterprise && !execution?.internal && labelLimitEnabled(env)) {
-      const fingerprint = await classifierId(env, labels);
-      const classifierGate = await limitClassifier(env, fingerprint, decisions);
-      if (classifierGate.limited) {
-        layaAbort?.abort();
-        return fail(
-          `The shared free allowance for this label set has reached ${classifierGate.limit.toLocaleString("en-US")} classifications ${classifierGate.scope === "day" ? "today" : "this minute"}. Use a funded workspace key for a separate allowance.`,
-          429,
-          "label_set_limit",
-          {
-            "retry-after": String(Math.max(1, Math.ceil(classifierGate.resetIn))),
-            "ratelimit-limit": String(classifierGate.limit),
-            "ratelimit-policy": `${classifierGate.rpm};w=60, ${classifierGate.daily};w=86400`,
-          },
-          0,
-          classifierGate.remaining,
-          { upgrade: "https://classifier.dev/pricing" },
-        );
-      }
     }
 
     // Validate both request shapes and pass the normal tier gate before spending

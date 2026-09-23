@@ -653,7 +653,10 @@ PUBLIC SERVICE LOGS
   multi-label classifier names are retained in an aggregate registry for 90
   days so operators can understand use and enforce one anonymous allowance per
   label set. That registry has no caller fingerprint, request ID or source text.
-  Dimension definitions remain fingerprint-only. The caller is a keyed hash of
+  Its shared label-set fingerprint can associate label names with pseudonymous
+  usage records. Label names may themselves contain information you supply.
+  Dimension definitions remain fingerprint-only. TypeSafe choice requests with
+  one distinct label set use the same registry. The caller is a keyed hash of
   the IP that changes daily, so a record cannot be
   read back to an address or followed across days. The address itself serves
   the per-IP limits while the request is in flight and is not written down.

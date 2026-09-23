@@ -478,6 +478,10 @@ LIMITS
   can split them. Anonymous traffic also shares a 5,000/minute and 50,000/day
   allowance across every caller using the same label set. Rotating IPs does
   not reset it; workspace, operator and partner keys bypass it.
+  REST, MCP, dimensions and TypeSafe choice questions share these counters.
+  Each dimension debits its labels by the item count; each SDK choice question
+  debits its labels once. These count attempts admitted by this gate, including
+  attempts subsequently refused by another quota or a provider.
   Pro workspaces allow 30,000/minute and 200,000/day on fast, 2,000/minute and
   20,000/day on smart, shared across keys and agents.
   Pro, operator and partner keys have a 1,000-input ceiling.
@@ -518,6 +522,8 @@ ERRORS
   502   typesafe or typesafe_<status> when the decision model failed;
         openrouter_<status>, chain_exhausted or timeout when the fallback
         chain did; upstream_other. Retry with backoff.
+  503   label_set_unavailable when label admission cannot be checked;
+        no inference starts. Respect Retry-After and retry with backoff.
   402   request_spending_limit: send fewer or shorter inputs, or use a funded
         workspace key. Do not repeatedly retry an unchanged over-budget request.
 
@@ -548,7 +554,9 @@ PRIVACY
   keyed fingerprint of the label set, plus the tier, model, latency, status and
   coarse country. Successful simple and multi-label classifier names are also
   kept for 90 days in a separate aggregate registry with no caller identity or
-  source text. The usage counts are built from the fingerprinted records.
+  source text. Its shared fingerprint lets operators associate label names
+  with pseudonymous usage records. The same collection applies to TypeSafe
+  choice requests with one distinct label set.
 
 
 Built by @michael_chomsky — https://x.com/michael_chomsky

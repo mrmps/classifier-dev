@@ -268,8 +268,9 @@ The existing 15-minute alert check warns when at least three attempts fail and
 failures exceed 5% for either provider. Counts account for Analytics Engine
 sampling. No input text, caller identifiers or upstream messages are stored.
 Successful simple and multi-label classifier names are retained for 90 days in
-a separate aggregate KV record that is not joined to a caller or source text;
-per-request analytics contain only their keyed fingerprint.
+a separate aggregate KV record with no caller or source-text fields. Its keyed
+fingerprint also appears in per-request analytics, allowing operators to resolve
+label names in those pseudonymous records.
 
 `AI_GATEWAY_DISABLED = "true"` in `wrangler.example.toml` keeps production on
 TypeSafe directly after the gateway repeatedly returned 429 on September 19.
