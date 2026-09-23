@@ -22,7 +22,9 @@
     "prebuild": "npm run build:admin",
     "predev": "npm run build:admin",
     "test:e2e:spending": "node e2e/spending.mjs",
-    "test:e2e:usage": "node e2e/usage.mjs"
+    "test:e2e:usage": "node e2e/usage.mjs",
+    "test:e2e:long-context": "node e2e/long-context.mjs",
+    "test:e2e:long-context-billing": "bun e2e/long-context-billing.ts"
   },
   "keywords": [],
   "author": "Michael Ryaboy",
@@ -46,6 +48,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@chonkiejs/core": "0.0.11",
     "@neondatabase/serverless": "^1.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.103.1",
@@ -56,6 +59,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "gpt-tokenizer": "4.0.0",
     "motion": "^13.4.0",
     "nucleo-core-essential-outline-24": "^1.1.7",
     "nucleo-ui-essential-outline-18": "^1.1.8",

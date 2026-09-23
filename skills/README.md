@@ -36,12 +36,20 @@ classifier.dev is zero-shot text classification over plain HTTP. No key.
 POST https://classifier.dev/v1/classify
 content-type: application/json
 
-{"inputs": ["text", ...],            up to 1,000 per request, each up to 32,000 chars
+{"inputs": ["text", ...],            up to 1,000 per ordinary request
  "labels": ["a", "b", ...],          2 to 100; descriptive names classify better
  "instructions": "extra criteria",   optional, one or two sentences
  "tier": "fast",                     fast (default) or smart
  "multi": true, "max_labels": 3}     optional: every label that applies
 ```
+
+Default/explicit Jev above 32,000 characters uses paid Fast-only long context:
+250,000 original `cl100k_base` tokens total, 20 documents, 32 decisions and a
+1 MB body. Requires paid workspace balance or active paid subscription; signup
+credit does not qualify. Price: $0.084/M original context tokens counted once
+across inputs regardless of dimensions or actual screening/final usage. Final
+Jev reads selected evidence; `usage.long_context` discloses omissions. No
+evidence returns `422 long_context_no_evidence` without charge.
 
 Response, in input order:
 

@@ -1,5 +1,6 @@
 import { vsJevText } from "./vsjev";
 import { roadmapDoc } from "./newsletter";
+import { INPUT_PRICE_PER_MILLION, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
 
 export const SPENDING_LIMITS = `SPENDING LIMITS
 
@@ -142,22 +143,69 @@ LAYA AND KEV
 
 LONG DOCUMENTS
 
-  An input over 32,000 characters is answered by chunklaya, our own
-  long-document service, when it is configured; otherwise it is refused with
-  input_too_long as before. chunklaya is Laya behind a harness: the document
-  is split into passages and indexed once, and every question in the request
-  is answered off that index, so a request with dimensions asks all of them
-  in one pass. Up to 4,000,000 characters per input and 20 inputs per
-  request. The result is labelled chunklaya/multilingual. Nothing at or under
-  32,000 characters changes, and an explicit model: "jev" keeps the 32,000
-  ceiling; model: "chunklaya" selects it for shorter text too.
+  With the default model or model: "jev", an input over 32,000 characters
+  automatically uses Jev long-context processing. Use POST /v1/classify with
+  a workspace key backed by a paid balance or active paid subscription.
+  Anonymous access and free signup credit do not qualify. Only tier: "fast"
+  is supported; tier: "smart" is refused with bad_tier.
+
+  Limits per request: 250,000 original context tokens in total, counted with
+  cl100k_base across all inputs; 20 documents; 32 decisions (documents times
+  dimensions, or documents times labels in multi-label mode); and a 1 MB
+  request body. Instructions allow 4,000 characters and labels 200 each.
+  Each continuous whitespace or non-whitespace run may contain at most 8,192
+  UTF-16 code units. Longer runs return 400 long_context_input before document
+  tokenization or chunking, to bound tokenizer work.
+  The byte limit can be reached before
+  the token limit. Requests at or under 32,000 characters per input keep the
+  ordinary Jev path.
+  Existing dedicated enterprise/operator access remains a trusted operational
+  exception to the public funding requirement.
+
+  Chonkie's RecursiveChunker splits each document into 600-token chunks using
+  cl100k_base. Parallel Jev calls screen for relevant or uncertain evidence,
+  including opposing evidence and exceptions. Eligible whole chunks are
+  packed in source order for final Jev classification within a 20,000-token
+  cl100k_base budget and a conservative provider context estimate.
+
+  The final call may omit eligible evidence when the budget is full. This is
+  evidence selection, not a promise of reading every passage in the final
+  call or of universal accuracy. usage.long_context discloses context_tokens,
+  documents, chunks, screened_chunks, eligible_chunks, selected_chunks,
+  omitted_chunks, screening_input_tokens, final_input_tokens, screening_calls,
+  final_calls, screening_ms, final_ms and tokenizer. If no evidence qualifies,
+  or no eligible chunk fits for any document, the request returns 422
+  long_context_no_evidence with no charge.
+
+  context_tokens and documents count the original inputs once. Chunk counts,
+  selection counts and phase usage accumulate across dimension passes; they
+  are not necessarily unique passages. screening_calls and final_calls count
+  answered provider calls, not attempted calls. Unknown provider token usage
+  remains null rather than being reported as zero.
+
+  Price: $${(LONG_CONTEXT_PRICING.inputNanodollars / 1000).toFixed(3)} per million original context tokens (2 × Jev's $${INPUT_PRICE_PER_MILLION.toFixed(3)} rate).
+  Each input is counted once; dimensions do not multiply the context price.
+  Actual screening and final-call usage do not change this retail charge.
 
     {"input": "<a 300,000-character contract>",
      "dimensions": {"kind": ["lease", "employment", "supply"],
                     "renews": ["automatically", "on notice", "never"]}}
 
-  What it will not do. tier: "smart" is refused with bad_tier: the reviewing
-  model cannot read the document. A document with more passages than the
+  A 402 long_context_payment_required requires a funded workspace; 400
+  long_context_too_large means the original context token cap was exceeded;
+  too_many_inputs and too_many_decisions identify the document/decision caps. 400
+  long_context_input means invalid long-context input; 503
+  long_context_unavailable means processing is unavailable.
+
+
+LEGACY CHUNKLAYA
+
+  Explicit model: "chunklaya" keeps the legacy opt-in service, Laya behind a
+  chunk-and-index harness. It is not selected automatically. When configured,
+  it accepts up to 4,000,000 characters per input and 20 documents per request,
+  subject to the 1 MB request body limit. Results use chunklaya/multilingual.
+  It has no retail charge during the trial. tier: "smart" is refused with
+  bad_tier. A document with more passages than the
   service scores in one request (256 paragraphs), or a request with more
   questions than fit, is refused with chunklaya_input rather than answered
   from part of the text. A busy service answers 429 chunklaya_busy with
@@ -356,10 +404,10 @@ PARAMETERS
 
   labels        Two to one hundred categories. Required unless dimensions is supplied.
   dimensions    Named label sets for independent decisions; see MULTIPLE DIMENSIONS.
-  input         The text to classify, up to 32,000 characters. Longer
-                documents, up to 4,000,000, are answered by chunklaya; see
-                LONG DOCUMENTS.
-  inputs        Up to one thousand strings classified in a single call.
+  input         Text to classify. Above 32,000 characters, default/jev uses
+                paid Jev long-context processing; see LONG DOCUMENTS.
+  inputs        Up to one thousand strings; long-context requests allow 20
+                documents and 250,000 original context tokens in total.
   tier          Either fast (the default) or smart, in any case. Anything
                 else is a 400 with code bad_tier, never a silent fast.
   instructions  Extra criteria, such as "judge the reviewer's overall verdict".
@@ -509,20 +557,23 @@ ERRORS
 
   400   bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels,
         empty_label, duplicate_labels, empty_input, input_too_long, bad_tier,
-        chunklaya_input
+        chunklaya_input, long_context_input, long_context_too_large
   401   invalid_api_key for unsupported credentials. Workspace authentication
         also rejects invalid, paused or revoked keys with an error message;
         workspace errors do not include a code.
-  402   insufficient workspace balance for inference
+  402   insufficient workspace balance for inference;
+        long_context_payment_required for long context without paid funding
   403   the key is inactive or the workspace cannot authorize usage
   404   not_found
+  422   long_context_no_evidence; no charge
   429   rate_limit_minute, rate_limit_day, label_set_limit, chunklaya_busy,
         with Retry-After; on the free tier the body also carries upgrade, the
         URL of the plan that lifts the limit (https://classifier.dev/pricing)
   502   typesafe or typesafe_<status> when the decision model failed;
         openrouter_<status>, chain_exhausted or timeout when the fallback
         chain did; upstream_other. Retry with backoff.
-  503   label_set_unavailable when label admission cannot be checked;
+  503   long_context_unavailable, chunklaya_unavailable;
+        label_set_unavailable when label admission cannot be checked;
         no inference starts. Respect Retry-After and retry with backoff.
   402   request_spending_limit: send fewer or shorter inputs, or use a funded
         workspace key. Do not repeatedly retry an unchanged over-budget request.

@@ -1,0 +1,111 @@
+import { Miniflare, convertV4MiniflareOptions, Response as WorkerResponse } from 'miniflare';
+import { mkdir, writeFile, readdir } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { countTokens } from 'gpt-tokenizer/encoding/cl100k_base';
+
+const report = { runtime: 'built Worker in workerd', upstream: 'deterministic HTTP fixtures, not an accuracy benchmark', results: [] };
+const calls = [];
+let mode = 'normal', measuredTokens = 123;
+const modules = (await readdir('dist/server', { recursive: true })).filter(p => /\.(js|wasm)$/.test(p)).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: p.endsWith('.wasm') ? 'CompiledWasm' : 'ESModule', path: `dist/server/${p}` }));
+const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'long-context', modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
+  durableObjects: { LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
+  bindings: { TYPESAFE_API_KEY: 'fixture', PRIVACY_SALT: 'fixture', ENTERPRISE_API_KEY: 'long-fixture' },
+  outboundService: async request => {
+    assert.ok(request.url.includes('typesafe.ai'), 'no fallback or chunklaya');
+    const body = await request.json();
+    const screening = Object.values(body.questions).some(q => Object.hasOwn(q.criteria ?? {}, 'irrelevant'));
+    calls.push({ screening, body });
+    if (!screening && mode === 'fail-final') return WorkerResponse.json({ detail: { error_type: 'invalid_request' } }, { status: 400 });
+    const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => {
+      if (q.type === 'noul') return [id, { noul: 0.9 }];
+      const labels = Object.keys(q.criteria);
+      const state = body.state.find(s => s.id === id) ?? body.state[0];
+      const chosen = screening ? (mode === 'none' ? 'irrelevant' : mode === 'all' ? 'relevant' : state.text.includes('DECISIVE') ? 'relevant' : 'irrelevant') : labels[0];
+      return [id, { choice: chosen, confidence: 0.99, probabilities: Object.fromEntries(labels.map(k => [k, k === chosen ? 0.99 : 0.005])) }];
+    }));
+    return WorkerResponse.json({ model: 'jev-1.13.0', usage: { input_tokens: measuredTokens, output_tokens: 0 }, answers });
+  },
+}] }));
+const filler = 'The meeting concerned routine office supplies and calendar arrangements.\n\n';
+const document = `DECISIVE START: This contract renews automatically.\n\n${filler.repeat(900)}DECISIVE END: The renewal clause remains in force.`;
+const body = { input: document, labels: ['renewing', 'not-renewing'], instructions: 'Determine whether the contract renews automatically.' };
+const send = (payload = body, funded = true) => mf.dispatchFetch('https://classifier.dev/v1/classify', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.99', ...(funded ? { authorization: 'Bearer long-fixture' } : {}) }, body: JSON.stringify(payload) });
+try {
+  await mf.ready;
+  const free = await send(body, false);
+  assert.equal(free.status, 402);
+  assert.equal((await free.json()).code, 'long_context_payment_required');
+  assert.equal(calls.length, 0);
+  report.results.push({ name: 'free refusal before provider work', status: 402, calls: 0 });
+  const response = await send();
+  assert.equal(response.status, 200, await response.clone().text());
+  const result = await response.json();
+  const stats = result.usage.long_context;
+  assert.ok(stats.screened_chunks > 1);
+  assert.equal(stats.screened_chunks, stats.chunks);
+  assert.equal(stats.context_tokens, countTokens(document));
+  assert.equal(result.pricing.input_tokens, countTokens(document));
+  assert.equal(result.pricing.input_usd_per_million, 0.084);
+  assert.equal(result.pricing.estimated_usd, countTokens(document) * 84 / 1e9);
+  assert.equal(result.usage.input_tokens, calls.length * measuredTokens);
+  assert.equal(calls.filter(c => c.screening).flatMap(c => c.body.state.map(s => s.text)).join(''), document);
+  const finalText = calls.filter(c => !c.screening).flatMap(c => c.body.state.map(s => s.text)).join('\n');
+  assert.ok(finalText.includes('DECISIVE START') && finalText.includes('DECISIVE END'));
+  assert.ok(finalText.indexOf('DECISIVE START') < finalText.indexOf('DECISIVE END'));
+  report.results.push({ name: 'all chunks screened, evidence ordered, exact original-context price', response: result });
+  measuredTokens = 789;
+  const differentlyMetered = await (await send()).json();
+  assert.equal(differentlyMetered.pricing.estimated_usd, result.pricing.estimated_usd);
+  assert.notEqual(differentlyMetered.usage.input_tokens, result.usage.input_tokens);
+  report.results.push({ name: 'retail charge independent of upstream usage', estimatedUsd: result.pricing.estimated_usd });
+  const multi = await send({ ...body, multi: true });
+  assert.equal(multi.status, 200, await multi.clone().text());
+  const dimensions = await send({ items: [document], dimensions: { renewal: ['yes', 'no'], type: ['contract', 'other'] } });
+  assert.equal(dimensions.status, 200, await dimensions.clone().text());
+  const dimensionsResult = await dimensions.json();
+  assert.equal(dimensionsResult.pricing.input_tokens, countTokens(document));
+  assert.equal(dimensionsResult.usage.classifications, 2);
+  report.results.push({ name: 'multi-label and dimensions, context billed once', dimensions: dimensionsResult });
+  mode = 'all';
+  const overflow = await (await send({ ...body, input: document.repeat(3) })).json();
+  assert.ok(overflow.usage.long_context.omitted_chunks > 0);
+  report.results.push({ name: 'selection overflow disclosed', stats: overflow.usage.long_context });
+  mode = 'none';
+  const none = await send();
+  assert.equal(none.status, 422, await none.clone().text());
+  report.results.push({ name: 'no evidence is an error, not a guessed label', status: none.status });
+  mode = 'fail-final';
+  const failed = await send();
+  assert.equal(failed.status, 503, await failed.clone().text());
+  report.results.push({ name: 'failed final does not fall back', status: failed.status });
+  mode = 'normal';
+  const previous = calls.length;
+  assert.equal((await send({ ...body, tier: 'smart' })).status, 400);
+  assert.equal((await send({ ...body, inputs: Array(21).fill(document), input: undefined })).status, 400);
+  const tooManyTokens = await send({ ...body, input: ' x'.repeat(250001) });
+  assert.equal(tooManyTokens.status, 400);
+  assert.equal((await tooManyTokens.json()).code, 'long_context_too_large');
+  const unbroken = await send({ ...body, input: '😀'.repeat(125001) });
+  assert.equal(unbroken.status, 400);
+  assert.equal((await unbroken.json()).code, 'long_context_input');
+  assert.equal(calls.length, previous);
+  mode = 'all';
+  const unicode = `${'文書の更新条件。😀 <|endoftext|>\n\n'.repeat(1500)}DECISIVE: renewal applies.`;
+  const unicodeStart = calls.length;
+  const unicodeResponse = await send({ ...body, input: unicode });
+  assert.equal(unicodeResponse.status, 200, await unicodeResponse.clone().text());
+  const unicodeResult = await unicodeResponse.json();
+  assert.equal(unicodeResult.pricing.input_tokens, countTokens(unicode, { disallowedSpecial: new Set() }));
+  assert.equal(calls.slice(unicodeStart).filter(c => c.screening).flatMap(c => c.body.state.map(s => s.text)).join(''), unicode);
+  report.results.push({ name: 'Unicode and special-token text preserved; exact billable token count', usage: unicodeResult.usage });
+  mode = 'normal';
+  const short = await send({ input: 'A short ordinary request.', labels: ['yes', 'no'] });
+  assert.equal(short.status, 200);
+  assert.equal((await short.json()).usage.long_context, undefined);
+  report.results.push({ name: 'limits before inference; short path unchanged', status: 'passed' });
+} finally {
+  await mkdir('captures', { recursive: true });
+  await writeFile('captures/long-context-e2e.json', JSON.stringify(report, null, 2));
+  await mf.dispose();
+}
+console.log(`${report.results.length} long-context E2E scenarios passed; captures/long-context-e2e.json`);

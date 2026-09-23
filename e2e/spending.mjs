@@ -7,7 +7,7 @@ await mkdir('captures', { recursive: true });
 
 let calls = 0, lookups = 0, release, jevUnavailable = false;
 let barrier = Promise.resolve();
-const modules = (await readdir('dist/server', { recursive: true })).filter(p => p.endsWith('.js')).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: 'ESModule', path: `dist/server/${p}` }));
+const modules = (await readdir('dist/server', { recursive: true })).filter(p => /\.(js|wasm)$/.test(p)).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: p.endsWith('.wasm') ? 'CompiledWasm' : 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
   bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture', FREE_LABEL_RPM: '200', FREE_LABEL_DAILY: '200', AGENT_API_KEY: 'operator-fixture', ENTERPRISE_API_KEY: 'enterprise-fixture', OPERATOR_DAILY_USD: '0.010001', ADMIN_PASSWORD: 'admin-fixture', ADMIN_SIGNING_KEY: 'private-admin-fixture' },

@@ -1,4 +1,6 @@
 import { classificationUsage, classificationPricing } from "./classification-usage";
+import { classifyLongContext, LongContextError, longContextInputTokens, LONG_CONTEXT_THRESHOLD, LONG_CONTEXT_MAX_TOKENS, LONG_CONTEXT_MAX_INPUTS, LONG_CONTEXT_MAX_DECISIONS } from "./long-context";
+import { recordLongContext } from "./long-context-analytics";
 import { withFreeSpending, boundedRequest, freePreflight, type SpendingEnv } from "./spending";
 import { SpendingError, errorResponse } from "./spending/policy";
 import { providerFetch } from "./spending/permit";
@@ -46,9 +48,9 @@ export interface Env extends LayaEnv, SpendingEnv {
   BEAM_API_KEY?: string;
   /**
    * chunklaya, our own long-document service: Laya behind a chunk-and-index
-   * harness on a pod (github.com/myxamediyar/chunklaya, serve/). An input over
-   * MAX_CHARS goes there when both secrets are set and CHUNKLAYA_ENABLED is
-   * "true"; otherwise it keeps answering input_too_long. The URL is the pod's
+   * harness on a pod (github.com/myxamediyar/chunklaya, serve/). Explicit
+   * model="chunklaya" uses it when both secrets and CHUNKLAYA_ENABLED are set.
+   * Default long inputs use Jev screening and judgment. The URL is the pod's
    * proxy address and the token its bearer; both are Worker secrets.
    */
   CHUNKLAYA_URL?: string;
@@ -63,6 +65,7 @@ export interface Env extends LayaEnv, SpendingEnv {
   /** Operational rollback: keep the key but send Jev directly to TypeSafe. */
   AI_GATEWAY_DISABLED?: string;
   JEV_AE?: AnalyticsEngineDataset;
+  LONG_CONTEXT_AE?: AnalyticsEngineDataset;
   /** context.dev, for the chat's web search and page reads only. Never served. */
   CONTEXT_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;
@@ -112,10 +115,8 @@ const MAX_LABELS = 100;
 const MAX_LABELS_SINGLE = 26;
 // The fallback is one upstream call per input, so it cannot take a real batch.
 const FALLBACK_MAX_INPUTS = 20;
-const MAX_CHARS = 32_000;
-// Past MAX_CHARS a document goes to chunklaya, which indexes it once and answers
-// every question in the request off the index. The service refuses more than
-// this: a million tokens of prose, roughly.
+const MAX_CHARS = LONG_CONTEXT_THRESHOLD;
+// Explicit legacy chunklaya retains its own service limits.
 const CHUNKLAYA_MAX_CHARS = 4_000_000;
 // One document is one upstream request there, so a batch is bounded by count.
 const CHUNKLAYA_MAX_INPUTS = 20;
@@ -972,6 +973,7 @@ async function classifyMany(
   layaTiming?: LayaRequestTiming,
   layaRun?: LayaRun,
   backend: Backend = JEV_BACKEND,
+  longContext = false,
 ): Promise<{ results: Result[]; escalationFailed: number }> {
   const keys = jevKeys(env);
   if (keys || layaPlan) {
@@ -980,11 +982,13 @@ async function classifyMany(
     try {
       if (layaPlan) {
         jev = await (layaRun ?? startLaya(env, layaPlan, meter, layaTiming));
-      } else jev = await jevClassify(keys!, inputs, labels, instructions, !!multi, meter, backend);
+      } else jev = longContext
+        ? await classifyLongContext(keys!, inputs, labels, instructions, !!multi, meter!)
+        : await jevClassify(keys!, inputs, labels, instructions, !!multi, meter, backend);
     } catch (e) {
       // A document too long for Jev is too long for the LLM chain as well: a
       // chunklaya failure is reported, never quietly answered by another model.
-      if (layaPlan || backend.id === "chunklaya" || e instanceof SpendingError || meter?.permit?.error) throw meter?.permit?.error ?? e;
+      if (longContext || layaPlan || backend.id === "chunklaya" || e instanceof SpendingError || meter?.permit?.error) throw meter?.permit?.error ?? e;
       console.warn(`jev failed, falling back: ${(e as Error).message}`);
     }
     if (jev) {
@@ -2005,8 +2009,7 @@ const worker = {
     let labels: string[] = [];
     let tier: Tier = "fast";
     let selectedModel: "jev" | LayaModel | "chunklaya" = "jev";
-    // Set when the body named a model, so a long input under an explicit "jev" stays refused rather than rerouted.
-    let explicitModel = false;
+    let longContext = false;
     let processing: Processing = "fast";
     let automaticProcessing = true;
     let layaPlan: LayaPlan | undefined;
@@ -2047,6 +2050,7 @@ const worker = {
       return h;
     };
     const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, unknown> = {}) => {
+      recordLongContext(env, meter.longContext, "error");
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.model : layaModel(selectedModel),
         usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
@@ -2077,7 +2081,6 @@ const worker = {
       const b = body as Record<string, unknown>;
       if (b.model !== undefined && b.model !== "jev" && b.model !== "laya" && b.model !== "kev" && b.model !== "chunklaya")
         return fail('model must be "jev", "laya", "kev" or "chunklaya"', 400, "bad_model");
-      explicitModel = b.model !== undefined;
       // `processing` without a model still means Laya: it is the lane selector
       // for the Beam-hosted trial and Jev has no lanes.
       selectedModel = b.model === "laya" || b.model === "kev"
@@ -2158,14 +2161,33 @@ const worker = {
     if (labels.some((l) => typeof l !== "string" || !l.trim())) return fail("Labels must be non-empty strings", 400, "empty_label");
     if (new Set(labels).size !== labels.length) return fail("Labels must be distinct", 400, "duplicate_labels");
     if (inputs.some((i) => typeof i !== "string" || !i.trim())) return fail("Inputs must be non-empty strings", 400, "empty_input");
-    // Past MAX_CHARS a document goes to chunklaya, when it is configured and the
-    // caller did not name a model. Everything at or under the ceiling is
-    // untouched, and an explicit "jev" keeps its ceiling: the reroute answers
-    // requests that used to fail, never changes one that used to work.
     const longest = inputs.reduce((max, input) => Math.max(max, input.length), 0);
+    longContext = selectedModel === "jev" && longest > MAX_CHARS;
     const chunklayaReady = env.CHUNKLAYA_ENABLED === "true" && !!jevKeys(env)?.chunklaya;
-    if (selectedModel === "jev" && !explicitModel && longest > MAX_CHARS && chunklayaReady) selectedModel = "chunklaya";
-    if (selectedModel === "chunklaya") {
+    if (longContext) {
+      if (!execution?.funded && !enterprise && !execution?.internal)
+        return fail("Long-context classification requires a funded workspace. Add funds or choose a paid plan at https://classifier.dev/pricing", 402, "long_context_payment_required");
+      if (inputs.length > LONG_CONTEXT_MAX_INPUTS)
+        return fail(`Long context accepts at most ${LONG_CONTEXT_MAX_INPUTS} inputs per request`, 400, "too_many_inputs");
+      if (inputs.length * (dimensions?.length ?? (multi ? labels.length : 1)) > LONG_CONTEXT_MAX_DECISIONS)
+        return fail(`Long context accepts at most ${LONG_CONTEXT_MAX_DECISIONS} decisions per request`, 400, "too_many_decisions");
+      if (tier !== "fast") return fail('Long context uses Jev screening and final judgment; use tier "fast"', 400, "bad_tier");
+      if ((instructions?.length ?? 0) > 4000 || (!dimensions && labels.some(label => label.length > 200)))
+        return fail("Long-context instructions must fit 4,000 characters and each label 200 characters", 400, "long_context_input");
+      let contextTokens: number;
+      try { contextTokens = longContextInputTokens(inputs); }
+      catch (error) {
+        if (error instanceof LongContextError) return fail(error.message, error.status, error.code);
+        throw error;
+      }
+      if (contextTokens > LONG_CONTEXT_MAX_TOKENS)
+        return fail(`Long context accepts at most ${LONG_CONTEXT_MAX_TOKENS.toLocaleString("en-US")} original-context tokens per request`, 400, "long_context_too_large");
+      meter.longContext = { contextTokens, documents: inputs.length, chunks: 0, screenedChunks: 0, eligibleChunks: 0,
+        selectedChunks: 0, omittedChunks: 0, screeningInputTokens: 0, finalInputTokens: 0,
+        screeningCalls: 0, finalCalls: 0, screeningMs: 0, finalMs: 0, tokenizer: "cl100k_base" };
+      if (!jevKeys(env)?.typesafe && !jevKeys(env)?.gateway)
+        return fail("Long-context classification is currently unavailable", 503, "long_context_unavailable");
+    } else if (selectedModel === "chunklaya") {
       if (!chunklayaReady) return fail("Long-document classification is currently unavailable", 503, "chunklaya_unavailable", { "retry-after": "60" });
       if (longest > CHUNKLAYA_MAX_CHARS) return fail(`Each input must be at most ${CHUNKLAYA_MAX_CHARS.toLocaleString("en-US")} characters`, 400, "input_too_long");
       if (inputs.length > CHUNKLAYA_MAX_INPUTS) return fail(`Documents over ${MAX_CHARS.toLocaleString("en-US")} characters are classified at most ${CHUNKLAYA_MAX_INPUTS} per request`, 400, "too_many_inputs");
@@ -2175,7 +2197,7 @@ const worker = {
 
     if (dimensions) {
       if (inputs.length * dimensions.length > MAX_DECISIONS) return fail(`Maximum ${MAX_DECISIONS} decisions (items × dimensions) per request`, 400, "too_many_decisions");
-      try { if (selectedModel === "jev" || selectedModel === "chunklaya") dimensionBatches = packDimensions(inputs, dimensions, instructions, selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.limits : undefined); }
+      try { if (!longContext && (selectedModel === "jev" || selectedModel === "chunklaya")) dimensionBatches = packDimensions(inputs, dimensions, instructions, selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.limits : undefined); }
       catch (e) { return fail((e as Error).message, 400, "dimension_context_too_large"); }
     } else mode = multi ? "multi" : "single";
     const decisions = inputs.length * (dimensions?.length ?? 1);
@@ -2296,13 +2318,21 @@ const worker = {
     let fallbackDecisions = 0;
     let escalationFailed = 0;
     try {
-      if (dimensions) {
+      if (longContext && dimensions) {
+        matrix = inputs.map(() => []);
+        for (const dimension of dimensions) {
+          const column = await classifyMany(env, inputs, dimension.labels, tier, dimensionInstructions(dimension, instructions), undefined, meter,
+            undefined, undefined, undefined, JEV_BACKEND, true);
+          column.results.forEach((result, i) => matrix![i].push(result));
+        }
+        results = matrix.flat();
+      } else if (dimensions) {
         const r = await classifyMatrix(env, inputs, dimensions, dimensionBatches, tier, instructions, meter, layaPlan, layaTiming, layaRun, backend);
         matrix = r.results;
         results = matrix.flat();
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
-      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun, backend));
+      } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun, backend, longContext));
       if (meter.permit?.error && !(execution?.funded && meter.permit.error.code === "request_spending_limit")) throw meter.permit.error;
     } catch (e) {
       const spending = e instanceof SpendingError ? e : meter.permit?.error;
@@ -2311,6 +2341,8 @@ const worker = {
         return fail(spending.message, spending.status, spending.code as ErrorCode,
           Object.fromEntries(response.headers), Date.now() - started, -1, await response.json() as Record<string, unknown>);
       }
+      if (e instanceof LongContextError) return fail(e.message, e.status, e.code, {}, Date.now() - started);
+      if (longContext) return fail("Long-context inference failed; no classification was returned. Retry shortly.", 503, "long_context_unavailable", { "retry-after": "10" }, Date.now() - started);
       if (e instanceof LayaError) return fail(e.message, e.status,
         e.status === 400 ? "laya_input" : e.status === 429 ? "laya_rate_limit" : "laya_unavailable",
         e.status === 400 ? {} : { "retry-after": String(e.retryAfter) }, Date.now() - started);
@@ -2327,6 +2359,7 @@ const worker = {
       return fail(`upstream: ${msg}`, 502, upstreamReason(msg), {}, Date.now() - started);
     }
     const ms = Date.now() - started;
+    recordLongContext(env, meter.longContext, "success");
     const modelSummary = summarizeModels(results);
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,

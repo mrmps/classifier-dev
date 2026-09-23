@@ -96,6 +96,17 @@ jobs:
         run: npm run test:e2e:spending
       - name: Verify classification usage responses
         run: npm run test:e2e:usage
+      - name: Verify long-context screening and judgment
+        run: npm run test:e2e:long-context
+      - name: Verify long-context workspace billing
+        run: npm run test:e2e:long-context-billing
+      - name: Save long-context verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-context-e2e
+          path: |
+            captures/long-context-e2e.json
+            captures/long-context-billing.json
       - name: Save classification usage evidence
         uses: actions/upload-artifact@v4
         with:
@@ -126,9 +137,9 @@ jobs:
         run: bun scripts/check-newsletter-cutover.ts --activate
 
       # The chunklaya pair is optional and travels together: with both set as
-      # repository secrets the Worker routes long documents there; with either
+      # repository secrets explicit chunklaya requests route there; with either
       # missing they are left out of the file, so an existing value survives
-      # and an unconfigured Worker keeps answering input_too_long.
+      # and unconfigured explicit requests answer chunklaya_unavailable.
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

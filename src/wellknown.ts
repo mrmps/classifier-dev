@@ -378,16 +378,29 @@ classifier.dev: caller credentials are not forwarded to TypeSafe.
 No token exchange or refresh is needed. Your browser billing session is not
 an API credential.
 
+Default/explicit Jev inputs over 32,000 characters require a workspace key
+backed by paid balance or an active paid subscription. Anonymous access and
+free signup credit do not qualify. This Fast-only long-context path costs
+$0.084 per million original cl100k_base context tokens, summed once across
+inputs regardless of dimensions or screening/final usage. It accepts at most
+250,000 context tokens, 20 documents and 32 decisions within a 1 MB body.
+Final Jev reads selected evidence; usage.long_context discloses omissions.
+Explicit model: "chunklaya" retains the separate legacy opt-in behavior.
+
 ## Errors
 
 - 401 — the key is invalid; create a replacement in your workspace.
 - 402 — insufficient workspace balance. Manage billing at https://classifier.dev/app/plans.
+  long_context_payment_required means paid funding is required for long context.
 - 403 — the key is inactive or the workspace cannot authorize usage.
 - 429 — quota reached; wait the Retry-After seconds. RateLimit headers describe
   the allowance. The code is rate_limit_minute or rate_limit_day.
 - 400 — invalid classification parameters; the message says what to change.
+  long_context_too_large and long_context_input identify long-context refusals.
+- 422 — long_context_no_evidence; no eligible evidence, no charge.
 - 502 — classification provider failure; retry with backoff.
 - 503 — billing verification is unavailable; retry later.
+  long_context_unavailable means the long-context path is unavailable.
 
 ## Revocation and billing
 

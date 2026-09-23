@@ -34,6 +34,22 @@ remainders, so splitting a batch does not multiply rounding charges. Every
 reservation must pin its rate version and a proven maximum exposure before
 calling a provider.
 
+## Jev long-context pricing
+
+The automatic default/explicit Jev path above 32,000 characters charges
+original input context counted with `cl100k_base`, summed once across inputs,
+at 2 × $0.042/M = $0.084/M. Dimensions do not multiply the context charge.
+Screening and final-call provider usage remain separate cost measurements and
+do not set the retail charge. At the 250,000-token request ceiling, the retail
+charge is $0.021. This is a price calculation, not a measured provider margin.
+
+Only workspaces with paid balance or an active paid subscription qualify;
+anonymous access and free signup credit do not. The path is Fast-only, with
+20 documents, 32 decisions and a 1 MB body maximum. No eligible evidence returns
+`422 long_context_no_evidence` without charge. The existing explicit chunklaya
+trial is separate. The economics below describe the original launch rate card,
+not the margin of this screening-and-selection pipeline.
+
 ## Economics of a fully consumed $20 plan
 
 Assumptions: standard US domestic Stripe payments (2.9% + $0.30), Stripe Billing

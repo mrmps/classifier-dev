@@ -20,7 +20,10 @@ export function writeAccountAnalytics(env: AccountAnalyticsEnv, event: AccountAn
       doubles: [1, n(event.items), n(event.inputTokens), n(event.outputTokens), n(event.cachedInputTokens),
         n(event.providerCostUsd), n(event.retailCostUsd), n(event.latencyMs), n(event.escalations),
         Number(!known(event.inputTokens)), Number(!known(event.outputTokens)), Number(!known(event.providerCostUsd)),
-        Number(!known(event.retailCostUsd)), 0, Number(!known(event.cachedInputTokens))],
+        Number(!known(event.retailCostUsd)), 0, Number(!known(event.cachedInputTokens)),
+        Number(!!event.longContext), n(event.longContext?.contextTokens),
+        n(event.longContext?.screeningInputTokens), n(event.longContext?.finalInputTokens),
+        Number(!!event.longContext && (!known(event.longContext.screeningInputTokens) || !known(event.longContext.finalInputTokens)))],
     });
     return true;
   } catch { return false; }

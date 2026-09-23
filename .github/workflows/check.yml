@@ -46,6 +46,17 @@ jobs:
         run: npm run test:e2e:spending
       - name: Verify classification usage responses
         run: npm run test:e2e:usage
+      - name: Verify long-context screening and judgment
+        run: npm run test:e2e:long-context
+      - name: Verify long-context workspace billing
+        run: npm run test:e2e:long-context-billing
+      - name: Save long-context verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-context-e2e
+          path: |
+            captures/long-context-e2e.json
+            captures/long-context-billing.json
       - name: Save classification usage evidence
         uses: actions/upload-artifact@v4
         with:
