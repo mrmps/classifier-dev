@@ -201,8 +201,8 @@ Then read only what comes back. The snippets you dropped never enter context.
 matters more than precision here. The confidence gate above does that
 directly; "When in doubt, keep it" in the instructions also measurably helps.
 
-Python's standard `urllib`, curl and Node fetch work without a custom
-`User-Agent`. A descriptive agent name is optional. For a JSON error, read
+Python's standard `urllib` needs a custom `User-Agent`; its default is refused
+at the edge. The Python SDK sets one for you. For a JSON error, read
 `code`, `action` and `retryable`: a 403 can mean the free service detected an
 anonymous proxy network, which requires a funded workspace key. A 429 carries
 `Retry-After`. An HTML error is an edge/network failure; report its status and
