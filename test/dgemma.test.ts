@@ -27,14 +27,14 @@ const QUESTIONS = { red: { type: "noul", instructions: "Does the image contain a
 const post = (body: object, bindings = env, extra?: { meter: unknown }) => worker.fetch(new Request("https://classifier.dev/v1/systemone", {
   method: "POST", headers: { "content-type": "application/json", authorization: "Bearer unused" }, body: JSON.stringify(body) }), bindings, ctx, extra as never);
 
-type Call = { url: string; auth: string | null; body: Record<string, unknown> };
+type Call = { url: string; auth: string | null; body: Record<string, unknown>; redirect?: RequestRedirect };
 
 /** A pod and a TypeSafe that both answer, or a pod that refuses with the status and body given. */
 function mockUpstreams(refuse?: { status: number; body?: unknown } | Error) {
   const calls: Call[] = [];
   globalThis.fetch = (async (url, init) => {
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), body });
+    calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), body, redirect: init?.redirect });
     if (String(url).startsWith(POD)) {
       if (refuse instanceof Error) throw refuse;
       if (refuse) return Response.json(refuse.body ?? { error: { message: "busy", type: "server_error" } }, { status: refuse.status });
@@ -146,6 +146,17 @@ test("a 200 that is not the whole contract is an outage, and the pod is only eve
   const plaintext = await post({ state: "x", images: [PNG], questions: QUESTIONS }, { ...env, DGEMMA_URL: "http://pod.example" } as Env);
   expect(plaintext.status).toBe(503);
   expect(calls).toHaveLength(0);
+});
+
+test("a redirect from the pod is an outage, and the request never follows it", async () => {
+  // The Workers runtime rejects redirect "error" with a TypeError, so the only
+  // safe mode is "manual": the 3xx comes back as a response and is refused here.
+  const calls = mockUpstreams({ status: 302, body: {} });
+  const response = await post({ state: "x", images: [PNG], questions: QUESTIONS });
+  expect(response.status).toBe(503);
+  expect((await response.json() as { code: string }).code).toBe("dgemma_unavailable");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].redirect).toBe("manual");
 });
 
 test("account billing prices dgemma at zero, and a spending permit accepts the route as dgemma", async () => {
