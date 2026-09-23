@@ -389,8 +389,11 @@ persist when flipped, so this likely needs a plan-level change or support.
 ## Operator agent access
 
 For operator-owned bulk agent work, set a dedicated `AGENT_API_KEY` Worker secret
-and send it as `Authorization: Bearer ...`. It uses the existing unmetered
-classification path without replacing `ENTERPRISE_API_KEY`. The CLI accepts it
+and send it as `Authorization: Bearer ...`. Classification quotas are unmetered,
+but inference uses a separate $2/day operator allowance (`OPERATOR_DAILY_USD`),
+shared across IPs, with the same request and concurrency limits as free usage.
+It neither consumes nor expands the anonymous allowance and does not replace
+`ENTERPRISE_API_KEY`. The CLI accepts it
 through `CLASSIFY_API_KEY` or `CLASSIFIER_API_KEY`. It does not authorize private
 reports or admin access. Keep it in an ignored secret file; never give it to
 public clients. Anonymous quotas continue to apply to unauthenticated traffic.

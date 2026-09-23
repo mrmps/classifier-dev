@@ -1232,7 +1232,9 @@ const worker = {
         if (!execution?.funded) freePreflight(req, env, querySmart ? { tier: "smart" } : body);
         const meter = execution?.meter ?? newMeter();
         const next = () => worker.fetch(req, env, ctx, { ...execution, meter, spending: true });
-        return execution?.funded ? await next() : await withFreeSpending(req, env, ctx, meter, next);
+        const credential = req.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+        const operator = !!env.AGENT_API_KEY && !!credential && await secretEquals(credential, env.AGENT_API_KEY);
+        return execution?.funded ? await next() : await withFreeSpending(req, env, ctx, meter, next, operator);
       } catch (error) {
         if (error instanceof SpendingError) return errorResponse(error);
         throw error;
