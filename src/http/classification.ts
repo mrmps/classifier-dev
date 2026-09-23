@@ -22,6 +22,11 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   if (!/^Bearer\s+classifier_agent_/i.test(request.headers.get("authorization") || "")) return null;
   const path = new URL(request.url).pathname;
   const typeSafe = path === "/v1/systemone";
+  const jobPath = /^\/v1\/long-context\/jobs\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/(create|status|finish|cancel|parts\/\d+))?$/.exec(path);
+  if (jobPath) {
+    if (!env.LONG_CONTEXT_JOBS) throw new AppError(503, "Long-context jobs are unavailable.");
+    return env.LONG_CONTEXT_JOBS.get(env.LONG_CONTEXT_JOBS.idFromName(jobPath[1])).fetch(request);
+  }
   if (request.method !== "POST" || !["/", "/v1/classify", "/v1/classify/batch", "/sandbox/classify", "/v1/sandbox/classify", "/v1/systemone"].includes(path)) return null;
   if (env.SPENDING_ENABLED === "true") return spendingClassification(request, env, source, ctx);
   const accountId = await requireApiAccount(request, env);

@@ -66,6 +66,7 @@ export interface Env extends LayaEnv, SpendingEnv {
   AI_GATEWAY_DISABLED?: string;
   JEV_AE?: AnalyticsEngineDataset;
   LONG_CONTEXT_AE?: AnalyticsEngineDataset;
+  LONG_CONTEXT_JOBS?: DurableObjectNamespace;
   /** context.dev, for the chat's web search and page reads only. Never served. */
   CONTEXT_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;

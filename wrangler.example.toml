@@ -123,6 +123,14 @@ new_sqlite_classes = ["QuotaCoordinator"]
 name = "FREE_BUDGET"
 class_name = "FreeBudget"
 
+[[durable_objects.bindings]]
+name = "LONG_CONTEXT_JOBS"
+class_name = "LongContextJob"
+
 [[migrations]]
 tag = "v5-free-spending"
 new_sqlite_classes = ["FreeBudget"]
+
+[[migrations]]
+tag = "v6-long-context-jobs"
+new_sqlite_classes = ["LongContextJob"]

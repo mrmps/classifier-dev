@@ -1,6 +1,7 @@
 import { vsJevText } from "./vsjev";
 import { roadmapDoc } from "./newsletter";
 import { INPUT_PRICE_PER_MILLION, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
+import { LONG_CONTEXT_JOB_MAX_TOKENS, LONG_CONTEXT_PART_MAX_TOKENS, LONG_CONTEXT_MAX_PARTS } from "./long-context";
 
 export const SPENDING_LIMITS = `SPENDING LIMITS
 
@@ -196,6 +197,50 @@ LONG DOCUMENTS
   too_many_inputs and too_many_decisions identify the document/decision caps. 400
   long_context_input means invalid long-context input; 503
   long_context_unavailable means processing is unavailable.
+
+
+TEN-MILLION-TOKEN JOBS
+
+  Paid workspaces can classify up to ${LONG_CONTEXT_JOB_MAX_TOKENS.toLocaleString("en-US")} original input tokens as one
+  job. The single-request JSON API keeps its 250,000-token and 1 MB limits.
+  Jobs accept ordered parts so no request or Worker needs to hold the whole
+  document. Create a UUID yourself and reuse it if the create response is lost:
+
+    PUT /v1/long-context/jobs/{uuid}/create
+    {"max_tokens":${LONG_CONTEXT_JOB_MAX_TOKENS},"documents":1,"labels":["renewing","not-renewing"]}
+
+    PUT /v1/long-context/jobs/{uuid}/parts/0
+    {"document":0,"text":"first excerpt, including its original spacing"}
+
+    PUT /v1/long-context/jobs/{uuid}/parts/1
+    {"document":0,"text":"next excerpt"}
+
+    POST /v1/long-context/jobs/{uuid}/finish
+
+  Use the same Authorization: Bearer classifier_agent_... key on every call.
+  Each part may contain at most ${LONG_CONTEXT_PART_MAX_TOKENS.toLocaleString("en-US")} cl100k_base tokens and a 1 MB JSON body;
+  a job accepts at most ${LONG_CONTEXT_MAX_PARTS.toLocaleString("en-US")} parts.
+  Send document indexes from 0 in nondecreasing order and part numbers from 0
+  without gaps. Split at sentence or paragraph boundaries where possible;
+  concatenate the parts to recover each document exactly. Jobs allow 20
+  documents and 32 decisions (documents × labels in multi-label mode). They
+  accept labels and optional multi/instructions; dimension maps use the
+  single-request API. Only the fast tier is available.
+
+  max_tokens is a ceiling, not a charge: the workspace holds enough credits
+  for that ceiling at creation, then settles at $0.084 per million original
+  input tokens actually uploaded. cl100k_base counts each part separately;
+  the full source text is not retained. Screening runs on every part. The job
+  keeps only selected evidence, up to 30,000 tokens per document while open;
+  final Jev sees at most 20,000 evidence tokens per document. Omitted evidence
+  is reported in usage.long_context. Final judgment can take many requests
+  and minutes for a 10M-token job; poll GET .../{uuid}/status to resume.
+
+  POST .../{uuid}/cancel refunds the hold. A job expires after 24 hours;
+  unfinished jobs are refunded and selected evidence is deleted. Completion
+  deletes selected evidence, retains only the result until expiry, and charges
+  the exact original-part token total once. Failed final judgment can be
+  retried before expiry. No usable evidence returns 422 and refunds the job.
 
 
 LEGACY CHUNKLAYA

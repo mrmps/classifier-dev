@@ -14,6 +14,7 @@ import {
   publicNavigationAuth,
 } from "./server/public-navigation-auth";
 export { RateLimiter, QuotaCoordinator, FreeBudget } from "./index";
+export { LongContextJob } from "./long-context-job";
 
 const start = createStartHandler(defaultStreamHandler);
 export default {

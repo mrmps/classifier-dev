@@ -13,6 +13,7 @@ import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
 import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
+import { LONG_CONTEXT_JOB_MAX_TOKENS, LONG_CONTEXT_PART_MAX_TOKENS } from "./long-context";
 
 export const MCP_SETUP = `classifier.dev MCP
 
@@ -295,6 +296,13 @@ LONG CONTEXT
   fits for a document. See LONG DOCUMENTS at
   https://classifier.dev for the full field reference and limitations.
   Explicit model: "chunklaya" remains a separate legacy opt-in.
+
+  For up to ${LONG_CONTEXT_JOB_MAX_TOKENS.toLocaleString("en-US")} tokens, a funded workspace can create a long-context
+  job and upload ordered parts (at most ${LONG_CONTEXT_PART_MAX_TOKENS.toLocaleString("en-US")} tokens and 1 MB each). Screening
+  runs on every part; final Jev judges selected evidence. The same $0.084/M
+  original-token rate applies to the parts actually uploaded. Jobs hold the
+  maximum quoted charge, settle once at completion, and refund on cancellation
+  or 24-hour expiry. See TEN-MILLION-TOKEN JOBS in the full docs.
 
 
 AUTHENTICATION
@@ -736,6 +744,12 @@ WORKSPACES, API KEYS AND ACTIVITY
   the stored content. Recognized credential fields and token patterns are
   redacted, and content is size-limited; redaction cannot detect every kind
   of sensitive text. Public, keyless requests are not included in this dataset.
+
+  Long-context jobs keep only selected evidence excerpts in private temporary
+  job storage while a paid job is open. The full uploaded document is not
+  retained. Selected excerpts are deleted on completion, cancellation or
+  expiry (24 hours after creation). The result remains until that expiry;
+  aggregate usage records follow normal workspace retention rules.
 
   Ask ${SITE.email} about access to or deletion of your account data.
 

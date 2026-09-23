@@ -1,6 +1,7 @@
 import { FOOT, HOME_CSS, META, NAV } from "./home";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
 import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
+import { LONG_CONTEXT_JOB_MAX_TOKENS } from "./long-context";
 import { esc, page } from "./ui";
 
 const feature = (text: string) => `<li>${esc(text)}</li>`;
@@ -71,6 +72,7 @@ export function pricingHtml(signedIn = false) {
     <p class="pricing-note">Output tokens are free. Input usage includes the text, labels and instructions processed by the base classifier. Retries, fallback routing and Smart model tokens add no separate charges. Paid requests already admitted can finish and leave a negative balance. New requests require a positive available balance. No automatic top-ups.</p>
     <p>Jev long context starts automatically above 32,000 characters with the default model or explicit Jev. It costs 2 × Jev's $${INPUT_PRICE_PER_MILLION.toFixed(3)} rate: <strong>$${(LONG_CONTEXT_PRICING.inputNanodollars / 1000).toFixed(3)} per million original context tokens</strong>, counted with cl100k_base once across inputs. Dimensions and actual screening or final-call usage do not multiply this price. 250,000 context tokens cost $${(250000 * LONG_CONTEXT_PRICING.inputNanodollars / 1e9).toFixed(3)}.</p>
     <p>Requires paid workspace balance or an active paid subscription; anonymous access and free signup credit do not qualify. Fast only, up to 250,000 original context tokens, 20 documents and 32 decisions within a 1 MB request. Each document × dimension or multi-label category counts as a decision.</p>
+    <p>For larger documents, long-context jobs screen ordered uploads up to <strong>${(LONG_CONTEXT_JOB_MAX_TOKENS / 1e6).toFixed(0)} million original tokens</strong> at the same rate. A full job costs $${(LONG_CONTEXT_JOB_MAX_TOKENS * LONG_CONTEXT_PRICING.inputNanodollars / 1e9).toFixed(2)}. The workspace reserves its stated maximum at creation, then pays only for the tokens uploaded when final judgment succeeds. Jobs expire after 24 hours; unfinished jobs are refunded.</p>
     <p class="pricing-note">Final Jev reads selected evidence. Eligible chunks can be omitted when the final budget fills; usage.long_context reports selection. No usable evidence returns 422 long_context_no_evidence without charge. Explicit chunklaya remains a separate legacy opt-in. <a href="/docs">Read the long-context limits</a>.</p>
   </section>
   <section class="pricing-section" aria-label="Included on every plan"><h2>Included on every plan</h2>

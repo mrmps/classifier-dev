@@ -236,10 +236,20 @@ tokenization or chunking, bounding tokenizer work on pathological inputs.
 No eligible evidence returns `422 long_context_no_evidence` without charge.
 Explicit `model: "chunklaya"` keeps its separate legacy opt-in behavior.
 
+For up to 10 million input tokens, funded workspaces use a long-context job:
+create a UUID job with a `max_tokens` ceiling, upload ordered parts of at most
+50,000 tokens and 1 MB each, then call `finish`. The server screens every part
+without retaining the full source and keeps a bounded set of selected excerpts
+until completion or 24-hour expiry. The final Jev call reads at most 20,000
+selected evidence tokens per document. `max_tokens` reserves workspace credit;
+successful completion charges the actual part-token sum at the same $0.084/M
+rate. Cancellation, expiry and no eligible evidence refund the reservation.
+The full API sequence and resume/status route are in the generated docs.
+
 ## Analytics
 
 Every request writes one Analytics Engine datapoint (tier, label-set fingerprint,
-country, status, count, latency). No request text is ever stored.
+country, status, count, latency). No request text is written to analytics.
 
 Long-context aggregates also go to `classifier_long_context_events`, with
 context/document totals, chunk screening/selection/omission counts, phase input

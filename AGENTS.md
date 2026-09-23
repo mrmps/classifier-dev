@@ -24,6 +24,7 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
 - Docs are plain text with UPPERCASE headings (`src/docs.ts`, `src/pages.ts`); `renderDoc` turns them into HTML and `toMarkdown` into Markdown.
 - Discovery files (`/.well-known/*`, sitemap, robots, auth.md) are generated in `src/wellknown.ts` from `SITE` and the MCP tool table — edit the source, never a served file.
 - The MCP servers (`src/mcp.ts`) are stateless Streamable HTTP; tools call the API through `worker.fetch` so limits and logging are shared.
+- Long-context jobs in `src/long-context-job.ts` accept ordered bounded parts through a SQLite Durable Object. It holds a maximum-price workspace reservation, retains only selected evidence until completion/cancellation/24-hour expiry, and settles the original part-token total once. Keep `wrangler.example.toml`, the generated docs and the job E2E in sync with this contract.
 - Never commit secrets; `.secrets.env`, `.dev.vars` are ignored. `eval/data/` is ignored except the summary copied to `src/vs-jev.json`.
 - Measured numbers on the site come from `eval/`; do not type numbers in by hand.
 - Jev is asked through Vercel's AI Gateway first when `AI_GATEWAY_API_KEY`
