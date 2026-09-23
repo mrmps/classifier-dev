@@ -477,9 +477,9 @@ LIMITS
   requests accept at most 200 inputs; larger batches return 400 so callers
   can split them. Anonymous traffic also shares a 5,000/minute and 50,000/day
   allowance across every caller using the same label set. Rotating IPs does
-  not reset it; workspace, operator and partner keys bypass it. Pro workspaces
-  allow 30,000/minute and 200,000/day on fast, 2,000/minute and 20,000/day on
-  smart, shared across keys and agents.
+  not reset it; workspace, operator and partner keys bypass it.
+  Pro workspaces allow 30,000/minute and 200,000/day on fast, 2,000/minute and
+  20,000/day on smart, shared across keys and agents.
   Pro, operator and partner keys have a 1,000-input ceiling.
   Workspace keys use the workspace credit balance and share workspace quotas.
   Free workspaces have the same ceilings as public access. Current plans are at
