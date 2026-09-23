@@ -36,9 +36,13 @@ try {
   assert.equal(empty.status, 200);
   assert.match(await empty.text(), /No label sets collected yet/);
   const labelStore = await mf.getKVNamespace('STATS');
-  for (let i = 0; i < 53; i++) await labelStore.put(`cls:ls_${i.toString(16).padStart(16, '0')}`, JSON.stringify({
-    labels: i === 0 ? ['<script>alert("unsafe")</script>', 'safe & sound'] : [`category ${i}`, 'billing', 'support'], firstSeen: '2026-09-23T00:00:00.000Z',
-  }));
+  for (let i = 0; i < 53; i++) {
+    const fingerprint = `ls_${i.toString(16).padStart(16, '0')}`;
+    await labelStore.put(`cls:${fingerprint}`, JSON.stringify({
+      labels: i === 0 ? ['<script>alert("unsafe")</script>', 'safe & sound'] : [`category ${i}`, 'billing', 'support'], firstSeen: '2026-09-23T00:00:00.000Z',
+    }));
+    await labelStore.put(`clsn:${fingerprint}`, '1');
+  }
   await labelStore.put('cls:ls_legacy', '2026-09-01T00:00:00.000Z');
   await labelStore.put('cls:ls_malformed', '{broken');
   await labelStore.put('unrelated-secret', 'must not appear');
@@ -60,19 +64,20 @@ try {
       assert.match(html, /&lt;script&gt;alert/);
       assert.match(html, /safe &amp; sound/);
       assert.match(html, /category 49/);
-    } else assert.match(html, /Names not collected/);
+    } else assert.match(html, /category 52/);
+    assert.doesNotMatch(html, /data-classifier="ls_(legacy|malformed)"/);
     const href = html.match(/href="([^"]+)"[^>]*rel="next"/)?.[1];
     next = href ? new URL(href.replaceAll('&amp;', '&'), adminUrl).href : null;
     assert.ok(pageSizes.length <= 2, 'pagination must finish');
   }
-  assert.deepEqual(pageSizes, [50, 5]);
-  assert.equal(seen.size, 55);
+  assert.deepEqual(pageSizes, [50, 3]);
+  assert.equal(seen.size, 53);
   const refused = await mf.dispatchFetch(adminUrl);
   assert.equal(refused.status, 401);
   assert.doesNotMatch(await refused.text(), /category 49|data-classifier/);
   assert.equal((await adminGet(`${adminUrl}&cursor=${'x'.repeat(2049)}`)).status, 400);
   report.results.push({ name: 'authenticated full label registry', unauthenticated: 401, empty: 200, pages: pageSizes,
-    uniqueLabelSets: seen.size, escapedLabels: true, legacyAndMalformedRecords: 'explicitly unnamed' });
+    uniqueLabelSets: seen.size, escapedLabels: true, legacyAndMalformedRecords: 'excluded from named catalog' });
   barrier = new Promise(r => { release = r; });
   const running = Array.from({ length: 12 }, (_, i) => request(i % 2 ? '2001:db8:1:2::1' : '2001:0db8:0001:0002::ffff'));
   for (let i = 0; i < 250 && calls < 4; i++) await new Promise(r => setTimeout(r, 20));
@@ -126,6 +131,8 @@ try {
   assert.deepEqual(storedLabels?.labels, labels);
   assert.equal(JSON.stringify(storedLabels).includes('short text'), false);
   assert.equal(JSON.stringify(storedLabels).includes('203.0.113'), false);
+  const catalog = await registry.list({ prefix: 'clsn:' });
+  assert.ok(catalog.keys.length > 53, 'successful classifications enter the named catalog');
   report.results.push({ name: 'global label allowance across concurrent IPs, dimensions and SDK', statuses: labelStatuses,
     decisionsAccepted: 200, providerCalls: afterLabels - beforeLabels, dimensionStatus: dimensionDenied.status, sdkStatus: sdkDenied.status, registry: storedLabels });
   const budgets = await mf.getDurableObjectNamespace('FREE_BUDGET', 'spending');

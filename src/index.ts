@@ -1191,15 +1191,26 @@ async function rememberClassifier(env: Env, fingerprint: string, labels: string[
   const kept = retainedLabels(labels);
   if (!kept) return;
   const key = `cls:${fingerprint}`;
+  const catalogKey = `clsn:${fingerprint}`;
+  if (await env.STATS.get(catalogKey)) return;
   const existing = await env.STATS.get(key);
   if (existing) {
+    let record: { labels?: unknown; firstSeen?: string } | null = null;
     try {
-      if (Array.isArray((JSON.parse(existing) as { labels?: unknown }).labels)) return;
+      record = JSON.parse(existing);
     } catch {
       // Legacy entries were timestamps; replace them on the next success.
     }
+    if (Array.isArray(record?.labels) && record.labels.length && record.firstSeen) {
+      const expiration = Math.floor(Date.parse(record.firstSeen) / 1000) + CLASSIFIER_TTL;
+      if (Number.isFinite(expiration)) {
+        if (expiration > Date.now() / 1000 + 60) await env.STATS.put(catalogKey, "1", { expiration });
+        return;
+      }
+    }
   }
   await env.STATS.put(key, JSON.stringify({ labels: kept, firstSeen: new Date().toISOString() }), { expirationTtl: CLASSIFIER_TTL });
+  await env.STATS.put(catalogKey, "1", { expirationTtl: CLASSIFIER_TTL });
 }
 
 /** Enterprise and operator-agent callers use dedicated unmetered bearer credentials. */

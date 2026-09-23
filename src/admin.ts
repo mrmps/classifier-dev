@@ -570,17 +570,18 @@ ${table("Busiest classifiers", d.topLabels, ["label_names", "labels", "requests"
 // ---------------------------------------------------------------- entry
 
 async function classifierRegistry(env: Env, cursor: string) {
-  const listed = await env.STATS.list({ prefix: "cls:ls_", limit: 50, ...(cursor ? { cursor } : {}) });
+  const listed = await env.STATS.list({ prefix: "clsn:ls_", limit: 50, ...(cursor ? { cursor } : {}) });
   const rows = await Promise.all(listed.keys.map(async ({ name }) => {
-    const raw = await env.STATS.get(name);
+    const fingerprint = name.slice(5);
+    const raw = await env.STATS.get(`cls:${fingerprint}`);
     let labels: string[] = [];
     try {
       const parsed = JSON.parse(raw ?? "null")?.labels;
       if (Array.isArray(parsed) && parsed.length && parsed.every(label => typeof label === "string")) labels = parsed;
     } catch { /* Legacy timestamp-only entries have no label names. */ }
-    return { fingerprint: name.slice(4), labels };
+    return { fingerprint, labels };
   }));
-  return { rows, cursor: listed.list_complete ? "" : listed.cursor };
+  return { rows: rows.filter(row => row.labels.length), cursor: listed.list_complete ? "" : listed.cursor };
 }
 
 function classifierRegistryPage(data: Awaited<ReturnType<typeof classifierRegistry>> | null, cursor: string) {
@@ -594,12 +595,10 @@ function classifierRegistryPage(data: Awaited<ReturnType<typeof classifierRegist
     <main id="label-sets">
       <div class="page-heading"><div><h1>All label sets</h1><p>Full retained registry · up to 90 days · not limited by the analytics date range</p></div>
       <a class="control" href="/admin#Adoption">Back to analytics</a></div>
-      <p>Names are collected after successful classifications. Older fingerprints may have no names. Dimension definitions remain fingerprint-only.</p>
+      <p>All collected label names, grouped by label set. Historical fingerprints without names are not listed. Dimension definitions remain fingerprint-only.</p>
       ${data ? `<p>${data.rows.length} label sets on this page, in fingerprint order. New entries may take a minute to appear.</p>${navigation("Top")}
         ${data.rows.length ? `<table class="label-registry"><thead><tr><th scope="col">Labels</th><th scope="col">Classifier fingerprint</th></tr></thead><tbody>
-          ${data.rows.map(row => `<tr data-classifier="${esc(row.fingerprint)}"><td>${row.labels.length
-            ? `<ul class="label-values">${row.labels.map(label => `<li>${esc(label)}</li>`).join("")}</ul>`
-            : "Names not collected"}</td><td><code>${esc(row.fingerprint)}</code></td></tr>`).join("")}
+          ${data.rows.map(row => `<tr data-classifier="${esc(row.fingerprint)}"><td><ul class="label-values">${row.labels.map(label => `<li>${esc(label)}</li>`).join("")}</ul></td><td><code>${esc(row.fingerprint)}</code></td></tr>`).join("")}
         </tbody></table>${navigation("Bottom")}` : `<p class="empty-state">${cursor ? "No label sets on this page. Return to the first page to refresh the registry." : "No label sets collected yet. Successful classifications will appear here."}</p>`}`
         : '<p role="alert">Unable to load label sets. Reload this page to retry, or <a href="/admin?view=labels">start from the first page</a>.</p>'}
     </main></div>`, '<link rel="stylesheet" href="/admin-assets/admin.css">');
