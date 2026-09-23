@@ -24,6 +24,7 @@ const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'long-con
     assert.ok(stateTokens + questionTokens.reduce((sum, n) => sum + n, 0) <= 48000, 'serialized total request fits');
     const screening = Object.values(body.questions).some(q => Object.hasOwn(q.criteria ?? {}, 'irrelevant'));
     calls.push({ screening, body });
+    if (screening && mode === 'slow') await new Promise(resolve => setTimeout(resolve, 11000));
     if (!screening && mode === 'fail-final') return WorkerResponse.json({ detail: { error_type: 'invalid_request' } }, { status: 400 });
     const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => {
       if (q.type === 'noul') return [id, { noul: 0.9 }];
@@ -117,6 +118,14 @@ try {
   assert.equal(short.status, 200);
   assert.equal((await short.json()).usage.long_context, undefined);
   report.results.push({ name: 'limits before inference; short path unchanged', status: 'passed' });
+  mode = 'slow';
+  const slowStart = calls.length;
+  const slow = await send();
+  assert.equal(slow.status, 200, await slow.clone().text());
+  const slowCalls = calls.slice(slowStart).filter(call => call.screening);
+  assert.ok(slowCalls.every(call => call.body.state.length <= 8));
+  assert.equal(slowCalls.flatMap(call => call.body.state).map(state => state.text).join(''), document);
+  report.results.push({ name: 'screening can take longer than the ordinary 10-second deadline without retries', screeningCalls: slowCalls.length });
 } finally {
   await mkdir('captures', { recursive: true });
   await writeFile('captures/long-context-e2e.json', JSON.stringify(report, null, 2));
