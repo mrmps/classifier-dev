@@ -104,6 +104,8 @@ jobs:
         run: bun e2e/complimentary-pro.ts
       - name: Verify ten-million-token job and settlement
         run: npm run test:e2e:long-context-job
+      - name: Verify one whole ten-million-token document upload
+        run: npm run test:e2e:whole-document
       - name: Save long-context verification evidence
         uses: actions/upload-artifact@v4
         with:
@@ -112,6 +114,7 @@ jobs:
             captures/long-context-e2e.json
             captures/long-context-billing.json
             captures/long-context-job.json
+            captures/whole-document.json
       - name: Save complimentary Pro verification evidence
         uses: actions/upload-artifact@v4
         with:

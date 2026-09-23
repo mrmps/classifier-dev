@@ -1,7 +1,7 @@
 import { vsJevText } from "./vsjev";
 import { roadmapDoc } from "./newsletter";
 import { INPUT_PRICE_PER_MILLION, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
-import { LONG_CONTEXT_JOB_MAX_TOKENS, LONG_CONTEXT_PART_MAX_TOKENS, LONG_CONTEXT_MAX_PARTS } from "./long-context";
+import { LONG_CONTEXT_JOB_MAX_TOKENS } from "./long-context";
 
 export const SPENDING_LIMITS = `SPENDING LIMITS
 
@@ -14,8 +14,10 @@ export const SPENDING_LIMITS = `SPENDING LIMITS
   Anonymous proxy traffic requires a funded key. Unfunded workspace keys
   share the free limits. Funded work uses its workspace balance, outside
   the shared free budget, with a default $10 maximum request allowance.
-  Request bodies are limited to 1 MB. A supplied Idempotency-Key prevents
-  re-execution: repeated keys receive 409, not a cached response. Free keys
+  Synchronous request bodies are limited to 1 MB; whole-document jobs allow
+  100 MB (see TEN-MILLION-TOKEN JOBS). A supplied Idempotency-Key prevents
+  re-execution: synchronous repeated keys receive 409, not a cached response;
+  whole-document UUID keys return the same job. Free keys
   are scoped to the IP and UTC day; workspace keys are scoped to the account.`;
 
 export const DOCS = `classifier.dev
@@ -172,7 +174,7 @@ LONG DOCUMENTS
   Anonymous access and free signup credit do not qualify. Only tier: "fast"
   is supported; tier: "smart" is refused with bad_tier.
 
-  Limits per request: 250,000 original context tokens in total, counted with
+  Synchronous limits: 250,000 original context tokens in total, counted with
   cl100k_base across all inputs; 20 documents; 32 decisions (documents times
   dimensions, or documents times labels in multi-label mode); and a 1 MB
   request body. Instructions allow 4,000 characters and labels 200 each.
@@ -223,46 +225,54 @@ LONG DOCUMENTS
 
 TEN-MILLION-TOKEN JOBS
 
-  Paid workspaces can classify up to ${LONG_CONTEXT_JOB_MAX_TOKENS.toLocaleString("en-US")} original input tokens as one
-  job. The single-request JSON API keeps its 250,000-token and 1 MB limits.
-  Jobs accept ordered parts so no request or Worker needs to hold the whole
-  document. Create a UUID yourself and reuse it if the create response is lost:
+  Send the whole document once to POST /v1/classify. A funded workspace can
+  upload up to ${LONG_CONTEXT_JOB_MAX_TOKENS.toLocaleString("en-US")} original cl100k_base tokens in a 100 MB request.
+  Large single-document requests automatically return 202 with a status_url;
+  add Prefer: respond-async to use that flow for a smaller document too.
+  Splitting, screening, retries and final judgment happen on the server.
 
-    PUT /v1/long-context/jobs/{uuid}/create
-    {"max_tokens":${LONG_CONTEXT_JOB_MAX_TOKENS},"documents":1,"labels":["renewing","not-renewing"]}
+    POST /v1/classify
+    Authorization: Bearer classifier_agent_...
+    Content-Type: application/json
+    Prefer: respond-async
 
-    PUT /v1/long-context/jobs/{uuid}/parts/0
-    {"document":0,"text":"first excerpt, including its original spacing"}
+    {"input":"<the entire document>","labels":["renewing","not-renewing"]}
 
-    PUT /v1/long-context/jobs/{uuid}/parts/1
-    {"document":0,"text":"next excerpt"}
+  Or upload a UTF-8 text file directly:
 
-    POST /v1/long-context/jobs/{uuid}/finish
+    curl 'https://classifier.dev/v1/classify?labels=renewing,not-renewing' \\
+      -H "Authorization: Bearer $CLASSIFY_API_KEY" \\
+      -H 'Content-Type: text/plain' --data-binary @document.txt
 
-  Use the same Authorization: Bearer classifier_agent_... key on every call.
-  Each part may contain at most ${LONG_CONTEXT_PART_MAX_TOKENS.toLocaleString("en-US")} cl100k_base tokens and a 1 MB JSON body;
-  a job accepts at most ${LONG_CONTEXT_MAX_PARTS.toLocaleString("en-US")} parts.
-  Send document indexes from 0 in nondecreasing order and part numbers from 0
-  without gaps. Split at sentence or paragraph boundaries where possible;
-  concatenate the parts to recover each document exactly. Jobs allow 20
-  documents and 32 decisions (documents × labels in multi-label mode). They
-  accept labels and optional multi/instructions; dimension maps use the
-  single-request API. Only the fast tier is available.
+  JSON accepts one input string (or a one-element inputs/items array), labels,
+  optional instructions and multi, and fast/jev only. Multi-label jobs allow
+  up to 32 labels. Raw text accepts repeated label query parameters or
+  comma-separated labels, plus optional instructions and multi=true.
+  Labels and instructions may appear anywhere in the JSON object.
 
-  max_tokens is a ceiling, not a charge: the workspace holds enough credits
-  for that ceiling at creation, then settles at $0.084 per million original
-  input tokens actually uploaded. cl100k_base counts each part separately;
-  the full source text is not retained. Screening runs on every part. The job
-  keeps only selected evidence, up to 30,000 tokens per document while open;
-  final Jev sees at most 20,000 evidence tokens per document. Omitted evidence
-  is reported in usage.long_context. Final judgment can take many requests
-  and minutes for a 10M-token job; poll GET .../{uuid}/status to resume.
+  Poll the returned status_url with the same workspace key. Status progresses
+  from queued to processing to finished; finished includes result with the
+  normal results, usage and pricing fields. A failed job includes an error
+  and refunds its reservation. Network/provider failures retry automatically.
+  Use an optional UUID Idempotency-Key to safely retry a lost upload response.
 
-  POST .../{uuid}/cancel refunds the hold. A job expires after 24 hours;
-  unfinished jobs are refunded and selected evidence is deleted. Completion
-  deletes selected evidence, retains only the result until expiry, and charges
-  the exact original-part token total once. Failed final judgment can be
-  retried before expiry. No usable evidence returns 422 and refunds the job.
+  The repository CLI uploads and waits in one command:
+
+    node cli/classify.js renewing,not-renewing --document document.txt --json
+
+  Tokens are counted exactly as in the original whole document, independent
+  of network boundaries. The workspace reserves that actual token price after
+  upload and settles it once on success: $0.084/M, or $0.84 for 10M tokens.
+  Source text is temporarily stored privately while queued, then deleted as
+  it is screened. Final Jev reads up to 20,000 selected evidence tokens;
+  usage.long_context discloses any omitted eligible chunks.
+
+  Cancel unfinished work and refund its hold with
+  POST /v1/long-context/jobs/{id}/cancel.
+
+  Jobs expire after 24 hours. Source and selected evidence are
+  deleted on completion, cancellation, failure or expiry; results remain
+  available until expiry. Signup credit alone does not enable this feature.
 
 
 LEGACY CHUNKLAYA

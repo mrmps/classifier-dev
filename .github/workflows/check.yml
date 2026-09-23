@@ -34,6 +34,10 @@ jobs:
         run: bun test tests/spending.e2e.test.ts
         env:
           POSTGRES_TEST_URL: postgres://postgres:spending-test@localhost:5432/postgres
+      - name: Verify document admission under concurrent PostgreSQL requests
+        run: bun e2e/document-admission.ts
+        env:
+          POSTGRES_TEST_URL: postgres://postgres:spending-test@localhost:5432/postgres
       - name: Render secret-free build configuration
         env:
           CLOUDFLARE_ACCOUNT_ID: "00000000000000000000000000000000"
@@ -52,6 +56,8 @@ jobs:
         run: npm run test:e2e:long-context-billing
       - name: Verify ten-million-token job and settlement
         run: npm run test:e2e:long-context-job
+      - name: Verify one whole ten-million-token document upload
+        run: npm run test:e2e:whole-document
       - name: Save long-context verification evidence
         uses: actions/upload-artifact@v4
         with:
@@ -60,6 +66,8 @@ jobs:
             captures/long-context-e2e.json
             captures/long-context-billing.json
             captures/long-context-job.json
+            captures/whole-document.json
+            captures/document-admission.json
       - name: Save classification usage evidence
         uses: actions/upload-artifact@v4
         with:

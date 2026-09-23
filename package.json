@@ -25,7 +25,8 @@
     "test:e2e:usage": "node e2e/usage.mjs",
     "test:e2e:long-context": "node e2e/long-context.mjs",
     "test:e2e:long-context-billing": "bun e2e/long-context-billing.ts",
-    "test:e2e:long-context-job": "bun e2e/long-context-job.ts --full"
+    "test:e2e:long-context-job": "bun e2e/long-context-job.ts --full",
+    "test:e2e:whole-document": "node e2e/whole-document.mjs --full"
   },
   "keywords": [],
   "author": "Michael Ryaboy",
@@ -68,6 +69,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "recharts": "^3.10.1",
+    "stream-json": "^3.7.0",
     "svix": "^2.5.0",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",

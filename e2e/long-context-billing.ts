@@ -265,7 +265,7 @@ try {
       [{ inputs: [document, ...Array(20).fill("short")], labels: body.labels }, "too_many_inputs"],
       [{ input: document, dimensions: Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`field${i}`, ["yes", "no"]])) }, "too_many_decisions"],
       [{ ...body, tier: "smart" }, "bad_tier"],
-      [{ input: " x".repeat(250001), labels: body.labels }, "long_context_too_large"],
+      [{ inputs: [" x".repeat(125001), " x".repeat(125001)], labels: body.labels }, "long_context_too_large"],
       [{ inputs: [document, ""], labels: body.labels }, "long_context_input"],
     ];
     for (const [invalid, code] of limits) {

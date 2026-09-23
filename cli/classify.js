@@ -5,7 +5,8 @@
 // tab-separated and greppable, or NDJSON with --json. Errors go to stderr with
 // exit 1; nothing else ever does.
 
-import { readFileSync, writeFileSync, mkdirSync, statSync, realpathSync } from "node:fs";
+import { createReadStream, readFileSync, writeFileSync, mkdirSync, statSync, realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ const HELP = `classify ${PKG.version} — sort text into your own labels, with a
 
 USAGE
   classify <labels> "<text>"           one text, prints the label
+  classify <labels> --document file.txt  one whole document, uploads and waits
   classify <labels> < items.txt        one line per input, in order
   cat items.jsonl | classify <labels> --field title
 
@@ -42,9 +44,10 @@ OPTIONS
   -k, --max <n>              at most n labels (implies --multi)
   -s, --smart                re-ask uncertain answers of a reasoning model (slower)
       --model laya          opt into the automatically routed Laya trial (default: jev)
-      --model chunklaya     the long-document model; also automatic past 32,000 characters
+      --model chunklaya     opt into the legacy long-document model
       --processing bulk     Laya bulk lane; default fast is one decision per call
   -i, --instructions <text>  extra criteria: "judge only the service, ignore the food"
+      --document <file>      upload one UTF-8 document, up to 10M tokens (paid workspace)
   -r, --review <t>           print only inputs with confidence below t
   -c, --count                print a label histogram instead of rows
   -j, --json                 NDJSON output with every field the API returns
@@ -86,7 +89,7 @@ Docs: https://classifier.dev   Agent skill: npx skills add https://classifier.de
 function parseArgs(argv) {
   const o = { labels: null, text: null, multi: false, max: null, smart: false, instructions: "",
     review: null, count: false, json: false, quiet: false, field: "text", id: null,
-    endpoint: ENDPOINT, model: "jev", processing: "fast", apiKey: process.env.CLASSIFY_API_KEY || process.env.CLASSIFIER_API_KEY || "", help: false, version: false };
+    endpoint: ENDPOINT, model: "jev", processing: "fast", document: null, apiKey: process.env.CLASSIFY_API_KEY || process.env.CLASSIFIER_API_KEY || "", help: false, version: false };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -109,6 +112,7 @@ function parseArgs(argv) {
     else if (a === "--id") o.id = next();
     else if (a === "--endpoint") o.endpoint = next();
     else if (a === "--api-key") o.apiKey = next();
+    else if (a === "--document") o.document = next();
     else if (a === "--model") o.model = next();
     else if (a === "--processing") o.processing = next();
     else if (a.startsWith("--") && a.includes("=")) { argv.splice(i + 1, 0, a.slice(a.indexOf("=") + 1)); argv[i] = a.slice(0, a.indexOf("=")); i--; }
@@ -205,6 +209,7 @@ async function post(o, inputs) {
       continue;
     }
     const payload = await res.json().catch(() => ({}));
+    if (res.status === 202) return checkResults(o, await waitDocument(o, payload), inputs.length);
     if (res.ok) return checkResults(o, payload, inputs.length);
     last = payload.error || `HTTP ${res.status}`;
     // A daily quota cannot recover during a normal CLI run. Keep the API's
@@ -222,6 +227,62 @@ async function post(o, inputs) {
     break; // 4xx: our fault, no point retrying
   }
   throw new Error(last);
+}
+
+async function waitDocument(o, accepted) {
+  const url = new URL(accepted.status_url, o.endpoint);
+  if (url.origin !== new URL(o.endpoint).origin) throw new Error("The API returned an invalid job URL.");
+  if (!process.env.CLASSIFY_NO_PROGRESS) process.stderr.write(`classify: document accepted; waiting for ${accepted.id}\n`);
+  const deadline = Date.now() + (Number(process.env.CLASSIFY_JOB_TIMEOUT) || 86400) * 1000;
+  let failures = 0;
+  while (Date.now() < deadline) {
+    let response;
+    try {
+      response = await fetch(url, { headers: { authorization: `Bearer ${o.apiKey}` }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch {
+      if (++failures >= 5) throw new Error(`Polling interrupted. Your job continues at ${url}`);
+      await sleep(2000); continue;
+    }
+    const job = await response.json().catch(() => ({}));
+    if (response.ok && job.status === "finished") return job.result;
+    if (job.status === "failed") throw new Error(job.error?.message || "Document classification failed; the reservation was refunded.");
+    if (!response.ok && response.status !== 429 && response.status < 500)
+      throw new Error(job.error || `Unable to read job: HTTP ${response.status}`);
+    if (!response.ok && ++failures >= 5) throw new Error(`Polling interrupted. Your job continues at ${url}`);
+    if (response.ok) failures = 0;
+    await sleep(Math.min(30, Math.max(1, Number(response.headers.get("retry-after")) || 2)) * 1000);
+  }
+  throw new Error(`Stopped waiting. Check your job at ${url}`);
+}
+
+async function classifyDocument(o) {
+  if (!o.apiKey) throw new Error("--document requires a funded workspace API key (CLASSIFY_API_KEY).");
+  if (o.text !== null || o.smart || o.model !== "jev" || o.max !== null)
+    throw new Error("--document accepts one file with Jev fast, optional --multi and --instructions.");
+  if (!statSync(o.document).isFile()) throw new Error("--document must name a UTF-8 text file.");
+  const url = new URL(o.endpoint);
+  for (const label of o.labels) url.searchParams.append("label", label);
+  if (o.instructions) url.searchParams.set("instructions", o.instructions);
+  if (o.multi) url.searchParams.set("multi", "true");
+  const id = randomUUID();
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const stream = createReadStream(o.document);
+    try {
+      const response = await fetch(url, { method: "POST", duplex: "half", body: stream,
+        headers: { authorization: `Bearer ${o.apiKey}`, "content-type": "text/plain; charset=utf-8",
+          "idempotency-key": id, prefer: "respond-async" }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 202) return await waitDocument(o, payload);
+      if (response.status < 500 && response.status !== 409 && response.status !== 429)
+        throw new Error(payload.error || `Document upload failed: HTTP ${response.status}`);
+      if (attempt + 1 === ATTEMPTS) throw new Error(payload.error || "Document upload is unavailable.");
+    } catch (error) {
+      if (error instanceof TypeError || error.name === "TimeoutError") {
+        if (attempt + 1 === ATTEMPTS) throw new Error(`Upload interrupted. Retry with Idempotency-Key ${id}, or check /v1/long-context/jobs/${id}/status.`);
+      } else throw error;
+    } finally { stream.destroy(); }
+    await sleep(1000 * 2 ** attempt);
+  }
 }
 
 const ATTEMPTS = 5;
@@ -438,6 +499,16 @@ export async function main(argv) {
   if (o.labels.length < 2) fail("give at least two labels, comma-separated: classify spam,\"not spam\" ...");
   if (o.labels.length > 100) fail("at most 100 labels");
   try { batchSize(o); } catch (e) { fail(e.message); }
+
+  if (o.document) {
+    const payload = await classifyDocument(o);
+    const results = checkResults(o, payload, 1);
+    if (o.count) process.stdout.write(formatCount(o, results).join("\n") + "\n");
+    else if (kept(o, results[0])) process.stdout.write((o.json
+      ? JSON.stringify({ file: o.document, ...results[0], usage: payload.usage, pricing: payload.pricing })
+      : labelOf(o, results[0])) + "\n");
+    return 0;
+  }
 
   const hint = updateHint();
 

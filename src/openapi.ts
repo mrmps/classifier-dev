@@ -72,10 +72,27 @@ const ACCOUNT_BILLING_HEADERS = {
 const JOB_ID = { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" },
   description: "A UUID chosen by the caller; reuse it to retry creation or resume the same job." };
 const JOB_RESPONSE = { "200": { description: "Job progress or result.", content: { "application/json": { schema: { type: "object" } } } },
+  "202": { description: "Cancellation requested; poll status until refunded." },
   "400": err("Invalid job metadata or part."), "401": err("A valid workspace API key is required."),
   "402": err("A funded workspace and sufficient balance are required."),
   "409": err("The job is closed, busy, or the next part sequence is different."),
   "503": err("Jev or job processing is unavailable; retry the same part or finish call.") };
+const DOCUMENT_PARAMETERS = [
+  { $ref: "#/components/parameters/IdempotencyKey" },
+  { name: "Prefer", in: "header", schema: { type: "string", const: "respond-async" }, description: "Upload one complete document and receive a background job, even below the synchronous limits." },
+  { name: "labels", in: "query", schema: { type: "string" }, description: "For text/plain uploads: comma-separated labels." },
+  { name: "label", in: "query", style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "For text/plain uploads: repeated label parameters, allowing commas inside labels." },
+  { name: "instructions", in: "query", schema: { type: "string", maxLength: 4000 }, description: "For text/plain uploads: classification criteria." },
+  { name: "multi", in: "query", schema: { type: "boolean" }, description: "For text/plain uploads: return every applicable label." },
+];
+const DOCUMENT_ACCEPTED = {
+  description: "Whole document uploaded. Poll status_url with the same workspace key. No client chunking or finish call is needed. Requires funded access. Queued source is stored privately and deleted as screened; all source/evidence is deleted on completion, cancellation, failure or 24-hour expiry.",
+  headers: { Location: { schema: { type: "string" } }, "Retry-After": { schema: { type: "integer" } } },
+  content: { "application/json": { schema: { type: "object", required: ["id", "status", "status_url", "context_tokens", "expires_at"], properties: {
+    id: { type: "string", format: "uuid" }, status: { type: "string" }, status_url: { type: "string", format: "uri" },
+    context_tokens: { type: "integer", maximum: LONG_CONTEXT_JOB_MAX_TOKENS }, expires_at: { type: "string", format: "date-time" },
+  } } } },
+};
 const TYPESAFE_ENTRY = {
   anyOf: [
     { type: "string" },
@@ -166,8 +183,8 @@ export const OPENAPI = {
       "(RFC 9745 / RFC 8594) for at least six months before removal.\n\n" +
       "Rate limits: RateLimit-Limit and RateLimit-Policy (IETF draft-ietf-httpapi-ratelimit-headers) on every classification " +
       "response, RateLimit-Remaining once the limiter has been consulted (every 200 and 429), Retry-After on 429s. " +
-      "Idempotency: classification has no side effects; an Idempotency-Key header is accepted and " +
-      "echoed so generic retry logic keeps working.\n\n" +
+      "Idempotency: synchronous paid requests reject replayed keys. Whole-document jobs accept an optional UUID " +
+      "Idempotency-Key and return the same job on retry without charging again.\n\n" +
       "Errors: classification failures return {error, code}; workspace authorization and billing errors return {error}. " +
       "See components.schemas.Error for classification codes. The two GET forms answer " +
       "plain text (`error:`, `usage:`, `try:` lines) unless ?verbose=1 or Accept: application/json asks for the JSON object.\n\n" +
@@ -606,7 +623,7 @@ export const OPENAPI = {
     "/v1/long-context/jobs/{id}/create": {
       put: {
         operationId: "createLongContextJob", tags: ["classify"],
-        summary: "Create a paid long-context job (up to 10M tokens)",
+        summary: "Legacy manual-upload job creation; prefer one POST /v1/classify",
         description: "Choose a UUID once and reuse it on retries. Creation holds credits for max_tokens at $0.084/M original input tokens; final judgment settles the actual uploaded part-token count. Requires a funded workspace. No source text is stored at creation.",
         security: [{ accountKey: [] }], parameters: [JOB_ID],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["max_tokens", "documents", "labels"], properties: {
@@ -620,7 +637,7 @@ export const OPENAPI = {
     "/v1/long-context/jobs/{id}/parts/{sequence}": {
       put: {
         operationId: "uploadLongContextPart", tags: ["classify"],
-        summary: "Screen one bounded text part",
+        summary: "Legacy manual part upload; not needed for whole-document jobs",
         description: `Upload source text in document order. Sequence starts at zero with no gaps, up to ${LONG_CONTEXT_MAX_PARTS.toLocaleString("en-US")} parts. Each part fits 1 MB JSON and ${LONG_CONTEXT_PART_MAX_TOKENS.toLocaleString("en-US")} cl100k_base tokens. The full source part is discarded after screening; only selected evidence remains until finish, cancel, or 24-hour expiry.`,
         security: [{ accountKey: [] }], parameters: [JOB_ID,
           { name: "sequence", in: "path", required: true, schema: { type: "integer", minimum: 0 } }],
@@ -631,6 +648,7 @@ export const OPENAPI = {
     },
     "/v1/long-context/jobs/{id}/status": { get: {
       operationId: "getLongContextJob", tags: ["classify"], summary: "Read job progress or a completed result",
+      description: "Automatic jobs progress from queued to processing to finished. context_tokens is the full original document; processed_tokens tracks screening. A finished job includes result with results, usage and pricing. A failed job includes error and refunds its hold. Results expire after 24 hours.",
       security: [{ accountKey: [] }], parameters: [JOB_ID], responses: JOB_RESPONSE,
     } },
     "/v1/long-context/jobs/{id}/finish": { post: {
@@ -647,12 +665,12 @@ export const OPENAPI = {
       post: {
         operationId: "classifyV1",
         summary: "Classify texts (v1). Identical to POST /.",
-        description: "The versioned address of the classification endpoint. Same request body, same response, same limits as POST /.",
+        description: "Identical to POST /. One complete Jev document supports 10M original cl100k_base tokens and a 100 MB upload. Prefer: respond-async, text/plain, a body above 1 MB or a single Jev input above 250k tokens returns 202 with a background job. The server screens every chunk then runs final Jev over selected evidence. Price: $0.084/M original tokens, reserved after upload; free/signup credit alone cannot enable jobs. Automatic jobs accept input (or one-element inputs/items), labels, instructions, multi, tier:fast and model:jev only. Other batches remain synchronous.",
         tags: ["classify"],
-        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        parameters: DOCUMENT_PARAMETERS,
         requestBody: {
           required: true,
-          content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } },
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } }, "text/plain": { schema: { type: "string", description: "The entire UTF-8 document; supply labels in the query." } } },
         },
         responses: {
           "200": {
@@ -660,6 +678,7 @@ export const OPENAPI = {
             headers: RATE_LIMIT_HEADERS,
             content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } },
           },
+          "202": DOCUMENT_ACCEPTED,
           ...ERRORS,
         },
       },
@@ -667,8 +686,8 @@ export const OPENAPI = {
     "/v1/classify/batch": {
       post: {
         operationId: "classifyBatchV1",
-        summary: "Classify up to 1,000 texts in one request (alias of POST /v1/classify).",
-        description: "The batch operation is the normal operation: `inputs` takes up to 1,000 texts and the results come back in the same order. This path exists for callers that look for a batch endpoint by name; it behaves exactly like POST /v1/classify.",
+        summary: "Classify up to 1,000 texts synchronously.",
+        description: "inputs takes up to 1,000 texts and results come back in the same order. This path retains synchronous limits; for one whole document up to 10M tokens/100 MB, use POST /v1/classify instead.",
         tags: ["classify"],
         parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: {
@@ -731,9 +750,12 @@ export const OPENAPI = {
       post: {
         operationId: "classify",
         summary: "Classify one or many texts into one of the supplied labels.",
+        description: "Same synchronous and whole-document behavior as POST /v1/classify. One paid document supports 10M tokens in a 100 MB upload; automatic jobs return 202.",
+        parameters: DOCUMENT_PARAMETERS,
         requestBody: {
           required: true,
           content: {
+            "text/plain": { schema: { type: "string", description: "The entire UTF-8 document; supply labels in the query." } },
             "application/json": {
               schema: { $ref: "#/components/schemas/ClassifyRequest" },
               examples: {
@@ -757,6 +779,7 @@ export const OPENAPI = {
           },
         },
         responses: {
+          "202": DOCUMENT_ACCEPTED,
           ...ERRORS,
           "200": {
             description: "Classification results",
@@ -1041,16 +1064,16 @@ export const OPENAPI = {
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
-          model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "Defaults to Jev unless processing implies Laya. Default/explicit jev inputs over 32,000 characters use paid Fast-only Jev long context: 600-token Chonkie chunks, parallel evidence screening and final Jev over whole eligible chunks in source order, bounded by 20,000 cl100k_base tokens and a conservative provider estimate. Eligible evidence may be omitted; usage.long_context discloses selection. Requires paid workspace balance or active paid subscription, not signup credit. Limits per request: 250,000 original cl100k_base context tokens, 20 documents, 32 decisions, 1 MB body. Price: $0.084/M original context tokens summed once across inputs, independent of dimensions and actual inference usage. Explicit chunklaya retains the legacy opt-in (4,000,000 characters/input, 20 inputs, subject to 1 MB body; chunklaya/multilingual results; no Smart). Laya and Kev are experimental Beam models with 512-token and 8,192-token contexts respectively, 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Results use jev/laya or jev/kev; Jev calibration claims do not apply." },
+          model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "Defaults to Jev unless processing implies Laya. Default/explicit jev inputs over 32,000 characters use paid Fast-only Jev long context: 600-token Chonkie chunks, parallel evidence screening and final Jev over whole eligible chunks in source order, bounded by 20,000 cl100k_base tokens and a conservative provider estimate. Eligible evidence may be omitted; usage.long_context discloses selection. Requires paid workspace balance or active paid subscription, not signup credit. Synchronous limits: 250,000 original cl100k_base tokens, 20 documents, 32 decisions, 1 MB body. One whole document on POST / or /v1/classify supports 10M tokens and 100 MB as a background job. Price: $0.084/M original context tokens summed once across inputs, independent of dimensions and actual inference usage. Explicit chunklaya retains the legacy opt-in (4,000,000 characters/input, 20 inputs, subject to 1 MB body; chunklaya/multilingual results; no Smart). Laya and Kev are experimental Beam models with 512-token and 8,192-token contexts respectively, 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Results use jev/laya or jev/kev; Jev calibration claims do not apply." },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Implies Laya when model is omitted. Accepted but has no effect with explicit model jev, which handles batching automatically. When omitted for Laya, automatically selects fast for one decision with up to 4 yes/no questions, otherwise bulk. Explicit Laya lanes are honored. Fast allows 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
           dimensions: DIMENSIONS_SCHEMA,
-          items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 4000000 }, description: "Alias for inputs in dimensions mode. Default/jev inputs above 32,000 characters use paid long context: at most 20 documents, 32 decisions and 250,000 original context tokens total, within a 1 MB body. Explicit chunklaya allows up to 4,000,000 characters/input within the body limit. Do not combine with input or inputs." },
-          input: { type: "string", description: "A single text. Provide this or inputs; a string under `inputs` is read as one text too." },
+          items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1 }, description: "Alias for inputs. One-element arrays can use whole-document jobs (10M tokens/100 MB, labels only). Synchronous dimensions mode: Default/jev inputs above 32,000 characters use paid long context: at most 20 documents, 32 decisions and 250,000 original context tokens total, within a 1 MB body. Explicit chunklaya allows up to 4,000,000 characters/input within the body limit. Do not combine with input or inputs." },
+          input: { type: "string", description: "One complete document. POST / or /v1/classify automatically returns a background job above synchronous limits: up to 10M original tokens and 100 MB. No manual parts needed. Use Prefer: respond-async to request a job at any size. Provide this or inputs." },
           inputs: {
             type: "array",
             items: { type: "string" },
             maxItems: 1000,
-            description: "Up to 1,000 texts classified in one call, results in the same order. Long context allows 20 documents, 32 decisions and 250,000 original context tokens total within a 1 MB request. Public smart requests accept at most 200 so the batch fits its per-minute quota.",
+            description: "Up to 1,000 texts classified in one call, results in the same order. Synchronous long context allows 20 documents, 32 decisions and 250,000 original context tokens total within 1 MB. One-element arrays on POST / or /v1/classify support automatic jobs up to 10M tokens/100 MB. Public smart requests accept at most 200 so the batch fits its per-minute quota.",
           },
           labels: {
             type: "array",
@@ -1348,7 +1371,7 @@ export const OPENAPI = {
         in: "header",
         required: false,
         schema: { type: "string", maxLength: 200 },
-        description: "Optional replay protection. A previously admitted key returns 409 without executing again; responses are not cached. Free keys are scoped to the IP network and UTC day. Workspace keys are scoped to the workspace. Changing the request body does not make a used key reusable.",
+        description: "Optional replay protection. Whole-document jobs require a UUID and return 202 with the same job on retry, without executing or charging again; reuse only for the same document. Otherwise a previously admitted key returns 409 without executing again; responses are not cached. Free keys are scoped to the IP network and UTC day. Workspace keys are scoped to the workspace.",
       },
     },
     securitySchemes: {
@@ -1491,13 +1514,20 @@ $100/day across all free traffic, with four concurrent requests per IP.
 IPv6 addresses share a /64. Smart requests must fit the request allowance.
 Funded workspace keys use their balance and bypass the shared subsidy and
 proxy check; the default maximum request allowance is $10. Request bodies
-are limited to 1 MB. Billing settles asynchronously after the response.
+are limited to 1 MB for synchronous classification. One whole Jev document can
+be uploaded to POST /v1/classify as JSON or UTF-8 text/plain: up to 10M tokens
+and 100 MB. Large uploads return 202 with a status_url; poll with the same key.
+Prefer: respond-async requests this behavior at any size. No client splitting
+or finish call is required. Jobs reserve the exact original token price after
+upload, finish automatically, and refund on failure. Source is temporarily
+stored privately and deleted as screened, or on failure, cancellation or expiry.
+Results expire after 24 hours. Synchronous billing settles after the response.
 
 Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
 tier, 200/minute and 2,000/day on the smart tier. Default/explicit Jev inputs
 over 32,000 characters use paid Fast-only long context. Requires paid workspace
 balance or active paid subscription; anonymous access and signup credit do not
-qualify. Limits: 250,000 original cl100k_base context tokens summed across inputs,
+qualify. Synchronous limits: 250,000 original cl100k_base context tokens summed across inputs,
 20 documents, 32 decisions and 1 MB body. Retail: $0.084/M original context
 tokens, counted once regardless of dimensions or actual screening/final usage.
 Final Jev reads selected whole chunks in source order; eligible evidence can be
