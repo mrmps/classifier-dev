@@ -303,6 +303,9 @@ test("funded HTTP classification skips Spur/free budget and bills the published 
   const r = await accountClassification(request("203.0.113.1", undefined, undefined, { authorization: `Bearer ${enrolled.secret}` }), env, "API", s.ctx);
   expect(r?.status).toBe(200);
   expect(r?.headers.get("x-billing-status")).toBe("pending");
+  const payload = await r!.clone().json() as { usage: { input_tokens: number }; pricing: Record<string, unknown> };
+  expect(payload.usage.input_tokens).toBe(100);
+  expect(payload.pricing).toMatchObject({ currency: "USD", billing_status: "pending", total_usd: 0.0000042, estimated_usd: 0.0000042 });
   await s.flush();
   const row = await env.APP_DB.prepare("SELECT status,actual_nano::text AS nano FROM app_usage WHERE id=?").bind(r!.headers.get("x-request-id")).first();
   expect(row).toEqual({ status: "completed", nano: "4200" });

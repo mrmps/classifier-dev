@@ -1,3 +1,4 @@
+import { withResponsePricing } from "../classification-usage";
 import { spendingClassification } from "./spending-classification";
 import worker, { type Env } from "../index";
 import { newMeter } from "../cost";
@@ -111,5 +112,19 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   headers.set("cache-control", "no-store");
   headers.set("x-request-id", reservation.id);
   headers.set("x-billing-status", response.ok ? (priceTokens(card, meter.tokens) ? "settled" : "review") : "refunded");
-  return new Response(response.body, { status: response.status, headers });
+  const resultResponse = new Response(response.body, { status: response.status, headers });
+  const charge = priceTokens(card, meter.tokens);
+  return response.ok && !typeSafe
+    ? withResponsePricing(resultResponse, { currency: "USD", rate_version: card.version,
+        total_usd: charge ? Number(charge.nanodollars) / 1e9 : null,
+        billing_status: charge ? "settled" : "review",
+        models: meter.tokens.map(row => {
+          const rate = card.models.find(rate => rate.provider === row.provider && rate.model === row.model);
+          return { provider: row.provider, model: row.model,
+            input_usd_per_million: rate ? Number(rate.inputNanodollars) / 1000 : null,
+            output_usd_per_million: rate ? Number(rate.outputNanodollars) / 1000 : null,
+            cached_input_usd_per_million: rate ? Number(rate.cachedInputNanodollars) / 1000 : null };
+        }),
+      })
+    : resultResponse;
 }
