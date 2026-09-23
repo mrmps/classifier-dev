@@ -5,6 +5,7 @@ export interface SpendingEnv extends PrivacyEnv {
   SPENDING_ENABLED?: string;
   FREE_BUDGET?: DurableObjectNamespace;
   FREE_DAILY_USD?: string;
+  OPERATOR_DAILY_USD?: string;
   FREE_IP_DAILY_USD?: string;
   FREE_REQUEST_USD?: string;
   FREE_IP_CONCURRENCY?: string;
@@ -28,6 +29,7 @@ export function policy(env: SpendingEnv) {
     request: nano(setting(env.FREE_REQUEST_USD, 0.01)),
     ipDaily: nano(setting(env.FREE_IP_DAILY_USD, 0.5)),
     daily: nano(setting(env.FREE_DAILY_USD, 100)),
+    operatorDaily: nano(setting(env.OPERATOR_DAILY_USD, 2)),
     ipConcurrency: Math.floor(setting(env.FREE_IP_CONCURRENCY, 4)),
     concurrency: Math.floor(setting(env.FREE_CONCURRENCY, 128)),
     paidRequest: nano(setting(env.PAID_REQUEST_USD, 10)),
@@ -93,7 +95,7 @@ export async function fingerprint(env: SpendingEnv, value: string): Promise<stri
   const key = await crypto.subtle.importKey("raw", enc.encode(salt), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(value)))].map(v => v.toString(16).padStart(2, "0")).join("");
 }
-export const SPENDING_ERROR_CODES = ["free_daily_budget", "free_ip_daily_budget", "free_ip_concurrency", "free_capacity", "request_spending_limit", "request_finished", "unpriced_model", "caller_identity", "spending_configuration", "spending_unavailable", "reputation_unavailable", "reputation_budget", "proxy_requires_payment", "duplicate_request", "invalid_settlement", "payload_too_large", "invalid_request", "insufficient_balance", "invalid_api_key", "inactive_api_key"] as const;
+export const SPENDING_ERROR_CODES = ["operator_daily_budget", "free_daily_budget", "free_ip_daily_budget", "free_ip_concurrency", "free_capacity", "request_spending_limit", "request_finished", "unpriced_model", "caller_identity", "spending_configuration", "spending_unavailable", "reputation_unavailable", "reputation_budget", "proxy_requires_payment", "duplicate_request", "invalid_settlement", "payload_too_large", "invalid_request", "insufficient_balance", "invalid_api_key", "inactive_api_key"] as const;
 export function errorResponse(error: SpendingError): Response {
   const retryable = (error.status === 429 || error.status === 503) && !["reputation_budget", "spending_configuration", "unpriced_model"].includes(error.code);
   const retryAfter = retryable ? Number(error.details.retryAfter ?? 60) : undefined;
@@ -104,6 +106,7 @@ export function errorResponse(error: SpendingError): Response {
     : error.code === "invalid_api_key" || error.code === "inactive_api_key" ? "Use an active workspace key from https://classifier.dev/app/keys in the Authorization: Bearer header."
     : error.code === "unpriced_model" ? "Choose a documented model. The TypeSafe-compatible endpoint accepts jev-1.13.0 and jev-latest."
     : error.code === "free_ip_concurrency" || error.code === "free_capacity" ? "Wait for in-flight requests to finish, then retry with backoff. Use a funded workspace key for a separate paid allowance."
+    : error.code === "operator_daily_budget" ? "Wait for the operator allowance to reset at midnight UTC."
     : "Use a funded workspace API key to continue outside the shared free allowance.";
   return Response.json({ error: error.message, code: error.code, retryable, action, docs: "https://classifier.dev/developers", ...error.details }, {
     status: error.status, headers: { "cache-control": "no-store", "access-control-allow-origin": "*", ...(retryAfter === undefined ? {} : { "retry-after": String(Math.max(1, Math.ceil(retryAfter))) }) },

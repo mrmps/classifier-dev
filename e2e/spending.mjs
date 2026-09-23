@@ -10,7 +10,7 @@ let barrier = Promise.resolve();
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => p.endsWith('.js')).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
-  bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture', FREE_LABEL_RPM: '200', FREE_LABEL_DAILY: '200' },
+  bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture', FREE_LABEL_RPM: '200', FREE_LABEL_DAILY: '200', AGENT_API_KEY: 'operator-fixture', ENTERPRISE_API_KEY: 'enterprise-fixture', OPERATOR_DAILY_USD: '0.010001' },
   outboundService: async request => {
     if (request.url.startsWith('https://api.spur.us/')) { lookups++; return WorkerResponse.json({}); }
     calls++; await barrier;
@@ -78,6 +78,28 @@ try {
   assert.equal(JSON.stringify(storedLabels).includes('203.0.113'), false);
   report.results.push({ name: 'global label allowance across concurrent IPs, dimensions and SDK', statuses: labelStatuses,
     decisionsAccepted: 200, providerCalls: afterLabels - beforeLabels, dimensionStatus: dimensionDenied.status, sdkStatus: sdkDenied.status, registry: storedLabels });
+  const budgets = await mf.getDurableObjectNamespace('FREE_BUDGET', 'spending');
+  const publicBudget = budgets.get(budgets.idFromName('free-spending'));
+  for (let i = 0; i < 50; i++) {
+    const reserved = await publicBudget.fetch('https://budget/reserve', { method: 'POST', body: JSON.stringify({ ip: '203.0.113.99' }) });
+    assert.equal(reserved.status, 200);
+    const hold = await reserved.json();
+    assert.equal((await publicBudget.fetch('https://budget/settle', { method: 'POST', body: JSON.stringify({ id: hold.id, used: hold.amount }) })).status, 200);
+  }
+  const exhausted = await request('203.0.113.99');
+  assert.equal(exhausted.status, 429);
+  assert.equal((await exhausted.json()).code, 'free_ip_daily_budget');
+  const operator = await request('203.0.113.99', undefined, undefined, { authorization: 'Bearer operator-fixture' });
+  assert.equal(operator.status, 200, 'operator has its own allowance after anonymous exhaustion');
+  await operator.arrayBuffer();
+  await new Promise(r => setTimeout(r, 100));
+  const operatorExhausted = await request('203.0.113.100', undefined, undefined, { authorization: 'Bearer operator-fixture' });
+  assert.equal(operatorExhausted.status, 429);
+  assert.equal((await operatorExhausted.json()).code, 'operator_daily_budget');
+  assert.equal((await request('203.0.113.101', undefined, undefined, { authorization: 'Bearer wrong-operator' })).status, 401);
+  assert.equal((await request('203.0.113.99', undefined, undefined, { authorization: 'Bearer enterprise-fixture' })).status, 429);
+  assert.equal((await request('203.0.113.102')).status, 200);
+  report.results.push({ name: 'isolated bounded operator allowance', exhaustedAnonymous: 429, operator: 200, operatorDailyAcrossIPs: 429, invalidCredential: 401, enterpriseCannotUseOperatorBudget: 429, otherAnonymous: 200 });
   jevUnavailable = true;
   const recovered = await request('203.0.113.5', { inputs: Array(119).fill('Invoice'), labels: ['billing', 'support'] });
   assert.equal(recovered.status, 200);

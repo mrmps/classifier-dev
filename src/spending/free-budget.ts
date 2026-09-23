@@ -66,13 +66,16 @@ export class FreeBudget {
   }
   private async reserve(body: Record<string, unknown>) {
     const ip = String(body.ip ?? "");
-    const net = network(ip);
+    const operator = body.operator === true;
+    const net = operator ? "authenticated-operator" : network(ip);
     const day = new Date().toISOString().slice(0, 10);
     const previous = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const [owner, prior] = await Promise.all([fingerprint(this.env, `${day}:${net}`), fingerprint(this.env, `${previous}:${net}`)]);
     const limits = policy(this.env);
     const id = crypto.randomUUID();
     const amount = limits.request;
+    const daily = operator ? limits.operatorDaily : limits.daily;
+    const ipDaily = operator ? limits.operatorDaily : limits.ipDaily;
     const reserve = async (commit: boolean) => this.state.storage.transaction(async tx => {
       const global = await tx.get<Total>(`total:${day}`) ?? empty();
       const mine = await tx.get<Total>(`ip:${day}:${owner}`) ?? empty();
@@ -81,9 +84,9 @@ export class FreeBudget {
       const globalPrior = await tx.get<Total>(`total:${previous}`) ?? empty();
       const allActive = Object.values(global.holds).filter(t => t > Date.now()).length + Object.values(globalPrior.holds).filter(t => t > Date.now()).length;
       const retryAfter = Math.ceil((Date.parse(`${day}T00:00:00Z`) + 86400000 - Date.now()) / 1000);
-      if (global.spent + amount > limits.daily)
-        throw new SpendingError(429, "free_daily_budget", `The shared free budget is spent or reserved ($${limits.daily / 1e9} per UTC day).`, { retryAfter, limitUsd: limits.daily / 1e9, availableUsd: Math.max(0, limits.daily - global.spent) / 1e9 });
-      if (mine.spent + amount > limits.ipDaily)
+      if (global.spent + amount > daily)
+        throw new SpendingError(429, operator ? "operator_daily_budget" : "free_daily_budget", `The ${operator ? "operator" : "shared free"} budget is spent or reserved ($${daily / 1e9} per UTC day).`, { retryAfter, limitUsd: daily / 1e9, availableUsd: Math.max(0, daily - global.spent) / 1e9 });
+      if (mine.spent + amount > ipDaily)
         throw new SpendingError(429, "free_ip_daily_budget", `This IP network's free budget is spent or reserved ($${limits.ipDaily / 1e9} per UTC day).`, { retryAfter, limitUsd: limits.ipDaily / 1e9, availableUsd: Math.max(0, limits.ipDaily - mine.spent) / 1e9 });
       if (active >= limits.ipConcurrency)
         throw new SpendingError(429, "free_ip_concurrency", `At most ${limits.ipConcurrency} free requests may run at once per IP network.`, { retryAfter: 2, limit: limits.ipConcurrency });
@@ -102,7 +105,7 @@ export class FreeBudget {
       if (idem) await tx.put(`idem:${day}:${idem}`, id);
     });
     await reserve(false);
-    if (!await this.reputation(ip, `${day}:${owner}`)) throw new SpendingError(403, "proxy_requires_payment", "Anonymous proxy traffic requires a funded API key.");
+    if (!operator && !await this.reputation(ip, `${day}:${owner}`)) throw new SpendingError(403, "proxy_requires_payment", "Anonymous proxy traffic requires a funded API key.");
     await reserve(true);
     return { id, amount, expires: Date.now() + 90000 };
   }

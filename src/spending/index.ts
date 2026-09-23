@@ -4,17 +4,17 @@ import { SpendingError, errorResponse, network, policy, type SpendingEnv } from 
 export { FreeBudget } from "./free-budget";
 export type { SpendingEnv } from "./policy";
 
-export async function withFreeSpending(request: Request, env: SpendingEnv, ctx: ExecutionContext, meter: Meter, execute: () => Promise<Response>): Promise<Response> {
+export async function withFreeSpending(request: Request, env: SpendingEnv, ctx: ExecutionContext, meter: Meter, execute: () => Promise<Response>, operator = false): Promise<Response> {
   let hold: { id: string; amount: number; expires: number } | undefined;
   let admission: Promise<void> | undefined;
   const stub = () => {
     if (!env.FREE_BUDGET) throw new SpendingError(503, "spending_unavailable", "Free admission is unavailable.");
-    return env.FREE_BUDGET.get(env.FREE_BUDGET.idFromName("free-spending"), { locationHint: "wnam" });
+    return env.FREE_BUDGET.get(env.FREE_BUDGET.idFromName(operator ? "operator-spending" : "free-spending"), { locationHint: "wnam" });
   };
   meter.beforeCall = () => admission ??= (async () => {
     const ip = request.headers.get("cf-connecting-ip") ?? "";
-    network(ip);
-    const response = await stub().fetch("https://budget/reserve", { method: "POST", body: JSON.stringify({ ip, idempotency: request.headers.get("idempotency-key") ?? undefined }) });
+    if (!operator) network(ip);
+    const response = await stub().fetch("https://budget/reserve", { method: "POST", body: JSON.stringify({ ip, operator, idempotency: request.headers.get("idempotency-key") ?? undefined }) });
     if (!response.ok) {
       const error = await response.json() as { error: string; code: string };
       throw new SpendingError(response.status, error.code, error.error, error);
