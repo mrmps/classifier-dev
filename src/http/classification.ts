@@ -12,6 +12,7 @@ import { refundTokenReservation, settleTokenReservation } from "../server/token-
 import { writeAccountAnalytics } from "../server/analytics/write";
 import { typeSafeDecisionCount } from "../typesafe-compat";
 import { isLongContextRequest } from "../long-context";
+import { documentRequest } from "./document";
 
 const card = parseTokenRateCard(JSON.stringify(rates))!;
 const background = { waitUntil(promise: Promise<unknown>) { void promise.catch(() => {}); } } as ExecutionContext;
@@ -26,6 +27,11 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   if (jobPath) {
     if (!env.LONG_CONTEXT_JOBS) throw new AppError(503, "Long-context jobs are unavailable.");
     return env.LONG_CONTEXT_JOBS.get(env.LONG_CONTEXT_JOBS.idFromName(jobPath[1])).fetch(request);
+  }
+  if (request.method === "POST" && ["/", "/v1/classify"].includes(path)) {
+    const document = await documentRequest(request, env);
+    if (document instanceof Response) return document;
+    request = document;
   }
   if (request.method !== "POST" || !["/", "/v1/classify", "/v1/classify/batch", "/sandbox/classify", "/v1/sandbox/classify", "/v1/systemone"].includes(path)) return null;
   if (env.SPENDING_ENABLED === "true") return spendingClassification(request, env, source, ctx);

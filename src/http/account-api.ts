@@ -27,6 +27,6 @@ export async function accountApi(request: Request, env: AppEnv & Env, ctx: Execu
   const headers = new Headers(response.headers);
   headers.set("access-control-allow-origin", "*");
   const exposed = headers.get("access-control-expose-headers");
-  headers.set("access-control-expose-headers", [exposed, "x-request-id", "x-billing-status", "x-billed-input-tokens", "x-smart-escalations", "x-usage-cost-usd"].filter(Boolean).join(", "));
+  headers.set("access-control-expose-headers", [exposed, "Location", "Retry-After", "x-request-id", "x-billing-status", "x-billed-input-tokens", "x-smart-escalations", "x-usage-cost-usd"].filter(Boolean).join(", "));
   return new Response(response.body, { status: response.status, headers });
 }

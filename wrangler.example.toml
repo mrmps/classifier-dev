@@ -10,6 +10,9 @@ compatibility_flags = ["nodejs_compat"]
 compatibility_date = "2026-08-01"
 account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
 
+[limits]
+cpu_ms = 300_000
+
 # Run fetch handlers near Oregon. This is a placement target, not a
 # data-residency guarantee; assets remain globally served.
 [placement]

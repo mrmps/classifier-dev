@@ -226,7 +226,7 @@ provider context check. Eligible chunks can be omitted when that budget fills;
 This does not guarantee full-document final reading or universal accuracy.
 
 Use Fast with a workspace key backed by paid balance or an active paid
-subscription; anonymous access and signup credit do not qualify. Per request:
+subscription; anonymous access and signup credit do not qualify. Synchronous limits:
 250,000 original context tokens summed across inputs, 20 documents, 32 decisions,
 and a 1 MB body. Retail is $0.084/M original `cl100k_base` context tokens,
 counted once across inputs regardless of dimensions and actual inference usage.
@@ -236,15 +236,19 @@ tokenization or chunking, bounding tokenizer work on pathological inputs.
 No eligible evidence returns `422 long_context_no_evidence` without charge.
 Explicit `model: "chunklaya"` keeps its separate legacy opt-in behavior.
 
-For up to 10 million input tokens, funded workspaces use a long-context job:
-create a UUID job with a `max_tokens` ceiling, upload ordered parts of at most
-50,000 tokens and 1 MB each, then call `finish`. The server screens every part
-without retaining the full source and keeps a bounded set of selected excerpts
-until completion or 24-hour expiry. The final Jev call reads at most 20,000
-selected evidence tokens per document. `max_tokens` reserves workspace credit;
-successful completion charges the actual part-token sum at the same $0.084/M
-rate. Cancellation, expiry and no eligible evidence refund the reservation.
-The full API sequence and resume/status route are in the generated docs.
+Send one whole document of up to 10 million input tokens (100 MB) to
+`POST /v1/classify` with a funded workspace key. Use the normal JSON input and
+labels, or send `text/plain` with a `labels` query parameter. Large uploads
+return `202` with a `status_url`; `Prefer: respond-async` also works for smaller
+documents. The server splits, screens, retries and finishes automatically.
+The repository CLI handles upload and polling with
+`node cli/classify.js a,b --document document.txt --json`.
+
+The exact whole-document token count sets the reservation and $0.084/M charge.
+Source text is stored privately while queued and deleted as it is screened.
+Final Jev reads at most 20,000 selected evidence tokens. Completion, failure,
+cancellation and 24-hour expiry delete remaining source and evidence; failed
+or canceled work is refunded. Results remain available until expiry.
 
 ## Analytics
 

@@ -23,6 +23,19 @@ One line per input, in input order: `label`, `confidence`, `text`, tab-separated
 everything the API returns; `--quiet` gives labels only; `--count` gives a
 histogram.
 
+## One whole document
+
+With a funded workspace key in `CLASSIFY_API_KEY`, upload a UTF-8 document of
+up to 10 million tokens (100 MB):
+
+    classify renewal,cancellation --document agreement.txt --json
+
+The CLI streams the file once and waits for the result. The server handles
+chunking, screening, retries and final judgment. The price is $0.084 per
+million original tokens; 10M tokens costs $0.84. Failed jobs are refunded.
+`CLASSIFY_JOB_TIMEOUT` controls how long to poll (seconds, default 86400).
+Interrupting the CLI does not cancel accepted work; stderr includes its job ID.
+
 ## Built for agents
 
 The confidence is calibrated (on a six-way emotion set, answers at ≥ 0.9 were
@@ -50,6 +63,7 @@ resumes; a daily quota stops immediately. Errors go to stderr with exit code 1.
     -k, --max <n>              at most n labels (implies --multi)
     -s, --smart                re-ask uncertain answers of a reasoning model
     -i, --instructions <text>  extra criteria
+        --document <file>      one whole UTF-8 document (funded workspace)
     -r, --review <t>           print only inputs with confidence below t
     -c, --count                label histogram instead of rows
     -j, --json                 NDJSON output

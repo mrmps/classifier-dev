@@ -13,7 +13,7 @@ import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
 import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
-import { LONG_CONTEXT_JOB_MAX_TOKENS, LONG_CONTEXT_PART_MAX_TOKENS } from "./long-context";
+import { LONG_CONTEXT_JOB_MAX_TOKENS } from "./long-context";
 
 export const MCP_SETUP = `classifier.dev MCP
 
@@ -279,7 +279,7 @@ LONG CONTEXT
   32,000 characters through chunking, parallel Jev evidence screening and a
   final Jev call. POST with a workspace key backed by paid balance or an active
   paid subscription; anonymous access and free signup credit do not qualify.
-  Fast only. Limits: 250,000 original cl100k_base context tokens summed across
+  Fast only. Synchronous limits: 250,000 original cl100k_base context tokens summed across
   inputs, 20 documents, 32 decisions and a 1 MB request body.
   Decisions count documents × dimensions, or documents × labels in multi-label
   mode. Existing dedicated enterprise/operator access remains supported.
@@ -297,12 +297,20 @@ LONG CONTEXT
   https://classifier.dev for the full field reference and limitations.
   Explicit model: "chunklaya" remains a separate legacy opt-in.
 
-  For up to ${LONG_CONTEXT_JOB_MAX_TOKENS.toLocaleString("en-US")} tokens, a funded workspace can create a long-context
-  job and upload ordered parts (at most ${LONG_CONTEXT_PART_MAX_TOKENS.toLocaleString("en-US")} tokens and 1 MB each). Screening
-  runs on every part; final Jev judges selected evidence. The same $0.084/M
-  original-token rate applies to the parts actually uploaded. Jobs hold the
-  maximum quoted charge, settle once at completion, and refund on cancellation
-  or 24-hour expiry. See TEN-MILLION-TOKEN JOBS in the full docs.
+  A funded workspace can upload one whole document of up to
+  ${LONG_CONTEXT_JOB_MAX_TOKENS.toLocaleString("en-US")} tokens (100 MB) in one POST /v1/classify request.
+  Send JSON with input and labels,
+  or text/plain with labels in the query. Large documents return 202 and a
+  status_url. For the same flow with smaller inputs, send the header
+  Prefer: respond-async.
+  Splitting, screening and final judgment happen automatically.
+  The original whole-document token count sets the hold and final charge at
+  $0.084/M. Failures, cancellation and 24-hour expiry refund unfinished work.
+  See TEN-MILLION-TOKEN JOBS in the full docs.
+
+  The repository CLI uploads and waits:
+
+    node cli/classify.js a,b --document document.txt --json
 
 
 AUTHENTICATION
@@ -480,7 +488,8 @@ FREE
   must fit the same allowance. Large inputs or batches need a funded key.
   Free access pauses when the shared pool or verification capacity is spent;
   anonymous proxy networks require a funded key. Signup credit uses these
-  same free limits. Every request body is limited to 1 MB.
+  same free limits. Synchronous request bodies are limited to 1 MB;
+  funded whole-document uploads allow 10M tokens and 100 MB.
 
 
 PRO
@@ -548,7 +557,11 @@ USAGE PRICES
   $${(250000 * LONG_CONTEXT_PRICING.inputNanodollars / 1e9).toFixed(3)}. No eligible evidence returns 422 long_context_no_evidence, no charge.
   Requires paid balance or an active paid subscription; free signup credit
   and anonymous access do not qualify. Fast only, up to 20 documents and 32
-  decisions, within the 250,000-token and 1 MB request limits. Final Jev uses
+  decisions, within the synchronous 250,000-token and 1 MB limits. For one
+  whole document, POST /v1/classify accepts up to 10M tokens and 100 MB in one
+  upload and returns 202 with a status_url. No client splitting is needed.
+  The exact document price is reserved after upload; 10M tokens costs $0.84.
+  Failed or canceled jobs are refunded. Final Jev uses
   selected evidence; eligible chunks can be omitted when its budget fills.
 
 
@@ -745,10 +758,11 @@ WORKSPACES, API KEYS AND ACTIVITY
   redacted, and content is size-limited; redaction cannot detect every kind
   of sensitive text. Public, keyless requests are not included in this dataset.
 
-  Long-context jobs keep only selected evidence excerpts in private temporary
-  job storage while a paid job is open. The full uploaded document is not
-  retained. Selected excerpts are deleted on completion, cancellation or
-  expiry (24 hours after creation). The result remains until that expiry;
+  Whole-document jobs temporarily keep uploaded source text in private job
+  storage while queued. Source fragments are deleted as they are screened;
+  selected evidence is deleted on completion. Cancellation, failure and
+  expiry (24 hours after creation) delete remaining source and evidence.
+  The result remains until that expiry;
   aggregate usage records follow normal workspace retention rules.
 
   Ask ${SITE.email} about access to or deletion of your account data.
