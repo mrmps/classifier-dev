@@ -1,3 +1,4 @@
+import { classificationUsage, classificationPricing } from "./classification-usage";
 import { withFreeSpending, boundedRequest, freePreflight, type SpendingEnv } from "./spending";
 import { SpendingError, errorResponse } from "./spending/policy";
 import { providerFetch } from "./spending/permit";
@@ -2356,11 +2357,14 @@ const worker = {
         .map(([name, duration]) => `${name};dur=${duration.toFixed(2)}`).join(", ");
     }
 
+    const tokenUsage = classificationUsage(meter);
+    const pricing = classificationPricing(meter, results.filter(r => r.escalated).length);
     if (dimensions && matrix) {
       return json({
+        pricing,
         tier, ...modelSummary,
         results: matrix.map((row) => ({ dimensions: Object.fromEntries(dimensions.map((d, i) => [d.name, row[i]])) })),
-        usage: { items: inputs.length, dimensions: dimensions.length, classifications: results.length,
+        usage: { ...tokenUsage, items: inputs.length, dimensions: dimensions.length, classifications: results.length,
           escalated: results.filter((r) => r.escalated).length,
           ...(escalationFailed ? { escalation_failed: escalationFailed } : {}),
           fallback: fallbackDecisions, ms },
@@ -2375,7 +2379,7 @@ const worker = {
       return text(body + "\n", 200, headers);
     }
     if (req.method === "GET") {
-      return json({ ...results[0], tier }, 200, headers);
+      return json({ ...results[0], tier, usage: tokenUsage, pricing }, 200, headers);
     }
     return json(
       {
@@ -2394,7 +2398,9 @@ const worker = {
                 model: r.model,
               },
         ),
+        pricing,
         usage: {
+          ...tokenUsage,
           classifications: results.length,
           escalated: results.filter((r) => r.escalated).length,
           ...(escalationFailed ? { escalation_failed: escalationFailed } : {}),

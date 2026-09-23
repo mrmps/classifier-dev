@@ -1008,9 +1008,40 @@ export const OPENAPI = {
           max_labels: { type: "integer", minimum: 1, description: "Cap on how many multi-label answers come back; implies multi. A numeric string is read; zero or less means no cap; a fraction is rounded down." },
         },
       },
+      TokenUsage: {
+        type: "object",
+        properties: {
+          input_tokens: { type: ["integer", "null"], description: "Provider-reported input tokens across all answered calls, including smart escalation. Null if any count is unavailable." },
+          output_tokens: { type: ["integer", "null"] },
+          total_tokens: { type: ["integer", "null"], description: "Input plus output; null if either is unknown." },
+          cached_input_tokens: { type: ["integer", "null"], description: "Subset of input tokens, never added again to total_tokens." },
+          models: { type: "array", items: { type: "object", properties: {
+            provider: { type: "string" }, model: { type: "string" }, calls: { type: "integer" },
+            input_tokens: { type: ["integer", "null"] }, output_tokens: { type: ["integer", "null"] }, cached_input_tokens: { type: ["integer", "null"] },
+          } } },
+        },
+      },
+      ClassificationPricing: {
+        type: "object",
+        description: "USD customer pricing, separate from upstream provider spend. total_usd is zero for unbilled requests, null when unknown, and before credit rounding. Pending settlement is not a receipt. Token totals include recovery and escalation; pricing.input_tokens includes only billable primary calls. Plain-text responses and TypeSafe-compatible responses retain their existing shapes.",
+        properties: {
+          currency: { const: "USD" }, rate_version: { type: "string" },
+          billing_status: { enum: ["not_billed", "pending", "settled", "review"] },
+          total_usd: { type: ["number", "null"] },
+          estimated_usd: { type: ["number", "null"], description: "Published classification price before free access or settlement; not an additional charge." },
+          input_tokens: { type: ["integer", "null"] }, escalations: { type: "integer" },
+          input_usd_per_million: { type: "number" }, usd_per_escalation: { type: "number" },
+          models: { type: "array", description: "Legacy token-billed workspaces: the applied rate per provider/model, instead of the input-plus-escalation tariff.", items: { type: "object", properties: {
+            provider: { type: "string" }, model: { type: "string" },
+            input_usd_per_million: { type: ["number", "null"] }, output_usd_per_million: { type: ["number", "null"] }, cached_input_usd_per_million: { type: ["number", "null"] },
+          } } },
+        },
+      },
       SingleResult: {
         type: "object",
         properties: {
+          usage: { $ref: "#/components/schemas/TokenUsage" },
+          pricing: { $ref: "#/components/schemas/ClassificationPricing" },
           label: { type: "string" },
           confidence: {
             type: ["number", "null"],
@@ -1054,6 +1085,7 @@ export const OPENAPI = {
       ClassifyResponse: {
         type: "object",
         properties: {
+          pricing: { $ref: "#/components/schemas/ClassificationPricing" },
           tier: { type: "string" },
           model: {
             type: "string",
@@ -1087,6 +1119,7 @@ export const OPENAPI = {
           },
           usage: {
             type: "object",
+            allOf: [{ $ref: "#/components/schemas/TokenUsage" }],
             properties: {
               items: { type: "integer", description: "Dimensions mode: number of input items." },
               dimensions: { type: "integer", description: "Dimensions mode: number of fields per item." },

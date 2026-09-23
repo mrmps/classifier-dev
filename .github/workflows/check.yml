@@ -44,6 +44,13 @@ jobs:
         run: npm run build
       - name: Verify spending through the built Worker and real Durable Objects
         run: npm run test:e2e:spending
+      - name: Verify classification usage responses
+        run: npm run test:e2e:usage
+      - name: Save classification usage evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: usage-e2e
+          path: captures/usage-e2e.json
       - name: Save spending verification evidence
         uses: actions/upload-artifact@v4
         with:

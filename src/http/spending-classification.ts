@@ -1,3 +1,4 @@
+import { classificationPricing, withResponsePricing } from "../classification-usage";
 import worker, { type Env } from "../index";
 import { newMeter } from "../cost";
 import { AppError, hashToken, now, type AppEnv } from "../server/db";
@@ -104,7 +105,14 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
       headers.set("x-usage-cost-usd", (Number(charge.nanodollars) / 1e9).toFixed(9));
     }
     headers.set("x-request-id", id); headers.set("x-billing-status", "pending"); headers.set("cache-control", "no-store");
-    return new Response(response.body, { status: response.status, headers });
+    const resultResponse = new Response(response.body, { status: response.status, headers });
+    return response.ok && new URL(request.url).pathname !== "/v1/systemone"
+      ? withResponsePricing(resultResponse, {
+          ...classificationPricing(meter, typeof escalations === "number" ? escalations : 0),
+          total_usd: charge ? Number(charge.nanodollars) / 1e9 : null,
+          billing_status: "pending",
+        })
+      : resultResponse;
   } catch (error) {
     if (error instanceof SpendingError) return errorResponse(error);
     throw error;
