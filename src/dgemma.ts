@@ -87,7 +87,9 @@ export async function dgemmaResponse(
   meter?: Meter,
   signal?: AbortSignal,
 ): Promise<Response> {
-  // Images and the bearer only ever travel encrypted, and never to a redirect target.
+  // Images and the bearer only ever travel encrypted, and never to a redirect
+  // target: the Workers runtime has no redirect "error" mode (it throws on the
+  // option), so the redirect is kept as a response and answered as an outage.
   let origin: URL;
   try { origin = new URL(pod.url); } catch { return unavailable(60); }
   if (origin.protocol !== "https:") return unavailable(60);
@@ -103,7 +105,7 @@ export async function dgemmaResponse(
       method: "POST",
       headers: { authorization: `Bearer ${pod.token}`, "content-type": "application/json" },
       body,
-      redirect: "error",
+      redirect: "manual",
       signal: controller.signal,
     });
     // The deadline covers the body too: headers followed by a stalled body is still a dead pod.
