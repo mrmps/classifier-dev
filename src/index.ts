@@ -34,7 +34,7 @@ export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
-import { typeSafeCompatibleResponse, typeSafeDecisionCount } from "./typesafe-compat";
+import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv {
   QUOTAS?: DurableObjectNamespace;
@@ -75,6 +75,9 @@ export interface Env extends LayaEnv, SpendingEnv {
   LIMITER: DurableObjectNamespace;
   AE: AnalyticsEngineDataset;
   REPORT_KEY: string;
+  /** Shared anonymous decision ceilings for one stable label-set fingerprint. */
+  FREE_LABEL_RPM?: string;
+  FREE_LABEL_DAILY?: string;
   /** Gates /admin. Set with `npx wrangler secret put ADMIN_PASSWORD`. */
   ADMIN_PASSWORD?: string;
   /** Signs the /admin session cookie. Random, and unrelated to the password. */
@@ -1098,12 +1101,105 @@ function upstreamReason(msg: string): ErrorCode {
 }
 
 /**
- * Name a label set so we can count distinct classifiers without keeping one.
- * This used to be the labels themselves, lowercased and joined, which meant
- * every caller's wording sat in analytics and on the dashboard for 90 days.
+ * Name a label set without putting its words in per-request analytics. The
+ * separate registry can resolve successful classifiers for aggregate review.
  */
 function classifierId(env: Env, labels: string[]) {
   return labelFingerprint(env, labels);
+}
+
+const LABEL_LIMITS = { rpm: 5_000, daily: 50_000 } as const;
+const CLASSIFIER_TTL = 90 * 24 * 60 * 60;
+const MAX_RECORDED_LABEL_CHARS = 4_000;
+
+function configuredLabelLimit(value: string | undefined, fallback: number) {
+  const parsed = value === undefined ? fallback : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function labelLimitEnabled(env: Env) {
+  return env.FREE_LABEL_RPM !== undefined || env.FREE_LABEL_DAILY !== undefined;
+}
+
+/**
+ * One public classifier gets one quota, regardless of how many IPs carry it.
+ * This is deliberately separate from per-IP admission: the existing limiter
+ * object gives it the same atomic minute/day semantics without linking callers.
+ */
+async function limitClassifier(env: Env, fingerprint: string, cost: number) {
+  const rpm = configuredLabelLimit(env.FREE_LABEL_RPM, LABEL_LIMITS.rpm);
+  const daily = configuredLabelLimit(env.FREE_LABEL_DAILY, LABEL_LIMITS.daily);
+  const id = env.LIMITER.idFromName(`classifier:${fingerprint}`);
+  const response = await env.LIMITER.get(id).fetch(
+    `https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}`,
+  );
+  const result = await response.json() as { limited?: unknown; scope?: unknown; resetIn?: unknown; remaining?: unknown };
+  if (!response.ok || typeof result.limited !== "boolean" ||
+      typeof result.remaining !== "number" || !Number.isFinite(result.remaining) || result.remaining < 0 ||
+      (result.limited && (!["day", "minute"].includes(String(result.scope)) ||
+        typeof result.resetIn !== "number" || !Number.isFinite(result.resetIn) || result.resetIn <= 0)))
+    throw new Error("Invalid classifier quota response");
+  return {
+    limited: result.limited,
+    scope: result.scope === "day" ? "day" as const : "minute" as const,
+    resetIn: typeof result.resetIn === "number" ? result.resetIn : 60,
+    limit: result.scope === "day" ? daily : rpm,
+    rpm,
+    daily,
+  };
+}
+
+type ClassifierRefusal = { message: string; status: number; code: ErrorCode; headers: Record<string, string> };
+
+async function classifierRefusal(env: Env, sets: { labels: string[]; cost: number }[]): Promise<ClassifierRefusal | null> {
+  if (!labelLimitEnabled(env)) return null;
+  try {
+    const grouped = new Map<string, number>();
+    for (const set of sets) {
+      const fingerprint = await classifierId(env, set.labels);
+      if (fingerprint) grouped.set(fingerprint, (grouped.get(fingerprint) ?? 0) + set.cost);
+    }
+    for (const [fingerprint, cost] of grouped) {
+      const gate = await limitClassifier(env, fingerprint, cost);
+      if (gate.limited) return {
+        status: 429, code: "label_set_limit",
+        message: `The shared free allowance for this label set has reached ${gate.limit.toLocaleString("en-US")} classifications ${gate.scope === "day" ? "today" : "this minute"}. Use a funded workspace key for a separate allowance.`,
+        headers: {
+          "retry-after": String(Math.max(1, Math.ceil(gate.resetIn))),
+          "ratelimit-limit": String(gate.limit), "ratelimit-remaining": "0",
+          "ratelimit-policy": `${gate.rpm};w=60, ${gate.daily};w=86400`,
+        },
+      };
+    }
+    return null;
+  } catch {
+    return { status: 503, code: "label_set_unavailable", message: "Label-set admission is temporarily unavailable; retry with backoff.", headers: { "retry-after": "5" } };
+  }
+}
+
+function retainedLabels(labels: string[]) {
+  const normalized = [...new Set(labels
+    .map((label) => label.trim().toLowerCase().replace(/\s+/g, " ")))]
+    .sort();
+  if (!normalized.length || normalized.some((label) => !label) || JSON.stringify(normalized).length > MAX_RECORDED_LABEL_CHARS)
+    return null;
+  return normalized;
+}
+
+async function rememberClassifier(env: Env, fingerprint: string, labels: string[]) {
+  if (!fingerprint) return;
+  const kept = retainedLabels(labels);
+  if (!kept) return;
+  const key = `cls:${fingerprint}`;
+  const existing = await env.STATS.get(key);
+  if (existing) {
+    try {
+      if (Array.isArray((JSON.parse(existing) as { labels?: unknown }).labels)) return;
+    } catch {
+      // Legacy entries were timestamps; replace them on the next success.
+    }
+  }
+  await env.STATS.put(key, JSON.stringify({ labels: kept, firstSeen: new Date().toISOString() }), { expirationTtl: CLASSIFIER_TTL });
 }
 
 /** Enterprise and operator-agent callers use dedicated unmetered bearer credentials. */
@@ -1146,7 +1242,7 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   // Hashing is async, so the write moved off the response path entirely. The
   // point is unchanged apart from the two columns that used to carry the
   // caller: blob2 is a label-set fingerprint, index1 a day-scoped pseudonym.
-  // Neither can be read back into what the caller sent. See src/privacy.ts.
+  // The label registry can resolve blob2; it cannot recover raw IPs or inputs.
   ctx.waitUntil(
     (async () => {
       const [caller, labels] = await Promise.all([callerId(env, d.ip), classifierId(env, d.labels)]);
@@ -1162,13 +1258,10 @@ export function record(env: Env, ctx: ExecutionContext, d: {
       } catch {
         /* analytics must never break a request */
       }
-      // Distinct classifier registry, for the daily digest. Cheap: one write per new label set.
+      // Distinct classifier registry, for abuse review and the daily digest.
+      // The registry has no caller or input fields; analytics shares its key.
       try {
-        if (!labels) return;
-        const key = `cls:${labels}`;
-        if (!(await env.STATS.get(key))) {
-          await env.STATS.put(key, new Date().toISOString(), { expirationTtl: 60 * 60 * 24 * 90 });
-        }
+        if (d.status === 200 && d.mode !== "dimensions") await rememberClassifier(env, labels, d.labels);
       } catch {
         /* ignore */
       }
@@ -1406,6 +1499,18 @@ const worker = {
       const decisions = path === "v1/systemone" && req.method === "POST"
         ? typeSafeDecisionCount(body ?? "")
         : 0;
+      const labelSets = decisions ? typeSafeLabelSets(body ?? "") : [];
+      const sdkStarted = Date.now();
+      const sdkRecord = (status: number, reason = "") => {
+        if (!decisions) return;
+        record(env, ctx, {
+          tier: "fast", n: status === 200 ? decisions : 0, ms: Date.now() - sdkStarted,
+          labels: labelSets.length === 1 ? labelSets[0].labels : labelSets.map(set => JSON.stringify(set.labels)),
+          mode: labelSets.length === 1 ? "single" : "dimensions",
+          ip, country, client, status, model: "typesafe", usd: meter.usd, reason, agent,
+          attempted: decisions, escalationFailed: 0,
+        });
+      };
       const multiplier = account?.multiplier ?? 1;
       const quotaOwner = account ? `account:${account.id}` : ip;
       const rpm = TIERS.fast.rpm * multiplier;
@@ -1429,12 +1534,20 @@ const worker = {
         }
       }
 
+      if (decisions && !account && !enterprise && !execution?.internal) {
+        const refusal = await classifierRefusal(env, labelSets);
+        if (refusal) {
+          sdkRecord(refusal.status, refusal.code);
+          return json({ error: refusal.message, code: refusal.code }, refusal.status, refusal.headers);
+        }
+      }
       const response = await typeSafeCompatibleResponse(
         req,
         env.TYPESAFE_API_KEY,
         body,
         decisions ? meter : undefined,
       );
+      sdkRecord(response.status, response.ok ? "" : `typesafe_${response.status}`);
       const headers = new Headers(response.headers);
       // Own the browser policy at this boundary. An upstream credentialed CORS
       // header combined with our wildcard origin would make an otherwise valid
@@ -2074,6 +2187,12 @@ const worker = {
     const rpm = TIERS[tier].rpm * multiplier;
     // Waiting cannot make a batch larger than the entire window fit.
     if (!enterprise && decisions > rpm) return fail(`Maximum ${rpm} ${dimensions ? "decisions" : "inputs"} per ${account ? "account" : "public"} ${tier} request; split the batch to fit the per-minute quota`, 400, dimensions ? "too_many_decisions" : "too_many_inputs");
+    if (!account && !enterprise && !execution?.internal) {
+      const refusal = await classifierRefusal(env, dimensions
+        ? dimensions.map(dimension => ({ labels: dimension.labels, cost: inputs.length }))
+        : [{ labels, cost: decisions }]);
+      if (refusal) return fail(refusal.message, refusal.status, refusal.code, refusal.headers);
+    }
     const regularQuotaStarted = performance.now();
     const combinedQuota = !!layaPlan && env.QUOTA_COORDINATOR_ENABLED === "true" && !!env.QUOTAS;
     let layaRun: LayaRun | undefined;

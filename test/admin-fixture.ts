@@ -122,12 +122,14 @@ export function adminFixture(): AdminData {
     ],
     topLabels: [
       {
+        label_names: "billing · product question · technical support",
         labels: "ls_9f3c7a8d",
         requests: 19002,
         classifications: 152016,
         usd: 0.4,
       },
       {
+        label_names: "ham · spam",
         labels: "ls_64b1e7af",
         requests: 9211,
         classifications: 73688,
@@ -160,7 +162,7 @@ export function adminFixture(): AdminData {
       },
     ],
     failLabels: [
-      { labels: "ls_9f3c7a8d", reason: "rate_limit_minute", requests: 80 },
+      { label_names: "billing · product question · technical support", labels: "ls_9f3c7a8d", reason: "label_set_limit", requests: 80 },
     ],
     dimensionTraffic: [
       {

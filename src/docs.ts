@@ -475,8 +475,15 @@ LIMITS
   3,000 per minute and 20,000 per day; the smart tier 200 per minute and 2,000
   per day. A batch must fit the remaining quota in full. Public smart
   requests accept at most 200 inputs; larger batches return 400 so callers
-  can split them. Pro workspaces allow 30,000/minute and 200,000/day on
-  fast, 2,000/minute and 20,000/day on smart, shared across keys and agents.
+  can split them. Anonymous traffic also shares a 5,000/minute and 50,000/day
+  allowance across every caller using the same label set. Rotating IPs does
+  not reset it; workspace, operator and partner keys bypass it.
+  REST, MCP, dimensions and TypeSafe choice questions share these counters.
+  Each dimension debits its labels by the item count; each SDK choice question
+  debits its labels once. These count attempts admitted by this gate, including
+  attempts subsequently refused by another quota or a provider.
+  Pro workspaces allow 30,000/minute and 200,000/day on fast, 2,000/minute and
+  20,000/day on smart, shared across keys and agents.
   Pro, operator and partner keys have a 1,000-input ceiling.
   Workspace keys use the workspace credit balance and share workspace quotas.
   Free workspaces have the same ceilings as public access. Current plans are at
@@ -509,12 +516,14 @@ ERRORS
   402   insufficient workspace balance for inference
   403   the key is inactive or the workspace cannot authorize usage
   404   not_found
-  429   rate_limit_minute, rate_limit_day, chunklaya_busy, with Retry-After; on the free
-        tier the body also carries upgrade, the URL of the plan that lifts
-        the limit (https://classifier.dev/pricing)
+  429   rate_limit_minute, rate_limit_day, label_set_limit, chunklaya_busy,
+        with Retry-After; on the free tier the body also carries upgrade, the
+        URL of the plan that lifts the limit (https://classifier.dev/pricing)
   502   typesafe or typesafe_<status> when the decision model failed;
         openrouter_<status>, chain_exhausted or timeout when the fallback
         chain did; upstream_other. Retry with backoff.
+  503   label_set_unavailable when label admission cannot be checked;
+        no inference starts. Respect Retry-After and retry with backoff.
   402   request_spending_limit: send fewer or shorter inputs, or use a funded
         workspace key. Do not repeatedly retry an unchanged over-budget request.
 
@@ -541,10 +550,13 @@ ${roadmapDoc()}
 PRIVACY
 
   The text you send is never stored or logged. It goes to the model provider
-  for the classification and nowhere else. What is recorded: a keyed
-  fingerprint of the label set, never the labels, plus the tier, the model,
-  the latency, the status and a coarse country. The usage counts are built
-  from those.
+  for the classification and nowhere else. Per-request analytics record a
+  keyed fingerprint of the label set, plus the tier, model, latency, status and
+  coarse country. Successful simple and multi-label classifier names are also
+  kept for 90 days in a separate aggregate registry with no caller identity or
+  source text. Its shared fingerprint lets operators associate label names
+  with pseudonymous usage records. The same collection applies to TypeSafe
+  choice requests with one distinct label set.
 
 
 Built by @michael_chomsky — https://x.com/michael_chomsky

@@ -62,6 +62,9 @@ OPERATOR_DAILY_USD = "2"
 FREE_REQUEST_USD = "0.01"
 FREE_IP_CONCURRENCY = "4"
 FREE_CONCURRENCY = "128"
+# One shared budget follows an anonymous label set across rotating callers.
+FREE_LABEL_RPM = "5000"
+FREE_LABEL_DAILY = "50000"
 PAID_REQUEST_USD = "10"
 SPUR_MONTHLY_LOOKUPS = "45000"
 # Laya and Kev are hosted by Beam on its shared endpoints; there is no

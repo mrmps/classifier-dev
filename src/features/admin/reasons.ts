@@ -11,6 +11,8 @@ const REASON_TEXT: Record<string, string> = {
   input_too_long: "an input was over 32,000 characters",
   rate_limit_minute: "per-minute rate limit",
   rate_limit_day: "daily rate limit",
+  label_set_limit: "anonymous label-set limit",
+  label_set_unavailable: "label-set admission unavailable",
   bad_dimensions: "invalid dimension definitions or conflicting options",
   too_many_decisions: "too many item × dimension decisions",
   dimension_context_too_large: "input and dimension exceed the model context",

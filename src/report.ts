@@ -1,5 +1,6 @@
 import { jevAttemptsQuery } from "./jev-observability";
 import type { Env } from "./index";
+import { recordedClassifierLabels } from "./privacy";
 
 const DATASET = "classifier_events";
 const WINDOW_HOURS = 8; // three reports a day
@@ -134,6 +135,15 @@ export async function dailyReport(
     (r) => r,
   );
 
+  const nameClassifiers = async (rows: Record<string, unknown>[]) => Promise.all(rows.map(async (row) => {
+    const labels = await recordedClassifierLabels(env.STATS, String(row.labels ?? ""));
+    return { ...row, label_names: labels.join(" · ") };
+  }));
+  [enterpriseClassifiers, topClassifiers] = await Promise.all([
+    nameClassifiers(enterpriseClassifiers),
+    nameClassifiers(topClassifiers),
+  ]);
+
   const t = totals[0] ?? {};
   const requests = num(t.requests);
   const classifications = num(t.classifications);
@@ -207,15 +217,15 @@ export async function dailyReport(
   if (enterpriseClassifiers.length) {
     lines.push("ENTERPRISE CLASSIFIERS");
     for (const r of enterpriseClassifiers) {
-      lines.push(`  ${pad(String(num(r.requests)), 6)} ${pad(String(r.tier ?? "?"), 8)} ${String(r.labels)}`);
+      lines.push(`  ${pad(String(num(r.requests)), 6)} ${pad(String(r.tier ?? "?"), 8)} ${String(r.label_names || r.labels)}`);
     }
     lines.push("");
   }
 
   if (topClassifiers.length) {
-    lines.push("TOP CLASSIFIERS  (fingerprints — the labels themselves are never kept)");
+    lines.push("TOP CLASSIFIERS  (aggregate label names; source text and callers are not kept here)");
     for (const r of topClassifiers) {
-      lines.push(`  ${pad(String(num(r.requests)), 6)} ${String(r.labels)}`);
+      lines.push(`  ${pad(String(num(r.requests)), 6)} ${String(r.label_names || r.labels)}`);
     }
     lines.push("");
   }

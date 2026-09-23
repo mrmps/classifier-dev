@@ -32,6 +32,8 @@ dataset = "classifier_account_events"
 
 [vars]
 SPENDING_ENABLED = "true"
+FREE_LABEL_RPM = "5000"
+FREE_LABEL_DAILY = "50000"
 APP_ACCOUNTS_ENABLED = "true"
 # Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.
 AI_GATEWAY_DISABLED = "true"

@@ -10,7 +10,7 @@ let barrier = Promise.resolve();
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => p.endsWith('.js')).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
-  bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture', AGENT_API_KEY: 'operator-fixture', ENTERPRISE_API_KEY: 'enterprise-fixture', OPERATOR_DAILY_USD: '0.010001' },
+  bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture', FREE_LABEL_RPM: '200', FREE_LABEL_DAILY: '200', AGENT_API_KEY: 'operator-fixture', ENTERPRISE_API_KEY: 'enterprise-fixture', OPERATOR_DAILY_USD: '0.010001' },
   outboundService: async request => {
     if (request.url.startsWith('https://api.spur.us/')) { lookups++; return WorkerResponse.json({}); }
     calls++; await barrier;
@@ -46,6 +46,38 @@ try {
   const duplicate = await request('203.0.113.4', undefined, undefined, { 'idempotency-key': 'one' });
   assert.equal(duplicate.status, 409);
   report.results.push({ name: 'durable idempotency', first: first.status, duplicate: duplicate.status });
+  const beforeLabels = calls;
+  const labels = ['allow', 'deny'];
+  const labelResponses = await Promise.all(Array.from({ length: 3 }, (_, index) => request(`203.0.113.${20 + index}`, {
+    inputs: Array(100).fill('short text'), labels: index === 1 ? ['DENY', 'ALLOW'] : labels,
+  })));
+  const labelStatuses = labelResponses.map(response => response.status).sort();
+  assert.deepEqual(labelStatuses, [200, 200, 429]);
+  const labelDenied = labelResponses.find(response => response.status === 429);
+  assert.equal((await labelDenied.json()).code, 'label_set_limit');
+  assert.equal(labelDenied.headers.get('ratelimit-remaining'), '0');
+  const afterLabels = calls;
+  const dimensionDenied = await request('203.0.113.23', { items: ['text'], dimensions: { renamed: labels } });
+  assert.equal(dimensionDenied.status, 429);
+  const sdkDenied = await request('203.0.113.24', { state: 'text', questions: { renamed: { type: 'choice', criteria: { allow: null, deny: null } } } }, '/v1/systemone');
+  assert.equal(sdkDenied.status, 429);
+  assert.equal(calls, afterLabels);
+  assert.equal((await request('203.0.113.25', { input: 'text', labels: ['independent', 'other'] })).status, 200);
+  const registry = await mf.getKVNamespace('STATS');
+  let storedLabels;
+  for (let attempt = 0; attempt < 50 && !storedLabels; attempt++) {
+    const entries = await registry.list({ prefix: 'cls:' });
+    for (const key of entries.keys) {
+      const record = await registry.get(key.name, 'json');
+      if (record?.labels?.join(',') === 'allow,deny') storedLabels = record;
+    }
+    if (!storedLabels) await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.deepEqual(storedLabels?.labels, labels);
+  assert.equal(JSON.stringify(storedLabels).includes('short text'), false);
+  assert.equal(JSON.stringify(storedLabels).includes('203.0.113'), false);
+  report.results.push({ name: 'global label allowance across concurrent IPs, dimensions and SDK', statuses: labelStatuses,
+    decisionsAccepted: 200, providerCalls: afterLabels - beforeLabels, dimensionStatus: dimensionDenied.status, sdkStatus: sdkDenied.status, registry: storedLabels });
   const budgets = await mf.getDurableObjectNamespace('FREE_BUDGET', 'spending');
   const publicBudget = budgets.get(budgets.idFromName('free-spending'));
   for (let i = 0; i < 50; i++) {

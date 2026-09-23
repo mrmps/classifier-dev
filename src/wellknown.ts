@@ -18,7 +18,7 @@ export const MCP_REGISTRY_AUTH = "v=MCPv1; k=ed25519; p=aWvcKpRNSyAPr+bh7ba+Hiiy
 export const MCP_REGISTRY_ENTRY = "https://registry.modelcontextprotocol.io/v0/servers?search=dev.classifier";
 
 /** Bumped when any public page changes materially; feeds sitemap lastmod. */
-export const SITE_UPDATED = "2026-09-21";
+export const SITE_UPDATED = "2026-09-22";
 
 export const SITE = {
   name: "classifier.dev",

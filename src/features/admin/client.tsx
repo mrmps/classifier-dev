@@ -699,13 +699,14 @@ function Dashboard({ data: d, range }: { data: AdminData; range: RangeKey }) {
               </Panel>
               <Panel
                 title="Classifiers with failures"
-                subtitle="Top 12 fingerprints and failure causes; original labels are never stored"
+                subtitle="Top 12 fingerprints and failure causes · label names expire after 90 days"
                 wide
                 unavailable={missing("failLabels")}
               >
                 <Table
                   rows={d.failLabels}
                   columns={[
+                    { key: "label_names", label: "Labels" },
                     { key: "labels", label: "Classifier fingerprint" },
                     { key: "reason", label: "Cause" },
                     { key: "requests", label: "Requests", format: count },
@@ -824,13 +825,14 @@ function Dashboard({ data: d, range }: { data: AdminData; range: RangeKey }) {
               )}
               <Panel
                 title="Busiest classifiers"
-                subtitle="Top 12 label-set fingerprints · names and source text are never recorded"
+                subtitle="Aggregate label names · caller identity and source text are not retained here"
                 wide
                 unavailable={missing("topLabels")}
               >
                 <Table
                   rows={d.topLabels}
                   columns={[
+                    { key: "label_names", label: "Labels" },
                     { key: "labels", label: "Classifier fingerprint" },
                     ...numeric.slice(0, 3),
                   ]}

@@ -1,5 +1,6 @@
 import { providerFetch } from "./spending/permit";
 import { SpendingError } from "./spending/policy";
+import { normalizeLabels } from "./privacy";
 /**
  * Wire-compatible TypeSafe API surface.
  *
@@ -30,6 +31,28 @@ export function typeSafeDecisionCount(body: string): number {
     // Let TypeSafe return its native validation response. Invalid requests are
     // still admitted as one decision so they cannot bypass the request limit.
     return 1;
+  }
+}
+
+/** Choice keys are labels; question names, instructions and state are not. */
+export function typeSafeLabelSets(body: string): { labels: string[]; cost: number }[] {
+  try {
+    const questions = object(object(JSON.parse(body))?.questions);
+    if (!questions) return [];
+    const sets = new Map<string, { labels: string[]; cost: number }>();
+    for (const value of Object.values(questions)) {
+      const question = object(value);
+      const criteria = question?.type === "choice" ? object(question.criteria) : null;
+      const labels = criteria ? Object.keys(criteria) : [];
+      if (labels.length < 2 || labels.some(label => !label.trim())) continue;
+      const key = normalizeLabels(labels);
+      const set = sets.get(key) ?? { labels, cost: 0 };
+      set.cost++;
+      sets.set(key, set);
+    }
+    return [...sets.values()];
+  } catch {
+    return [];
   }
 }
 
