@@ -42,6 +42,7 @@ OPTIONS
   -k, --max <n>              at most n labels (implies --multi)
   -s, --smart                re-ask uncertain answers of a reasoning model (slower)
       --model laya          opt into the automatically routed Laya trial (default: jev)
+      --model chunklaya     the long-document model; also automatic past 32,000 characters
       --processing bulk     Laya bulk lane; default fast is one decision per call
   -i, --instructions <text>  extra criteria: "judge only the service, ignore the food"
   -r, --review <t>           print only inputs with confidence below t
@@ -121,8 +122,8 @@ function parseArgs(argv) {
     if (!(Number.isInteger(o.max) && o.max > 0)) fail("--max takes a whole number above 0, e.g. --max 3");
     o.multi = true; // the API reads max_labels as multi-label; a single label cannot be capped
   }
-  if (!["jev", "laya", "kev"].includes(o.model)) fail("--model must be jev, laya or kev");
-  if (!["fast", "bulk"].includes(o.processing) || o.model === "jev" && o.processing !== "fast") fail("--processing bulk requires --model laya or --model kev");
+  if (!["jev", "laya", "kev", "chunklaya"].includes(o.model)) fail("--model must be jev, laya, kev or chunklaya");
+  if (!["fast", "bulk"].includes(o.processing) || (o.model === "jev" || o.model === "chunklaya") && o.processing !== "fast") fail("--processing bulk requires --model laya or --model kev");
   return o;
 }
 
@@ -175,7 +176,7 @@ async function readStdin() {
 
 async function post(o, inputs) {
   const body = { inputs, labels: o.labels };
-  if (o.model !== "jev") { body.model = o.model; body.processing = o.processing; }
+  if (o.model !== "jev") { body.model = o.model; if (o.model !== "chunklaya") body.processing = o.processing; }
   if (o.multi) body.multi = true;
   if (o.max) body.max_labels = o.max;
   if (o.smart) body.tier = "smart";
@@ -244,6 +245,7 @@ function configuredBatch() {
 }
 
 function batchSize(o) {
+  if (o.model === "chunklaya") return Math.min(configuredBatch(), 20); // one document is one upstream request there
   if (o.model !== "jev") return Math.min(configuredBatch(), o.processing === "fast" ? 1 : Math.floor(1000 / (o.multi ? o.labels.length : 1)), o.smart ? SMART_BATCH : MAX_BATCH);
   return Math.min(configuredBatch(), o.smart && !o.apiKey ? SMART_BATCH : MAX_BATCH);
 }

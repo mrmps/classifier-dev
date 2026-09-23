@@ -118,15 +118,22 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: bun scripts/check-newsletter-cutover.ts --activate
 
+      # The chunklaya pair is optional and travels together: with both set as
+      # repository secrets the Worker routes long documents there; with either
+      # missing they are left out of the file, so an existing value survives
+      # and an unconfigured Worker keeps answering input_too_long.
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CHUNKLAYA_URL: ${{ secrets.CHUNKLAYA_URL }}
+          CHUNKLAYA_TOKEN: ${{ secrets.CHUNKLAYA_TOKEN }}
         run: |
           node --input-type=module -e '
             import { writeFileSync } from "node:fs";
+            const { DATABASE_URL, CHUNKLAYA_URL, CHUNKLAYA_TOKEN } = process.env;
             writeFileSync(process.env.RUNNER_TEMP + "/classifier-secrets.json",
-              JSON.stringify({ DATABASE_URL: process.env.DATABASE_URL }), { mode: 0o600 });
+              JSON.stringify({ DATABASE_URL, ...(CHUNKLAYA_URL && CHUNKLAYA_TOKEN ? { CHUNKLAYA_URL, CHUNKLAYA_TOKEN } : {}) }), { mode: 0o600 });
           '
           npx wrangler deploy --secrets-file "$RUNNER_TEMP/classifier-secrets.json"
 

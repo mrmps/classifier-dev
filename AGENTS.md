@@ -42,6 +42,16 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   oversized context rather than truncating, so a context refusal is
   translated to `max_tokens_exceeded` and the batch halves and retries.
   Unlike Jev, a Beam request is never retried: a lane quota counts attempts.
+- chunklaya (`chunklaya/multilingual`) is our own long-document service: Laya
+  behind a chunk-and-index harness, github.com/myxamediyar/chunklaya under
+  `serve/`, on a RunPod pod. It speaks System One too, so it is a fourth
+  transport in `src/jev.ts`, reached through `CHUNKLAYA_URL` and
+  `CHUNKLAYA_TOKEN` (Worker secrets). The Worker sends an input over
+  `MAX_CHARS` there when `CHUNKLAYA_ENABLED` is `"true"` and both secrets are
+  set; otherwise such inputs stay `input_too_long`. One document is one
+  request; the service refuses rather than truncates, its 4xx become
+  `chunklaya_input`, and there is no fallback to Jev or the LLM chain. It is
+  billed by the hour, so no per-token provider cost is metered.
 - The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
   text, the signup form and the Markdown all render from it. Addresses go to the
   `subscriber` table in the shared application Neon database. Preserve consent,
