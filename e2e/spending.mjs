@@ -42,6 +42,7 @@ try {
   await labelStore.put('cls:ls_legacy', '2026-09-01T00:00:00.000Z');
   await labelStore.put('cls:ls_malformed', '{broken');
   await labelStore.put('unrelated-secret', 'must not appear');
+  await labelStore.put('cls:obsolete-raw-key', '2026-09-01T00:00:00.000Z');
   let next = adminUrl;
   const seen = new Set();
   const pageSizes = [];
@@ -51,7 +52,7 @@ try {
     assert.match(response.headers.get('cache-control'), /private/);
     const html = await response.text();
     assert.match(html, /All label sets/);
-    assert.doesNotMatch(html, /<script>alert|must not appear/);
+    assert.doesNotMatch(html, /<script>alert|must not appear|obsolete-raw-key/);
     const ids = [...html.matchAll(/data-classifier="([^"]+)"/g)].map(match => match[1]);
     pageSizes.push(ids.length);
     for (const id of ids) { assert.ok(!seen.has(id), 'no duplicate registry rows'); seen.add(id); }

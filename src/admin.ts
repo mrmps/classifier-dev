@@ -570,7 +570,7 @@ ${table("Busiest classifiers", d.topLabels, ["label_names", "labels", "requests"
 // ---------------------------------------------------------------- entry
 
 async function classifierRegistry(env: Env, cursor: string) {
-  const listed = await env.STATS.list({ prefix: "cls:", limit: 50, ...(cursor ? { cursor } : {}) });
+  const listed = await env.STATS.list({ prefix: "cls:ls_", limit: 50, ...(cursor ? { cursor } : {}) });
   const rows = await Promise.all(listed.keys.map(async ({ name }) => {
     const raw = await env.STATS.get(name);
     let labels: string[] = [];
