@@ -53,15 +53,32 @@ function setup(overrides: Record<string, unknown> = {}) {
     },
   };
   const pending: Promise<unknown>[] = [];
+  const kv = new Map<string, string>();
   const ctx = { waitUntil(p: Promise<unknown>) { pending.push(p); } } as ExecutionContext;
   const env = {
     SPENDING_ENABLED: "true", PRIVACY_SALT: "test-private-identity", SPUR_API_KEY: "fixture",
     TYPESAFE_API_KEY: "fixture", OPENROUTER_API_KEY: "fixture", AI_GATEWAY_DISABLED: "true",
-    STATS: { get: async () => null, put: async () => {} }, ...overrides,
+    STATS: { get: async (key: string) => kv.get(key) ?? null, put: async (key: string, value: string) => { kv.set(key, value); } }, ...overrides,
   } as unknown as Env;
   const budget = new FreeBudget({ storage } as unknown as DurableObjectState, env);
   env.FREE_BUDGET = { idFromName: () => "one", get: () => ({ fetch: (input: string | Request, init?: RequestInit) => budget.fetch(new Request(input, init)) }) } as unknown as DurableObjectNamespace;
-  return { env, ctx, stored, async flush() { while (pending.length) await Promise.all(pending.splice(0)); } };
+  return { env, ctx, stored, kv, async flush() { while (pending.length) await Promise.all(pending.splice(0)); } };
+}
+
+function quotaNamespace() {
+  const used = new Map<string, number>();
+  return {
+    idFromName: (name: string) => name,
+    get: (name: string) => ({ fetch: async (input: string | Request) => {
+      const url = new URL(String(input));
+      const cost = Number(url.searchParams.get("cost") ?? 1);
+      const limit = Number(url.searchParams.get("daily") ?? 5000);
+      const next = (used.get(name) ?? 0) + cost;
+      if (next > limit) return Response.json({ limited: true, scope: "day", remaining: 0, resetIn: 60 });
+      used.set(name, next);
+      return Response.json({ limited: false, remaining: limit - next, dailyRemaining: limit - next });
+    } }),
+  } as unknown as DurableObjectNamespace;
 }
 function request(ip = "203.0.113.1", path = "/v1/classify", body: unknown = { inputs: ["hello"], labels: ["a", "b"] }, extra: Record<string, string> = {}) {
   return new Request(`https://classifier.dev${path}`, { method: "POST", headers: { "cf-connecting-ip": ip, "content-type": "application/json", ...extra }, body: JSON.stringify(body) });
@@ -134,6 +151,51 @@ test("known anonymous proxies are refused, enterprise VPNs accepted, and Spur ha
   expect((await worker.fetch(request(), allowed.env, allowed.ctx)).status).toBe(200); await allowed.flush();
   expect((await worker.fetch(request("203.0.113.2"), allowed.env, allowed.ctx)).status).toBe(503);
   expect(calls.length).toBe(2);
+});
+
+test("one anonymous label set has a global quota across rotating IPs and records its labels without caller data", async () => {
+  const s = setup({ LIMITER: quotaNamespace(), FREE_LABEL_RPM: "4", FREE_LABEL_DAILY: "4" });
+  const calls = providers();
+
+  const malformed = await worker.fetch(request("203.0.113.1", undefined, { inputs: ["one"], labels: ["only-one"] }), s.env, s.ctx);
+  expect(malformed.status).toBe(400);
+  await s.flush();
+  expect(s.kv.size).toBe(0);
+
+  const responses = await Promise.all([
+    worker.fetch(request("203.0.113.1", undefined, { inputs: ["one", "two"], labels: ["Spam", "Not spam"] }), s.env, s.ctx),
+    worker.fetch(request("203.0.113.2", undefined, { inputs: ["three", "four"], labels: ["not spam", "spam"] }), s.env, s.ctx),
+    worker.fetch(request("203.0.113.3", undefined, { inputs: ["five", "six"], labels: ["spam", "not spam"] }), s.env, s.ctx),
+  ]);
+  expect(responses.filter(response => response.status === 200)).toHaveLength(2);
+  const denied = responses.find(response => response.status === 429)!;
+  expect((await denied.json() as { code: string }).code).toBe("label_set_limit");
+  expect(denied.headers.get("ratelimit-limit")).toBe("4");
+  expect(denied.headers.get("ratelimit-policy")).toBe("4;w=60, 4;w=86400");
+  expect(calls).toHaveLength(2);
+  await s.flush();
+
+  const records = [...s.kv.entries()].filter(([key]) => key.startsWith("cls:"));
+  expect(records).toHaveLength(1);
+  expect(records[0][0]).toMatch(/^cls:ls_[0-9a-f]{16}$/);
+  expect(JSON.parse(records[0][1])).toEqual(expect.objectContaining({ labels: ["not spam", "spam"] }));
+  expect(records[0][1]).not.toContain("203.0.113");
+
+  expect((await worker.fetch(request("203.0.113.4", undefined, { inputs: ["seven"], labels: ["ham", "eggs"] }), s.env, s.ctx)).status).toBe(200);
+  await s.flush();
+});
+
+test("funded and enterprise traffic bypasses the anonymous label-set quota, and label storage is best effort", async () => {
+  const brokenStats = { get: async () => { throw new Error("KV down"); }, put: async () => { throw new Error("KV down"); } };
+  const s = setup({ LIMITER: quotaNamespace(), FREE_LABEL_RPM: "1", FREE_LABEL_DAILY: "1", STATS: brokenStats, ENTERPRISE_API_KEY: "partner" });
+  const calls = providers();
+  const body = { inputs: ["one"], labels: ["a", "b"] };
+
+  expect((await worker.fetch(request("203.0.113.1", undefined, body), s.env, s.ctx)).status).toBe(200);
+  expect((await worker.fetch(request("203.0.113.2", undefined, body), s.env, s.ctx)).status).toBe(429);
+  expect((await worker.fetch(request("203.0.113.3", undefined, body, { authorization: "Bearer partner" }), s.env, s.ctx)).status).toBe(200);
+  await s.flush();
+  expect(calls).toHaveLength(2);
 });
 
 test("duplicate idempotency keys never execute twice and body conflicts are rejected", async () => {

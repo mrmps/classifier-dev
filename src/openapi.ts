@@ -24,7 +24,7 @@ export const ERROR_CODES = [
   // 409: the same skill text is already listed
   "duplicate_skill",
   // 429
-  "rate_limit_minute", "rate_limit_day", "rate_limit_hour",
+  "rate_limit_minute", "rate_limit_day", "rate_limit_hour", "label_set_limit",
   // 502: the model provider failed after retries
   "typesafe", "chain_exhausted", "batch_unavailable", "timeout", "upstream_other",
   // 500
@@ -121,7 +121,7 @@ const errors = (plain: boolean) => ({
   "403": err("The key is inactive or the workspace cannot authorize usage."),
   "503": err("Workspace billing or Laya inference is temporarily unavailable. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
-  "429": err("Quota or shared Laya capacity reached. Wait Retry-After seconds. Laya trial caps also apply to paid keys and cannot be lifted by upgrading; code laya_rate_limit identifies that lane's admission limit. Daily limits use rate_limit_day.", {
+  "429": err("Quota or shared Laya capacity reached. Wait Retry-After seconds. Anonymous requests also share a global allowance with every request using the same label set; code label_set_limit identifies that limit. Laya trial caps also apply to paid keys and cannot be lifted by upgrading; code laya_rate_limit identifies that lane's admission limit. Daily per-caller limits use rate_limit_day.", {
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
     ...RATE_LIMIT_HEADERS,
   }, plain),
@@ -1207,7 +1207,7 @@ export const OPENAPI = {
             description:
               "Stable machine-readable code: one of the listed values, or typesafe_<status> / openrouter_<status> carrying the upstream HTTP status. " +
               "400: bad_dimensions, too_many_decisions, dimension_context_too_large, bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission, skill_invalid, account_route_required (use POST /v1/classify with a workspace key). " +
-              "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable, inference_unavailable (provider credentials are not configured).",
+              "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour, label_set_limit. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable, inference_unavailable (provider credentials are not configured).",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
           },
           retryable: { type: "boolean", description: "Whether retrying later can resolve a spending refusal. Use backoff and Retry-After; do not loop on false." },

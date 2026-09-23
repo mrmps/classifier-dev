@@ -12,10 +12,10 @@
  * does not answer at all, because a page that says what it is is a page worth
  * attacking.
  *
- * None of these figures is anybody's data. The caller column is a day-scoped
- * hash and the label column a keyed fingerprint, both made in src/privacy.ts
- * before anything is written, so there is nothing here to leak and nothing to
- * hand over if somebody asks.
+ * The caller column is a day-scoped hash and the label column a keyed
+ * fingerprint, both made in src/privacy.ts before per-request analytics are
+ * written. A separate 90-day registry resolves successful classifier
+ * fingerprints to aggregate label names; it contains no caller or source text.
  */
 
 import type { Env } from "./index";
@@ -23,6 +23,7 @@ import { sql } from "./report";
 import { reasonText } from "./features/admin/reasons";
 import { esc, BASE_CSS } from "./ui";
 import { secretEquals, deriveSigningKey, hmacHex } from "./secrets";
+import { recordedClassifierLabels } from "./privacy";
 
 const DATASET = "classifier_events";
 // The __Secure- prefix is enforced by the browser, not by us: it refuses to
@@ -392,6 +393,21 @@ async function load(env: Env, range: RangeKey) {
     ),
   ]);
 
+  const classifierNames = new Map<string, string>();
+  const fingerprints = [...new Set(
+    [...topLabels, ...failLabels]
+      .map((row) => String(row.labels ?? ""))
+      .filter(Boolean),
+  )];
+  await Promise.all(fingerprints.map(async (fingerprint) => {
+    const labels = await recordedClassifierLabels(env.STATS, fingerprint);
+    if (labels.length) classifierNames.set(fingerprint, labels.join(" · "));
+  }));
+  const nameClassifiers = (rows: Row[]) => rows.map((row) => ({
+    ...row,
+    label_names: classifierNames.get(String(row.labels ?? "")) ?? "—",
+  }));
+
   return {
     totals,
     series,
@@ -400,12 +416,12 @@ async function load(env: Env, range: RangeKey) {
     byCountry,
     byStatus,
     byClient,
-    topLabels,
+    topLabels: nameClassifiers(topLabels),
     visitors,
     labelSets,
     byReason,
     byAgent,
-    failLabels,
+    failLabels: nameClassifiers(failLabels),
     dimensionTraffic,
     dimensionCallers,
     dimensionSeries,
@@ -541,7 +557,7 @@ ${table("Failure causes", d.byReason, ["reason", "status", "agent", "requests"],
 ${table("Dimension outcomes", d.dimensionTraffic, ["status", "reason", "requests", "uncertain", "fallback"], "dimensionTraffic")}
 ${table("Clients", d.byAgent, ["agent", "requests", "classifications"], "byAgent")}
 ${table("Countries", d.byCountry, ["country", "requests"], "byCountry")}
-${table("Busiest classifiers", d.topLabels, ["labels", "requests", "classifications", "usd"], "topLabels")}
+${table("Busiest classifiers", d.topLabels, ["label_names", "labels", "requests", "classifications", "usd"], "topLabels")}
 </article></div>`;
   return shell(
     "admin · classifier.dev",

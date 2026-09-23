@@ -9,12 +9,12 @@ const LABELS = ["invoice", "receipt", "payslip"];
 /** Collects what the request would have written, and waits for it to be written. */
 function spy() {
   const points: { blobs: string[]; indexes: string[] }[] = [];
-  const kv: string[] = [];
+  const kv: { key: string; value: string }[] = [];
   const pending: Promise<unknown>[] = [];
   const env = {
     PRIVACY_SALT: "salt-under-test-0000000000000000",
     AE: { writeDataPoint: (p: { blobs: string[]; indexes: string[] }) => points.push(p) },
-    STATS: { get: async () => null, put: async (k: string) => void kv.push(k) },
+    STATS: { get: async () => null, put: async (key: string, value: string) => void kv.push({ key, value }) },
   } as unknown as Env;
   const ctx = { waitUntil: (p: Promise<unknown>) => pending.push(p) } as unknown as ExecutionContext;
   return { env, ctx, points, kv, settled: () => Promise.all(pending) };
@@ -33,19 +33,20 @@ describe("what a request leaves behind", () => {
   test("is never the caller's address", async () => {
     const s = spy();
     await write(s);
-    const written = JSON.stringify(s.points) + s.kv.join(" ");
+    const written = JSON.stringify(s.points) + JSON.stringify(s.kv);
     expect(written).not.toContain(IP);
     expect(written).not.toContain("203.0.113");
     expect(s.points[0].indexes[0]).toMatch(/^c_[0-9a-f]{16}$/);
   });
 
-  test("is never the caller's labels", async () => {
+  test("keeps labels only in the separate aggregate registry", async () => {
     const s = spy();
     await write(s);
-    const written = JSON.stringify(s.points) + s.kv.join(" ");
-    for (const label of LABELS) expect(written).not.toContain(label);
+    const analytics = JSON.stringify(s.points);
+    for (const label of LABELS) expect(analytics).not.toContain(label);
     expect(s.points[0].blobs[1]).toMatch(/^ls_[0-9a-f]{16}$/);
-    expect(s.kv[0]).toMatch(/^cls:ls_[0-9a-f]{16}$/);
+    expect(s.kv[0].key).toMatch(/^cls:ls_[0-9a-f]{16}$/);
+    expect(JSON.parse(s.kv[0].value)).toMatchObject({ labels: ["invoice", "payslip", "receipt"] });
   });
 
   test("still carries everything the dashboard counts", async () => {

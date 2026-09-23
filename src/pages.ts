@@ -522,7 +522,11 @@ RATE LIMITS
   Pro Smart     2,000/minute; 20,000/day
 
   Limits count classifications and are shared across workspace keys and
-  agents. Public access is limited per IP. Laya trial limits apply to every plan.
+  agents. Public access is limited per IP. Anonymous traffic also shares a
+  5,000/minute and 50,000/day allowance with every caller using the same label
+  set, so rotating addresses does not create a new budget. Workspace and
+  enterprise keys do not use that anonymous label-set allowance. Laya trial
+  limits apply to every plan.
 `;
 
 export const ABOUT = `About classifier.dev
@@ -622,9 +626,11 @@ SECURITY
 export const PRIVACY = `classifier.dev privacy
 
 The short version: public, keyless classification does not store your texts.
-Signed-in workspaces store account details, API keys and usage records so you
-can manage access and billing. Optional workspace request-content logging is
-described below and is disabled by default.
+Successful classifier label names are retained for 90 days as one aggregate
+record per label set, without caller identity or source text. Signed-in
+workspaces store account details, API keys and usage records so you can manage
+access and billing. Optional workspace request-content logging is described
+below and is disabled by default.
 
 
 WHAT IS SENT WHERE
@@ -642,9 +648,13 @@ PUBLIC SERVICE LOGS
   Per request, for rate limiting and operations: which tier ran, which model
   answered, the latency, the response status, a coarse request-country and a
   client family derived from the User-Agent (curl, python, browser, MCP, ...).
-  Not the text and not the labels: a keyed fingerprint of the label set counts
-  the distinct classifiers in use without recording anyone's wording. The
-  caller is a keyed hash of the IP that changes daily, so a record cannot be
+  Not the text: a keyed fingerprint of the label set counts distinct
+  classifiers in per-request analytics. Separately, successful simple and
+  multi-label classifier names are retained in an aggregate registry for 90
+  days so operators can understand use and enforce one anonymous allowance per
+  label set. That registry has no caller fingerprint, request ID or source text.
+  Dimension definitions remain fingerprint-only. The caller is a keyed hash of
+  the IP that changes daily, so a record cannot be
   read back to an address or followed across days. The address itself serves
   the per-IP limits while the request is in flight and is not written down.
   To prevent abuse of free inference, the caller IP is sent to Spur's

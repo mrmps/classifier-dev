@@ -75,6 +75,9 @@ export interface Env extends LayaEnv, SpendingEnv {
   LIMITER: DurableObjectNamespace;
   AE: AnalyticsEngineDataset;
   REPORT_KEY: string;
+  /** Shared anonymous decision ceilings for one stable label-set fingerprint. */
+  FREE_LABEL_RPM?: string;
+  FREE_LABEL_DAILY?: string;
   /** Gates /admin. Set with `npx wrangler secret put ADMIN_PASSWORD`. */
   ADMIN_PASSWORD?: string;
   /** Signs the /admin session cookie. Random, and unrelated to the password. */
@@ -1098,12 +1101,80 @@ function upstreamReason(msg: string): ErrorCode {
 }
 
 /**
- * Name a label set so we can count distinct classifiers without keeping one.
- * This used to be the labels themselves, lowercased and joined, which meant
- * every caller's wording sat in analytics and on the dashboard for 90 days.
+ * Name a label set without putting its words in per-request analytics. The
+ * separate registry can resolve successful classifiers for aggregate review.
  */
 function classifierId(env: Env, labels: string[]) {
   return labelFingerprint(env, labels);
+}
+
+const LABEL_LIMITS = { rpm: 5_000, daily: 50_000 } as const;
+const CLASSIFIER_TTL = 90 * 24 * 60 * 60;
+const MAX_RECORDED_LABEL_CHARS = 4_000;
+
+function configuredLabelLimit(value: string | undefined, fallback: number) {
+  const parsed = value === undefined ? fallback : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function labelLimitEnabled(env: Env) {
+  return env.FREE_LABEL_RPM !== undefined || env.FREE_LABEL_DAILY !== undefined;
+}
+
+/**
+ * One public classifier gets one quota, regardless of how many IPs carry it.
+ * This is deliberately separate from per-IP admission: the existing limiter
+ * object gives it the same atomic minute/day semantics without linking callers.
+ */
+async function limitClassifier(env: Env, fingerprint: string, cost: number) {
+  const rpm = configuredLabelLimit(env.FREE_LABEL_RPM, LABEL_LIMITS.rpm);
+  const daily = configuredLabelLimit(env.FREE_LABEL_DAILY, LABEL_LIMITS.daily);
+  try {
+    const id = env.LIMITER.idFromName(`classifier:${fingerprint}`);
+    const response = await env.LIMITER.get(id).fetch(
+      `https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}`,
+    );
+    const result = await response.json() as { limited?: unknown; scope?: unknown; resetIn?: unknown; remaining?: unknown };
+    if (typeof result.limited !== "boolean") throw new Error("Invalid classifier quota response");
+    return {
+      limited: result.limited,
+      scope: result.scope === "day" ? "day" as const : "minute" as const,
+      resetIn: typeof result.resetIn === "number" && Number.isFinite(result.resetIn) ? result.resetIn : 60,
+      remaining: typeof result.remaining === "number" && Number.isFinite(result.remaining) ? result.remaining : -1,
+      limit: result.scope === "day" ? daily : rpm,
+      rpm,
+      daily,
+    };
+  } catch {
+    // The ordinary per-IP limiter already fails open on infrastructure errors;
+    // this additional abuse shield must not become a new availability dependency.
+    return { limited: false, scope: "minute" as const, resetIn: 60, remaining: -1, limit: rpm, rpm, daily };
+  }
+}
+
+function retainedLabels(labels: string[]) {
+  const normalized = [...labels]
+    .map((label) => label.trim().toLowerCase().replace(/\s+/g, " "))
+    .sort();
+  if (!normalized.length || normalized.some((label) => !label) || JSON.stringify(normalized).length > MAX_RECORDED_LABEL_CHARS)
+    return null;
+  return normalized;
+}
+
+async function rememberClassifier(env: Env, fingerprint: string, labels: string[]) {
+  if (!fingerprint) return;
+  const kept = retainedLabels(labels);
+  if (!kept) return;
+  const key = `cls:${fingerprint}`;
+  const existing = await env.STATS.get(key);
+  if (existing) {
+    try {
+      if (Array.isArray((JSON.parse(existing) as { labels?: unknown }).labels)) return;
+    } catch {
+      // Legacy entries were timestamps; replace them on the next success.
+    }
+  }
+  await env.STATS.put(key, JSON.stringify({ labels: kept, firstSeen: new Date().toISOString() }), { expirationTtl: CLASSIFIER_TTL });
 }
 
 /** Enterprise and operator-agent callers use dedicated unmetered bearer credentials. */
@@ -1162,13 +1233,10 @@ export function record(env: Env, ctx: ExecutionContext, d: {
       } catch {
         /* analytics must never break a request */
       }
-      // Distinct classifier registry, for the daily digest. Cheap: one write per new label set.
+      // Distinct classifier registry, for abuse review and the daily digest.
+      // Labels are aggregate configuration, never joined to caller or input data.
       try {
-        if (!labels) return;
-        const key = `cls:${labels}`;
-        if (!(await env.STATS.get(key))) {
-          await env.STATS.put(key, new Date().toISOString(), { expirationTtl: 60 * 60 * 24 * 90 });
-        }
+        if (d.status === 200 && d.mode !== "dimensions") await rememberClassifier(env, labels, d.labels);
       } catch {
         /* ignore */
       }
@@ -2140,6 +2208,30 @@ const worker = {
         0,
         paid ? {} : { upgrade: "https://classifier.dev/pricing" },
       );
+    }
+
+    // Per-IP admission cannot stop a fleet that rotates addresses. The stable,
+    // keyed classifier fingerprint supplies the missing cross-IP boundary while
+    // funded and operator traffic retain the capacity it paid for.
+    if (!account && !enterprise && !execution?.internal && labelLimitEnabled(env)) {
+      const fingerprint = await classifierId(env, labels);
+      const classifierGate = await limitClassifier(env, fingerprint, decisions);
+      if (classifierGate.limited) {
+        layaAbort?.abort();
+        return fail(
+          `The shared free allowance for this label set has reached ${classifierGate.limit.toLocaleString("en-US")} classifications ${classifierGate.scope === "day" ? "today" : "this minute"}. Use a funded workspace key for a separate allowance.`,
+          429,
+          "label_set_limit",
+          {
+            "retry-after": String(Math.max(1, Math.ceil(classifierGate.resetIn))),
+            "ratelimit-limit": String(classifierGate.limit),
+            "ratelimit-policy": `${classifierGate.rpm};w=60, ${classifierGate.daily};w=86400`,
+          },
+          0,
+          classifierGate.remaining,
+          { upgrade: "https://classifier.dev/pricing" },
+        );
+      }
     }
 
     // Validate both request shapes and pass the normal tier gate before spending

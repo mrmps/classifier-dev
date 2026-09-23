@@ -1,16 +1,16 @@
 /**
  * Pseudonyms, so that nothing kept points back at a caller.
  *
- * Two pieces of caller data used to be written verbatim into Analytics Engine
- * and KV: the IP address, and the label set. Labels are the caller's own words,
- * and a set like "biopsy benign, biopsy malignant" says more about whoever sent
- * it than every count around it put together. Both go through a keyed hash now.
- * The dashboard and the digest can still count them; nobody can read them back.
+ * Caller addresses and label sets go through keyed hashes before they reach
+ * per-request analytics. The address never lands in storage. Successful
+ * classifier label names are also kept in a separate, bounded KV registry so
+ * operators can understand aggregate use; that record is never joined to the
+ * caller fingerprint or classified text and expires after 90 days.
  *
  * The key is a secret, because an unkeyed hash of either one is not a
  * pseudonym. The whole IPv4 space hashes in seconds on a laptop, and common
- * label sets are a short word list, so anyone holding the dataset and this file
- * — which is public — could invert both. Keyed, they cannot.
+ * label sets are a short word list, so anyone holding the analytics dataset and
+ * this file — which is public — could invert both. Keyed, they cannot.
  *
  * A caller pseudonym also takes the UTC day, so it is a different value
  * tomorrow and nothing accumulates into a profile of one person over 90 days of
@@ -86,11 +86,29 @@ export function normalizeLabels(labels: string[]): string {
 
 /**
  * A stable, opaque name for one label set. Same set, same fingerprint, for as
- * long as the salt lives — which is what lets the registry count distinct
- * classifiers without ever holding one.
+ * long as the salt lives. Analytics contains only this value; the separate
+ * short-lived registry may resolve it to aggregate label names.
  */
 export async function labelFingerprint(env: PrivacyEnv, labels: string[]): Promise<string> {
   const normalized = normalizeLabels(labels);
   if (!normalized) return "";
   return `ls_${await digest(env, `labels:${normalized}`)}`;
+}
+
+/** Read a current registry record; legacy timestamp-only entries stay opaque. */
+export async function recordedClassifierLabels(
+  stats: { get(key: string): Promise<string | null> },
+  fingerprint: string,
+): Promise<string[]> {
+  if (!fingerprint) return [];
+  try {
+    const raw = await stats.get(`cls:${fingerprint}`);
+    if (!raw) return [];
+    const labels = (JSON.parse(raw) as { labels?: unknown }).labels;
+    return Array.isArray(labels) && labels.every((label) => typeof label === "string")
+      ? labels as string[]
+      : [];
+  } catch {
+    return [];
+  }
 }
