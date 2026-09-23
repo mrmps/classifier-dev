@@ -85,6 +85,13 @@ test("images under another model, malformed images and too many images are refus
   const many = await post({ state: "x", images: [PNG, PNG, PNG, PNG, PNG], questions: QUESTIONS });
   expect(many.status).toBe(400);
   expect((await many.json() as { code: string }).code).toBe("dgemma_input");
+  // Presence selects the door, so an empty array is refused here rather than sent on as an unknown field.
+  const empty = await post({ state: "x", images: [], questions: QUESTIONS });
+  expect(empty.status).toBe(400);
+  expect((await empty.json() as { code: string }).code).toBe("dgemma_input");
+  const emptyOther = await post({ model: "jev-latest", state: "x", images: [], questions: QUESTIONS });
+  expect(emptyOther.status).toBe(400);
+  expect((await emptyOther.json() as { code: string }).code).toBe("images_unsupported");
   const huge = await post({ state: "x", images: ["data:image/png;base64," + "A".repeat(900_001)], questions: QUESTIONS });
   expect(huge.status).toBe(400);
   expect((await huge.json() as { error: string }).error).toContain("900,000");
@@ -121,6 +128,24 @@ test("the service's refusals keep their meaning: 422 is the caller's error, 429 
   expect(response.status).toBe(503);
   expect((await response.json() as { code: string }).code).toBe("dgemma_unavailable");
   expect(calls).toHaveLength(1); // one attempt, no retry, no TypeSafe
+});
+
+test("a 200 that is not the whole contract is an outage, and the pod is only ever reached over https", async () => {
+  // An answer set missing a question, or reported under another model, must not become a confident 200.
+  for (const body of [
+    { model: "dgemma", answers: {}, usage: { input_tokens: 1, output_tokens: 1 } },
+    { model: "other", answers: { red: { type: "noul", noul: 0.9 } }, usage: { input_tokens: 1, output_tokens: 1 } },
+    { model: "dgemma", answers: { red: { type: "noul", noul: 0.9 } } },
+  ]) {
+    mockUpstreams({ status: 200, body });
+    const response = await post({ state: "x", images: [PNG], questions: QUESTIONS });
+    expect(response.status).toBe(503);
+    expect((await response.json() as { code: string }).code).toBe("dgemma_unavailable");
+  }
+  const calls = mockUpstreams();
+  const plaintext = await post({ state: "x", images: [PNG], questions: QUESTIONS }, { ...env, DGEMMA_URL: "http://pod.example" } as Env);
+  expect(plaintext.status).toBe(503);
+  expect(calls).toHaveLength(0);
 });
 
 test("account billing prices dgemma at zero, and a spending permit accepts the route as dgemma", async () => {

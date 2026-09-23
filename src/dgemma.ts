@@ -37,15 +37,17 @@ export function dgemmaRoute(body: string): DgemmaRoute {
   try { parsed = JSON.parse(body); } catch { return { kind: "typesafe" }; }
   if (!isRecord(parsed)) return { kind: "typesafe" };
   const images = parsed.images;
-  const hasImages = images !== undefined && images !== null && !(Array.isArray(images) && images.length === 0);
+  // Presence selects the door; what the field holds is validated after, so an
+  // empty or malformed images field never travels to TypeSafe as an unknown key.
+  const hasImages = images !== undefined && images !== null;
   const named = parsed.model === DGEMMA_MODEL;
   if (!hasImages && !named) return { kind: "typesafe" };
   if (hasImages && parsed.model !== undefined && !named) {
     return refuse("images_unsupported", `Jev does not accept images; set model to "${DGEMMA_MODEL}" or remove images`);
   }
   if (hasImages) {
-    if (!Array.isArray(images) || images.length > DGEMMA_MAX_IMAGES) {
-      return refuse("dgemma_input", `images must be an array of at most ${DGEMMA_MAX_IMAGES} data URLs`);
+    if (!Array.isArray(images) || images.length === 0 || images.length > DGEMMA_MAX_IMAGES) {
+      return refuse("dgemma_input", `images must be an array of 1 to ${DGEMMA_MAX_IMAGES} data URLs`);
     }
     let chars = 0;
     for (const image of images) {
@@ -59,6 +61,14 @@ export function dgemmaRoute(body: string): DgemmaRoute {
     }
   }
   return { kind: "dgemma", body: JSON.stringify({ ...parsed, model: DGEMMA_MODEL }) };
+}
+
+/** The question ids a forwarded body asks; the route already parsed it once, so a failure here is impossible in practice. */
+function questionIds(body: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return isRecord(parsed) && isRecord(parsed.questions) ? Object.keys(parsed.questions) : [];
+  } catch { return []; }
 }
 
 const NO_STORE = { "cache-control": "no-store" };
@@ -77,31 +87,43 @@ export async function dgemmaResponse(
   meter?: Meter,
   signal?: AbortSignal,
 ): Promise<Response> {
+  // Images and the bearer only ever travel encrypted, and never to a redirect target.
+  let origin: URL;
+  try { origin = new URL(pod.url); } catch { return unavailable(60); }
+  if (origin.protocol !== "https:") return unavailable(60);
   const url = pod.url.replace(/\/+$/, "") + "/v1/systemone";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   signal?.addEventListener("abort", () => controller.abort());
   await meter?.beforeCall?.("dgemma", DGEMMA_MODEL, 0);
   let res: Response;
+  let payload: unknown = null;
   try {
     res = await providerFetch(meter, "dgemma", DGEMMA_MODEL, 0, url, {
       method: "POST",
       headers: { authorization: `Bearer ${pod.token}`, "content-type": "application/json" },
       body,
+      redirect: "error",
       signal: controller.signal,
     });
+    // The deadline covers the body too: headers followed by a stalled body is still a dead pod.
+    try { payload = JSON.parse(await res.text()); } catch { /* handled by status below */ }
   } catch {
     return unavailable(10);
   } finally {
     clearTimeout(timer);
   }
-  let payload: unknown = null;
-  try { payload = JSON.parse(await res.text()); } catch { /* handled by status below */ }
   if (res.ok) {
-    if (!isRecord(payload) || !isRecord(payload.answers)) return unavailable(10);
-    const usage = isRecord(payload.usage) ? payload.usage : {};
+    // A 200 is only a 200 when it is the whole contract: this model, an entry
+    // for every question asked (null when the service skipped it under ask_if),
+    // and a usage count. Anything less is an outage.
+    const asked = questionIds(body);
+    const usage = isRecord(payload) && isRecord(payload.usage) ? payload.usage : null;
+    if (!isRecord(payload) || payload.model !== DGEMMA_MODEL || !isRecord(payload.answers) || !usage
+        || !Number.isInteger(usage.input_tokens) || !Number.isInteger(usage.output_tokens)
+        || asked.some((id) => !Object.prototype.hasOwnProperty.call(payload.answers, id))) return unavailable(10);
     if (meter) addTokens(meter, "dgemma", DGEMMA_MODEL, { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens });
-    return Response.json({ ...payload, model: DGEMMA_MODEL }, { headers: NO_STORE });
+    return Response.json(payload, { headers: NO_STORE });
   }
   // The service's validation messages are about the caller's own schema, so they travel; nothing else does.
   const message = isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"

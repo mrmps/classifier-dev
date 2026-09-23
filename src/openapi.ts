@@ -941,7 +941,7 @@ export const OPENAPI = {
           model: { type: "string", description: "A name or alias returned by GET /v1/models, or \"dgemma\" for the image-capable DiffusionGemma model (required when images are sent)." },
           questions: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_QUESTION },
           images: {
-            type: "array", maxItems: 4,
+            type: "array", minItems: 1, maxItems: 4,
             items: { type: "string", pattern: "^data:image/(png|jpeg|webp|gif);base64,", maxLength: 900000 },
             description: "Images the questions are asked about, ahead of the state, as data URLs; at most 4 and 900,000 base64 characters in total. Only model \"dgemma\" reads them.",
           },
