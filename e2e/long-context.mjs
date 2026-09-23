@@ -6,6 +6,11 @@ import { countTokens } from 'gpt-tokenizer/encoding/cl100k_base';
 const report = { runtime: 'built Worker in workerd', upstream: 'deterministic HTTP fixtures, not an accuracy benchmark', results: [] };
 const calls = [];
 let mode = 'normal', measuredTokens = 123;
+const estimatedTokens = text => {
+  let ascii = 0, other = 0;
+  for (let i = 0; i < text.length; i++) text.charCodeAt(i) < 128 ? ascii++ : other++;
+  return Math.ceil(ascii / 3.5) + other * 2 + 1;
+};
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => /\.(js|wasm)$/.test(p)).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: p.endsWith('.wasm') ? 'CompiledWasm' : 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'long-context', modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
@@ -13,6 +18,10 @@ const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'long-con
   outboundService: async request => {
     assert.ok(request.url.includes('typesafe.ai'), 'no fallback or chunklaya');
     const body = await request.json();
+    const stateTokens = body.state.reduce((sum, state) => sum + estimatedTokens(state.text) + (state.rubric ? estimatedTokens(state.rubric) : 0) + 20, 0);
+    const questionTokens = Object.values(body.questions).map(question => estimatedTokens(JSON.stringify(question)) + (question.type === 'choice' ? Object.keys(question.criteria).length * 16 : 0) + 40);
+    assert.ok(stateTokens + Math.max(...questionTokens) <= 28000, 'serialized state plus longest question fits');
+    assert.ok(stateTokens + questionTokens.reduce((sum, n) => sum + n, 0) <= 48000, 'serialized total request fits');
     const screening = Object.values(body.questions).some(q => Object.hasOwn(q.criteria ?? {}, 'irrelevant'));
     calls.push({ screening, body });
     if (!screening && mode === 'fail-final') return WorkerResponse.json({ detail: { error_type: 'invalid_request' } }, { status: 400 });
@@ -70,6 +79,11 @@ try {
   const overflow = await (await send({ ...body, input: document.repeat(3) })).json();
   assert.ok(overflow.usage.long_context.omitted_chunks > 0);
   report.results.push({ name: 'selection overflow disclosed', stats: overflow.usage.long_context });
+  const escaped = await send({ ...body, input: document.repeat(3), instructions: '\u0001'.repeat(4000),
+    labels: Array.from({ length: 32 }, (_, i) => `${i}-${'\u0001'.repeat(190)}`) });
+  assert.ok([200, 400].includes(escaped.status), await escaped.clone().text());
+  if (escaped.status === 400) assert.equal((await escaped.json()).code, 'long_context_input');
+  report.results.push({ name: 'escaped rubrics and labels respect serialized provider budgets', status: escaped.status });
   mode = 'none';
   const none = await send();
   assert.equal(none.status, 422, await none.clone().text());

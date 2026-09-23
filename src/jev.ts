@@ -689,6 +689,23 @@ export async function runJevBatches<T>(keys: JevKeys, prepared: JevBatch<T>[], m
   return out;
 }
 
+function classificationGroup(text: string, index: number, labels: string[], instructions: string | undefined, multi: boolean): JevQuestionGroup<number> {
+  const id = `i${index}`;
+  const rubric = multi
+    ? `A category applies if the text meaningfully touches it, even briefly.${instructions ? ` ${instructions.trim()}` : ""}`
+    : undefined;
+  return { state: { id, text, ...(rubric ? { rubric } : {}) }, questions: questionsFor(id, labels, instructions, multi), value: index };
+}
+
+/** Use the wire question/rubric costs when selecting long-document evidence. */
+export function jevClassificationFits(text: string, labels: string[], instructions: string, multi: boolean): boolean {
+  const group = classificationGroup(text, 999999, labels, instructions, multi);
+  const state = stateCost(group.state);
+  const questions = Object.values(group.questions).map(questionCost);
+  return state + Math.max(0, ...questions) <= JEV_BACKEND.limits.stateQuestionBudget &&
+    state + questions.reduce((sum, cost) => sum + cost, 0) <= JEV_BACKEND.limits.tokenBudget;
+}
+
 export async function jevClassify(
   keys: JevKeys,
   inputs: string[],
@@ -698,13 +715,7 @@ export async function jevClassify(
   meter?: Meter,
   backend: Backend = JEV_BACKEND,
 ): Promise<JevResult[]> {
-  const groups = inputs.map((text, index): JevQuestionGroup<number> => {
-    const id = `i${index}`;
-    const rubric = multi
-      ? `A category applies if the text meaningfully touches it, even briefly.${instructions ? ` ${instructions.trim()}` : ""}`
-      : undefined;
-    return { state: { id, text, ...(rubric ? { rubric } : {}) }, questions: questionsFor(id, labels, instructions, multi), value: index };
-  });
+  const groups = inputs.map((text, index) => classificationGroup(text, index, labels, instructions, multi));
   const answered = await runJevBatches(keys, prepareJevBatches(groups, { limits: backend.limits }), meter, backend);
   return answered.map(({ value: index, model, answers }) => {
     const id = `i${index}`;
