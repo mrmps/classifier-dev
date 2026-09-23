@@ -301,6 +301,10 @@ describe("openapi.json", () => {
           expect((methods[method] as { security: unknown }).security).toEqual([{ accountKey: [] }]);
           continue;
         }
+        if (route.startsWith("/v1/long-context/jobs/")) {
+          expect((methods[method] as { security: unknown }).security).toEqual([{ accountKey: [] }]);
+          continue;
+        }
         if (method === "post") init.body = route === "/v1/systemone"
           ? '{"state":"b please","model":"jev-latest","questions":{"category":{"type":"choice","criteria":{"a":null,"b":null}}}}'
           : route.startsWith("/api/") ? "{}" : '{"input":"b please","labels":["a","b"]}';

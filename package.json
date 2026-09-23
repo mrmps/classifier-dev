@@ -24,7 +24,8 @@
     "test:e2e:spending": "node e2e/spending.mjs",
     "test:e2e:usage": "node e2e/usage.mjs",
     "test:e2e:long-context": "node e2e/long-context.mjs",
-    "test:e2e:long-context-billing": "bun e2e/long-context-billing.ts"
+    "test:e2e:long-context-billing": "bun e2e/long-context-billing.ts",
+    "test:e2e:long-context-job": "bun e2e/long-context-job.ts --full"
   },
   "keywords": [],
   "author": "Michael Ryaboy",

@@ -100,6 +100,8 @@ jobs:
         run: npm run test:e2e:long-context
       - name: Verify long-context workspace billing
         run: npm run test:e2e:long-context-billing
+      - name: Verify ten-million-token job and settlement
+        run: npm run test:e2e:long-context-job
       - name: Save long-context verification evidence
         uses: actions/upload-artifact@v4
         with:
@@ -107,6 +109,7 @@ jobs:
           path: |
             captures/long-context-e2e.json
             captures/long-context-billing.json
+            captures/long-context-job.json
       - name: Save classification usage evidence
         uses: actions/upload-artifact@v4
         with:

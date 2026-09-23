@@ -1,6 +1,7 @@
 import { SPENDING_ERROR_CODES } from "./spending/policy";
 import { DIMENSIONS_SCHEMA } from "./dimensions";
 import { ACCOUNT_PATHS } from "./account-openapi";
+import { LONG_CONTEXT_JOB_MAX_TOKENS, LONG_CONTEXT_PART_MAX_TOKENS, LONG_CONTEXT_MAX_PARTS } from "./long-context";
 import { CATEGORIES, SEVERITIES, REPRODUCIBILITY, EVIDENCE_TYPES, SURFACE_KINDS, LIMITS } from "./feedback";
 import { MAX_DESIRED_LATENCY_MS, MIN_DESIRED_LATENCY_MS, ROADMAP, ROADMAP_KEYS } from "./newsletter";
 
@@ -15,6 +16,7 @@ export const ERROR_CODES = [
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   "chunklaya_input", "chunklaya_busy", "chunklaya_unavailable",
   "long_context_payment_required", "long_context_too_large", "long_context_no_evidence", "long_context_unavailable", "long_context_input",
+  "job_busy", "job_closed", "part_sequence",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
   "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid", "account_route_required",
@@ -66,6 +68,13 @@ const ACCOUNT_BILLING_HEADERS = {
   "x-usage-cost-usd": { schema: { type: "string" }, description: "Customer charge in USD before credit rounding. Settlement may still be pending." },
   "x-billing-status": { schema: { type: "string", enum: ["pending", "settled", "refunded", "review"] }, description: "Workspace charge result. Present when a classifier_agent_ key is used." },
 };
+const JOB_ID = { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" },
+  description: "A UUID chosen by the caller; reuse it to retry creation or resume the same job." };
+const JOB_RESPONSE = { "200": { description: "Job progress or result.", content: { "application/json": { schema: { type: "object" } } } },
+  "400": err("Invalid job metadata or part."), "401": err("A valid workspace API key is required."),
+  "402": err("A funded workspace and sufficient balance are required."),
+  "409": err("The job is closed, busy, or the next part sequence is different."),
+  "503": err("Jev or job processing is unavailable; retry the same part or finish call.") };
 const TYPESAFE_ENTRY = {
   anyOf: [
     { type: "string" },
@@ -591,6 +600,46 @@ export const OPENAPI = {
         },
       },
     },
+    "/v1/long-context/jobs/{id}/create": {
+      put: {
+        operationId: "createLongContextJob", tags: ["classify"],
+        summary: "Create a paid long-context job (up to 10M tokens)",
+        description: "Choose a UUID once and reuse it on retries. Creation holds credits for max_tokens at $0.084/M original input tokens; final judgment settles the actual uploaded part-token count. Requires a funded workspace. No source text is stored at creation.",
+        security: [{ accountKey: [] }], parameters: [JOB_ID],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["max_tokens", "documents", "labels"], properties: {
+          max_tokens: { type: "integer", minimum: 1, maximum: LONG_CONTEXT_JOB_MAX_TOKENS },
+          documents: { type: "integer", minimum: 1, maximum: 20 },
+          labels: { type: "array", minItems: 2, maxItems: 100, items: { type: "string", maxLength: 200 } },
+          instructions: { type: "string", maxLength: 4000 }, multi: { type: "boolean" }, tier: { const: "fast" },
+        } } } } }, responses: { ...JOB_RESPONSE, "201": { description: "Job created and maximum charge reserved." } },
+      },
+    },
+    "/v1/long-context/jobs/{id}/parts/{sequence}": {
+      put: {
+        operationId: "uploadLongContextPart", tags: ["classify"],
+        summary: "Screen one bounded text part",
+        description: `Upload source text in document order. Sequence starts at zero with no gaps, up to ${LONG_CONTEXT_MAX_PARTS.toLocaleString("en-US")} parts. Each part fits 1 MB JSON and ${LONG_CONTEXT_PART_MAX_TOKENS.toLocaleString("en-US")} cl100k_base tokens. The full source part is discarded after screening; only selected evidence remains until finish, cancel, or 24-hour expiry.`,
+        security: [{ accountKey: [] }], parameters: [JOB_ID,
+          { name: "sequence", in: "path", required: true, schema: { type: "integer", minimum: 0 } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["document", "text"], properties: {
+          document: { type: "integer", minimum: 0, maximum: 19 }, text: { type: "string", minLength: 1 },
+        } } } } }, responses: JOB_RESPONSE,
+      },
+    },
+    "/v1/long-context/jobs/{id}/status": { get: {
+      operationId: "getLongContextJob", tags: ["classify"], summary: "Read job progress or a completed result",
+      security: [{ accountKey: [] }], parameters: [JOB_ID], responses: JOB_RESPONSE,
+    } },
+    "/v1/long-context/jobs/{id}/finish": { post: {
+      operationId: "finishLongContextJob", tags: ["classify"], summary: "Run final Jev judgment and settle the exact charge",
+      description: "Requires at least one uploaded part per document. Eligible evidence may be omitted from the final 20,000-token budget per document. Provider failures keep the hold and may be retried before job expiry; no usable evidence returns 422 and refunds.",
+      security: [{ accountKey: [] }], parameters: [JOB_ID],
+      responses: { ...JOB_RESPONSE, "422": err("No usable evidence was selected; reservation refunded.") },
+    } },
+    "/v1/long-context/jobs/{id}/cancel": { post: {
+      operationId: "cancelLongContextJob", tags: ["classify"], summary: "Refund an unfinished job",
+      security: [{ accountKey: [] }], parameters: [JOB_ID], responses: JOB_RESPONSE,
+    } },
     "/v1/classify": {
       post: {
         operationId: "classifyV1",
