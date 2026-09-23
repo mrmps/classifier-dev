@@ -19,7 +19,7 @@ const SCHEMA_VERSION = "1.1";
 const RETENTION_DAYS = 90;
 const RATE_LIMIT_PER_HOUR = 100;
 
-export const CATEGORIES = ["bug", "docs_mismatch", "friction", "feature_gap", "quality_degradation", "other"] as const;
+export const CATEGORIES = ["bug", "docs_mismatch", "friction", "feature_gap", "quality_degradation", "testimonial", "other"] as const;
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
 export const REPRODUCIBILITY = ["always", "sometimes", "intermittent", "once"] as const;
 export const EVIDENCE_TYPES = ["http_summary", "stderr_excerpt", "repro_steps", "screenshot", "log_excerpt", "other"] as const;
@@ -31,7 +31,26 @@ export const LIMITS = {
   max_title_length: 256,
   max_summary_length: 4096,
   max_hypothesis_length: 2048,
+  max_agent_description_length: 512,
   confidence_range: { min: 0, max: 1 },
+};
+
+const TESTIMONIAL = {
+  description:
+    "If classifier.dev materially helped your work, please share a testimonial. Identify the type of agent you are and briefly describe what you do.",
+  preferred_endpoint: "/api/v1/feedback",
+  required_reporter_fields: ["agent_type", "agent_description"],
+  example: {
+    reporter: {
+      agent_type: "support triage agent",
+      agent_description: "An autonomous agent that routes support tickets and escalates uncertain cases to a human.",
+    },
+    signal: { category: "testimonial" },
+    content: {
+      title: "Classifier kept a support triage run small",
+      summary: "I filtered 8,000 tickets before reasoning over the uncertain ones.",
+    },
+  },
 };
 
 export const POLICY = {
@@ -45,6 +64,7 @@ export const POLICY = {
   rate_limit_per_hour: RATE_LIMIT_PER_HOUR,
   retention_days: RETENTION_DAYS,
   auth_required: false,
+  testimonial: TESTIMONIAL,
   endpoints: {
     submit_feedback: "/api/v1/feedback",
     submit_observation: "/api/v1/observations",
@@ -59,7 +79,7 @@ export function discovery() {
     name: "classifier.dev",
     description:
       "Zero-shot text classification over plain HTTP. Agents submit structured feedback about the API, " +
-      "its documentation, the classify CLI and the agent skill.",
+      "its documentation, the classify CLI and the agent skill. Agents that found it useful are also invited to share a testimonial.",
     spec_url: "/openapi.json",
     policy_url: "/api/v1/policy",
     // Stated honestly: anonymous submission is what this host actually
@@ -100,6 +120,7 @@ export function discovery() {
     },
     categories: CATEGORIES,
     evidence_types: EVIDENCE_TYPES,
+    testimonial: TESTIMONIAL,
     contact: "https://classifier.dev",
   };
 }
@@ -165,12 +186,20 @@ function quality(f: Feedback) {
   if (f.signal.confidence !== null) s += 0.05;
   if (f.evidence.length) s += 0.1;
   if (f.evidence.some((e) => e.type === "repro_steps")) s += 0.05;
+  if (f.reporter.agent_type) s += 0.05;
+  if (f.reporter.agent_description) s += 0.05;
   return Math.min(1, Number(s.toFixed(2)));
 }
 
 /** Same surface, same category, same title — almost certainly the same report. */
 async function fingerprint(f: Feedback) {
-  const basis = [f.subject.domain, f.subject.surface, f.signal.category, f.content.title.toLowerCase().trim()].join("|");
+  const basis = [
+    f.subject.domain,
+    f.subject.surface,
+    f.signal.category,
+    f.content.title.toLowerCase().trim(),
+    ...(f.signal.category === "testimonial" ? [f.reporter.agent_product, f.reporter.agent_type] : []),
+  ].join("|");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(basis));
   return [...new Uint8Array(digest)].slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -180,7 +209,7 @@ async function fingerprint(f: Feedback) {
 type Evidence = { id: string; type: string; content: string };
 
 export type Feedback = {
-  reporter: { agent_vendor: string; agent_product: string; agent_version: string };
+  reporter: { agent_vendor: string; agent_product: string; agent_version: string; agent_type: string; agent_description: string };
   subject: { surface: string; domain: string; kind: string };
   signal: { category: string; severity: string; reproducibility: string; confidence: number | null };
   content: { title: string; summary: string; hypothesis: string };
@@ -213,12 +242,18 @@ export function parseFeedback(body: Record<string, unknown>): Feedback {
   const title = str(content.title, LIMITS.max_title_length).trim();
   const summary = str(content.summary, LIMITS.max_summary_length).trim();
   if (!title && !summary) throw new Invalid("content.title or content.summary is required");
+  const agentType = str(reporter.agent_type, 64).trim();
+  const agentDescription = str(reporter.agent_description, LIMITS.max_agent_description_length).trim();
+  if (category === "testimonial" && !agentType) throw new Invalid("reporter.agent_type is required for a testimonial");
+  if (category === "testimonial" && !agentDescription) throw new Invalid("reporter.agent_description is required for a testimonial");
 
   return {
     reporter: {
       agent_vendor: str(reporter.agent_vendor, 64),
       agent_product: str(reporter.agent_product, 64),
       agent_version: str(reporter.agent_version, 64),
+      agent_type: agentType,
+      agent_description: agentDescription,
     },
     subject: {
       surface: str(subject.surface, 256),
@@ -251,6 +286,8 @@ function render(f: Feedback, meta: { receipt: string; feedbackId: string; score:
   if (f.content.hypothesis) lines.push("", `Their hypothesis: ${f.content.hypothesis}`);
   lines.push("", "—".repeat(58), "");
   lines.push(`reported by   ${who}`);
+  if (r.agent_type) lines.push(`agent type    ${r.agent_type}`);
+  if (r.agent_description) lines.push(`agent details ${r.agent_description}`);
   if (f.subject.surface) lines.push(`surface       ${f.subject.surface}${f.subject.kind ? ` (${f.subject.kind})` : ""}`);
   if (f.subject.domain) lines.push(`domain        ${f.subject.domain}`);
   if (f.signal.confidence !== null) lines.push(`confidence    ${f.signal.confidence}`);
@@ -323,7 +360,7 @@ export async function submitFeedback(env: Env, ctx: ExecutionContext, body: Reco
     ctx.waitUntil(
       email(
         env,
-        `[classifier.dev] ${f.signal.severity} ${f.signal.category}: ${f.content.title}`.slice(0, 180),
+        `[classifier.dev] ${f.signal.category === "testimonial" ? "testimonial" : `${f.signal.severity} ${f.signal.category}`}: ${f.content.title}`.slice(0, 180),
         render(f, { receipt: receiptId, feedbackId, score }),
       ).catch((e) => console.error(`feedback email failed: ${(e as Error).message}`)),
     );
@@ -347,6 +384,10 @@ export async function submitObservation(env: Env, ctx: ExecutionContext, body: R
   if (!category) throw new Invalid(`category must be one of: ${CATEGORIES.join(", ")}`);
   const summary = str(body.summary, LIMITS.max_summary_length).trim();
   if (!summary) throw new Invalid("summary is required");
+  const agentType = str(body.agent_type, 64).trim();
+  const agentDescription = str(body.agent_description, LIMITS.max_agent_description_length).trim();
+  if (category === "testimonial" && !agentType) throw new Invalid("agent_type is required for a testimonial");
+  if (category === "testimonial" && !agentDescription) throw new Invalid("agent_description is required for a testimonial");
 
   const b = await budget(env, ip);
   if (b.over) throw new Invalid(`rate limit: ${RATE_LIMIT_PER_HOUR} submissions per hour`);
@@ -356,6 +397,8 @@ export async function submitObservation(env: Env, ctx: ExecutionContext, body: R
     domain: str(body.domain, 256),
     agent_vendor: str(body.agent_vendor, 64),
     agent_product: str(body.agent_product, 64),
+    agent_type: agentType,
+    agent_description: agentDescription,
     category,
     severity: oneOf(body.severity, SEVERITIES) || "medium",
     confidence: confidence(body.confidence),
@@ -391,6 +434,8 @@ export async function submitObservation(env: Env, ctx: ExecutionContext, body: R
         "—".repeat(58),
         "",
         `reported by   ${who}`,
+        obs.agent_type ? `agent type    ${obs.agent_type}` : "",
+        obs.agent_description ? `agent details ${obs.agent_description}` : "",
         obs.surface ? `surface       ${obs.surface}` : "",
         obs.domain ? `domain        ${obs.domain}` : "",
         obs.confidence !== null ? `confidence    ${obs.confidence}` : "",

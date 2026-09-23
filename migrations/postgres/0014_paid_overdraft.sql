@@ -1,0 +1,2 @@
+ALTER TABLE app_accounts DROP CONSTRAINT app_accounts_balance_check;
+ALTER TABLE app_accounts DROP CONSTRAINT app_accounts_paid_balance_check;

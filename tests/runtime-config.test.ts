@@ -64,6 +64,11 @@ test("deployment migrates directly and gives the Worker only the pooled URL", ()
   const workflow = readFileSync(new URL(".github/workflows/deploy.yml", root), "utf8");
   expect(workflow).toContain("DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}");
   expect(workflow).toContain("DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}\n        run: npm run db:migrate");
-  expect(workflow).toContain("JSON.stringify({ DATABASE_URL: process.env.DATABASE_URL })");
+  // The Worker's secrets file carries the pooled URL and, only when both are
+  // set, the chunklaya pair; the deploy step never sees the unpooled URL.
+  expect(workflow).toContain("const { DATABASE_URL, CHUNKLAYA_URL, CHUNKLAYA_TOKEN } = process.env;");
+  expect(workflow).toContain("JSON.stringify({ DATABASE_URL, ...(CHUNKLAYA_URL && CHUNKLAYA_TOKEN ? { CHUNKLAYA_URL, CHUNKLAYA_TOKEN } : {}) })");
+  const deployStep = workflow.slice(workflow.indexOf("- name: Deploy\n"), workflow.indexOf("npx wrangler deploy"));
+  expect(deployStep).not.toContain("UNPOOLED");
   expect(workflow).not.toContain("JSON.stringify({ DATABASE_URL_UNPOOLED:");
 });
