@@ -569,6 +569,42 @@ ${table("Busiest classifiers", d.topLabels, ["label_names", "labels", "requests"
 
 // ---------------------------------------------------------------- entry
 
+async function classifierRegistry(env: Env, cursor: string) {
+  const listed = await env.STATS.list({ prefix: "cls:", limit: 50, ...(cursor ? { cursor } : {}) });
+  const rows = await Promise.all(listed.keys.map(async ({ name }) => {
+    const raw = await env.STATS.get(name);
+    let labels: string[] = [];
+    try {
+      const parsed = JSON.parse(raw ?? "null")?.labels;
+      if (Array.isArray(parsed) && parsed.length && parsed.every(label => typeof label === "string")) labels = parsed;
+    } catch { /* Legacy timestamp-only entries have no label names. */ }
+    return { fingerprint: name.slice(4), labels };
+  }));
+  return { rows, cursor: listed.list_complete ? "" : listed.cursor };
+}
+
+function classifierRegistryPage(data: Awaited<ReturnType<typeof classifierRegistry>> | null, cursor: string) {
+  const navigation = (position: string) => `<nav class="actions label-pages" aria-label="${position} label set pages">
+    ${cursor ? '<a class="control" href="/admin?view=labels">First page</a>' : ""}
+    ${data?.cursor ? `<a class="control" href="/admin?view=labels&amp;cursor=${esc(encodeURIComponent(data.cursor))}" rel="next">Next page →</a>` : ""}
+  </nav>`;
+  return shell("All label sets · classifier.dev", `<div class="admin-app dark">
+    <a class="label-skip control" href="#label-sets">Skip to label sets</a>
+    <header class="topbar"><a class="brand" href="/">classifier<span>.dev</span></a><a class="signout" href="/admin?logout=1">Sign out ↗</a></header>
+    <main id="label-sets">
+      <div class="page-heading"><div><h1>All label sets</h1><p>Full retained registry · up to 90 days · not limited by the analytics date range</p></div>
+      <a class="control" href="/admin#Adoption">Back to analytics</a></div>
+      <p>Names are collected after successful classifications. Older fingerprints may have no names. Dimension definitions remain fingerprint-only.</p>
+      ${data ? `<p>${data.rows.length} label sets on this page, in fingerprint order. New entries may take a minute to appear.</p>${navigation("Top")}
+        ${data.rows.length ? `<table class="label-registry"><thead><tr><th scope="col">Labels</th><th scope="col">Classifier fingerprint</th></tr></thead><tbody>
+          ${data.rows.map(row => `<tr data-classifier="${esc(row.fingerprint)}"><td>${row.labels.length
+            ? `<ul class="label-values">${row.labels.map(label => `<li>${esc(label)}</li>`).join("")}</ul>`
+            : "Names not collected"}</td><td><code>${esc(row.fingerprint)}</code></td></tr>`).join("")}
+        </tbody></table>${navigation("Bottom")}` : `<p class="empty-state">${cursor ? "No label sets on this page. Return to the first page to refresh the registry." : "No label sets collected yet. Successful classifications will appear here."}</p>`}`
+        : '<p role="alert">Unable to load label sets. Reload this page to retry, or <a href="/admin?view=labels">start from the first page</a>.</p>'}
+    </main></div>`, '<link rel="stylesheet" href="/admin-assets/admin.css">');
+}
+
 /**
  * What a page of operator figures is allowed to do, which is nothing. It loads
  * no third-party anything, so `default-src 'none'` costs it nothing and turns
@@ -690,6 +726,16 @@ export async function adminResponse(req: Request, env: Env, path: string, ip: st
   }
 
   const asked = url.searchParams.get("range") ?? "24h";
+  if (url.searchParams.get("view") === "labels") {
+    const cursor = url.searchParams.get("cursor") ?? "";
+    try {
+      if (cursor.length > 2048) return page(400, () => classifierRegistryPage(null, ""));
+      const registry = await classifierRegistry(env, cursor);
+      return page(200, () => classifierRegistryPage(registry, cursor));
+    } catch {
+      return page(503, () => classifierRegistryPage(null, cursor));
+    }
+  }
   const range: RangeKey = asked === "7d" || asked === "30d" ? asked : "24h";
   const data = await load(env, range);
   return page(200, (n) => dashboard(range, data, n));

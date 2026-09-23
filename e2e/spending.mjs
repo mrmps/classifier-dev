@@ -10,7 +10,7 @@ let barrier = Promise.resolve();
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => p.endsWith('.js')).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
-  bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture', FREE_LABEL_RPM: '200', FREE_LABEL_DAILY: '200', AGENT_API_KEY: 'operator-fixture', ENTERPRISE_API_KEY: 'enterprise-fixture', OPERATOR_DAILY_USD: '0.010001' },
+  bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'private-e2e-fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', INTERNAL_API_KEY: 'private-fixture', FREE_LABEL_RPM: '200', FREE_LABEL_DAILY: '200', AGENT_API_KEY: 'operator-fixture', ENTERPRISE_API_KEY: 'enterprise-fixture', OPERATOR_DAILY_USD: '0.010001', ADMIN_PASSWORD: 'admin-fixture', ADMIN_SIGNING_KEY: 'private-admin-fixture' },
   outboundService: async request => {
     if (request.url.startsWith('https://api.spur.us/')) { lookups++; return WorkerResponse.json({}); }
     calls++; await barrier;
@@ -24,6 +24,54 @@ const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending
 const request = (ip, body = { inputs: ['Invoice question'], labels: ['billing', 'support'] }, path = '/v1/classify', headers = {}) => mf.dispatchFetch(`https://classifier.dev${path}`, { method: 'POST', headers: { 'cf-connecting-ip': ip, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 try {
   await mf.ready;
+  const adminUrl = 'https://classifier.dev/admin?view=labels';
+  const unauthenticated = await mf.dispatchFetch(adminUrl);
+  assert.equal(unauthenticated.status, 401);
+  const login = await mf.dispatchFetch('https://classifier.dev/admin', { method: 'POST', redirect: 'manual',
+    headers: { origin: 'https://classifier.dev', 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=admin-fixture' });
+  assert.equal(login.status, 302);
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const adminGet = url => mf.dispatchFetch(url, { headers: { cookie } });
+  const empty = await adminGet(adminUrl);
+  assert.equal(empty.status, 200);
+  assert.match(await empty.text(), /No label sets collected yet/);
+  const labelStore = await mf.getKVNamespace('STATS');
+  for (let i = 0; i < 53; i++) await labelStore.put(`cls:ls_${i.toString(16).padStart(16, '0')}`, JSON.stringify({
+    labels: i === 0 ? ['<script>alert("unsafe")</script>', 'safe & sound'] : [`category ${i}`, 'billing', 'support'], firstSeen: '2026-09-23T00:00:00.000Z',
+  }));
+  await labelStore.put('cls:ls_legacy', '2026-09-01T00:00:00.000Z');
+  await labelStore.put('cls:ls_malformed', '{broken');
+  await labelStore.put('unrelated-secret', 'must not appear');
+  let next = adminUrl;
+  const seen = new Set();
+  const pageSizes = [];
+  while (next) {
+    const response = await adminGet(next);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('cache-control'), /private/);
+    const html = await response.text();
+    assert.match(html, /All label sets/);
+    assert.doesNotMatch(html, /<script>alert|must not appear/);
+    const ids = [...html.matchAll(/data-classifier="([^"]+)"/g)].map(match => match[1]);
+    pageSizes.push(ids.length);
+    for (const id of ids) { assert.ok(!seen.has(id), 'no duplicate registry rows'); seen.add(id); }
+    if (pageSizes.length === 1) {
+      assert.match(html, /&lt;script&gt;alert/);
+      assert.match(html, /safe &amp; sound/);
+      assert.match(html, /category 49/);
+    } else assert.match(html, /Names not collected/);
+    const href = html.match(/href="([^"]+)"[^>]*rel="next"/)?.[1];
+    next = href ? new URL(href.replaceAll('&amp;', '&'), adminUrl).href : null;
+    assert.ok(pageSizes.length <= 2, 'pagination must finish');
+  }
+  assert.deepEqual(pageSizes, [50, 5]);
+  assert.equal(seen.size, 55);
+  const refused = await mf.dispatchFetch(adminUrl);
+  assert.equal(refused.status, 401);
+  assert.doesNotMatch(await refused.text(), /category 49|data-classifier/);
+  assert.equal((await adminGet(`${adminUrl}&cursor=${'x'.repeat(2049)}`)).status, 400);
+  report.results.push({ name: 'authenticated full label registry', unauthenticated: 401, empty: 200, pages: pageSizes,
+    uniqueLabelSets: seen.size, escapedLabels: true, legacyAndMalformedRecords: 'explicitly unnamed' });
   barrier = new Promise(r => { release = r; });
   const running = Array.from({ length: 12 }, (_, i) => request(i % 2 ? '2001:db8:1:2::1' : '2001:0db8:0001:0002::ffff'));
   for (let i = 0; i < 250 && calls < 4; i++) await new Promise(r => setTimeout(r, 20));
@@ -68,7 +116,8 @@ try {
   for (let attempt = 0; attempt < 50 && !storedLabels; attempt++) {
     const entries = await registry.list({ prefix: 'cls:' });
     for (const key of entries.keys) {
-      const record = await registry.get(key.name, 'json');
+      let record;
+      try { record = JSON.parse(await registry.get(key.name)); } catch { continue; }
       if (record?.labels?.join(',') === 'allow,deny') storedLabels = record;
     }
     if (!storedLabels) await new Promise(resolve => setTimeout(resolve, 20));
