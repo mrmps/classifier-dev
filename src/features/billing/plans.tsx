@@ -126,6 +126,14 @@ export function Plans({
           </AlertDescription>
         </Alert>
       )}
+      {billing.complimentaryUntil && (
+        <Alert>
+          <AlertTitle>Complimentary Pro</AlertTitle>
+          <AlertDescription>
+            Your Pro plan is free through {new Date(billing.complimentaryUntil).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })}. The included usage refreshes monthly; no subscription payment is scheduled.
+          </AlertDescription>
+        </Alert>
+      )}
       {billing.scheduledPlan && (
         <Alert>
           <AlertTitle>
@@ -134,7 +142,7 @@ export function Plans({
           </AlertTitle>
           <AlertDescription>
             <p>Your {current.name} plan stays active until then.</p>
-            {enabled && (
+            {enabled && !billing.complimentaryUntil && (
               <Button
                 variant="outline"
                 size="sm"
@@ -163,6 +171,7 @@ export function Plans({
             variant="outline"
             disabled={
               !enabled ||
+              !!billing.complimentaryUntil ||
               billing.scheduledPlan === "free" ||
               current.id === "free"
             }

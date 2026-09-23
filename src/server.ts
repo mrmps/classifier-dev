@@ -9,6 +9,7 @@ import { isAppRequest } from "./http/dispatch";
 import { appEnvironment } from "./server/environment";
 import { autumnWebhook } from "./http/autumn-webhook";
 import { syncAutumnAccounts } from "./server/billing-sync";
+import { syncComplimentaryProAccounts } from "./server/complimentary-pro";
 import {
   mayRenderPublicHtml,
   publicNavigationAuth,
@@ -76,8 +77,10 @@ export default {
     ctx: ExecutionContext,
   ) {
     const env = appEnvironment(bindings);
-    if (env.APP_ACCOUNTS_ENABLED === "true")
+    if (env.APP_ACCOUNTS_ENABLED === "true") {
       ctx.waitUntil(syncAutumnAccounts(env));
+      ctx.waitUntil(syncComplimentaryProAccounts(env));
+    }
     return worker.scheduled(controller, env, ctx);
   },
 };

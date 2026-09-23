@@ -1,10 +1,14 @@
 import { autumnRequest, getAutumnCustomer, type AutumnEnv } from "./autumn";
 import { AppError } from "./db";
+import { hasActiveComplimentaryPro } from "./complimentary-pro";
 
 /** Fetch current state rather than trusting an out-of-order webhook snapshot.
  * A monotonically increasing local revision fences slower concurrent fetches. */
 export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string) {
   if (!env.AUTUMN_PRO_PLAN_ID) throw new AppError(503, "Billing plan is not configured.");
+  const existing = await env.APP_DB.prepare("SELECT account_id FROM app_autumn_customers WHERE customer_id=?")
+    .bind(customerId).first<{ account_id: string }>();
+  if (existing && await hasActiveComplimentaryPro(env, existing.account_id)) return true;
   const mapping = await env.APP_DB.prepare("UPDATE app_autumn_customers SET revision=revision+1,last_attempt_at=?,reconciliation_required=TRUE WHERE customer_id=? RETURNING revision,account_id")
     .bind(new Date().toISOString(), customerId).first<{ revision: number; account_id: string }>();
   // Unmapped customers belong to the old deployment or another application.

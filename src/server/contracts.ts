@@ -8,6 +8,7 @@ export interface BillingSnapshot {
   plan: BillingPlanId;
   scheduledPlan: BillingPlanId | null;
   cancelAtPeriodEnd: boolean;
+  complimentaryUntil: string | null;
   mode: "autumn" | "unconfigured";
   transactions: Array<{
     id: string;

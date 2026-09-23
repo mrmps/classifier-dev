@@ -16,6 +16,10 @@ export async function billingSnapshot(
       cancel_at_period_end: number;
     }>();
   if (!row) throw new AppError(404, "Account not found.");
+  const complimentary = row.billing_plan === "pro"
+    ? await env.APP_DB.prepare("SELECT ends_at FROM app_complimentary_pro WHERE account_id=? AND starts_at<=? AND ends_at>?")
+      .bind(accountId, new Date().toISOString(), new Date().toISOString()).first<{ ends_at: string }>()
+    : null;
 
   const { results } = await env.APP_DB.prepare(
     "SELECT id,kind,amount_cents,credits,created_at FROM app_transactions WHERE account_id=? ORDER BY created_at DESC LIMIT 100",
@@ -36,6 +40,7 @@ export async function billingSnapshot(
     plan: row.billing_plan,
     scheduledPlan: row.scheduled_plan,
     cancelAtPeriodEnd: !!row.cancel_at_period_end,
+    complimentaryUntil: complimentary?.ends_at ?? null,
     mode:
       env.APP_ACCOUNTS_ENABLED === "true" &&
       env.AUTUMN_SECRET_KEY &&

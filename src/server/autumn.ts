@@ -1,4 +1,5 @@
 import { AppError, type AppEnv } from "./db";
+import { hasActiveComplimentaryPro } from "./complimentary-pro";
 
 export type AutumnEnv = AppEnv & {
   AUTUMN_SECRET_KEY?: string;
@@ -78,6 +79,8 @@ function billingUrl(value: unknown) {
  * must be supplied by server configuration, never copied from request JSON. */
 export async function createAutumnCheckout(env: AutumnEnv, accountId: string, returnUrl: string) {
   if (!env.AUTUMN_PRO_PLAN_ID) throw unavailable();
+  if (await hasActiveComplimentaryPro(env, accountId))
+    throw new AppError(409, "Your complimentary Pro plan is active until its displayed end date.");
   const customerId = await customerForWorkspace(env, accountId);
   const customer = await getAutumnCustomer(env, customerId);
   if (customer.subscriptions.some((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID &&
@@ -96,6 +99,8 @@ export async function createAutumnCheckout(env: AutumnEnv, accountId: string, re
 }
 
 export async function createAutumnPortal(env: AutumnEnv, accountId: string, returnUrl: string) {
+  if (await hasActiveComplimentaryPro(env, accountId))
+    throw new AppError(409, "Your complimentary Pro plan does not have a paid subscription to manage.");
   const customerId = await customerForWorkspace(env, accountId);
   const result = await autumnRequest(env, "billing.open_customer_portal", { customer_id: customerId, return_url: returnUrl });
   if (result.customer_id !== customerId) throw unavailable();

@@ -1,6 +1,7 @@
 import { FREE_ALLOWANCE_CREDITS } from "../lib/billing";
 import { AppError, now, type AppEnv } from "./db";
 import { WORKSPACE_COOKIE } from "./organizations";
+import { syncComplimentaryPro } from "./complimentary-pro";
 
 /** A selected workspace belongs to the previous session, not the next signer. */
 export function clearWorkspaceSelection(
@@ -71,6 +72,7 @@ export async function requireAccount(
   if (env.APP_ACCOUNTS_ENABLED === "true") {
     const { linkPersonalBilling } = await import("./billing-identity");
     await linkPersonalBilling(user, env);
+    await syncComplimentaryPro(env, user.email, accountId);
   }
   return accountId;
 }
