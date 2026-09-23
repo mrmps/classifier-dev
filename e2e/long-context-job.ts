@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { countTokens } from "gpt-tokenizer/encoding/cl100k_base";
 import { LongContextJob } from "../src/long-context-job";
+import { accountApi } from "../src/http/account-api";
 import { accountClassification } from "../src/http/classification";
 import { appEnvironment } from "../src/server/environment";
 import { parseCreditInteger, postgresDatabase } from "../src/server/db";
@@ -89,6 +90,13 @@ async function send(method: string, path: string, body?: unknown, jobId = id) {
   return response;
 }
 try {
+  const preflight = await accountApi(new Request(`https://classifier.dev/v1/long-context/jobs/${id}/create`, {
+    method: "OPTIONS", headers: { origin: "https://example.org", "access-control-request-method": "PUT" },
+  }), env, ctx);
+  assert.ok(preflight);
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
+  assert.match(preflight.headers.get("access-control-allow-methods") ?? "", /PUT/);
   const directory = new URL("../migrations/postgres/", import.meta.url);
   for (const name of (await readdir(directory)).filter(name => name.endsWith(".sql")).sort())
     await pg.exec(await readFile(new URL(name, directory), "utf8"));

@@ -210,7 +210,7 @@ export function primaryModels(): string[] {
 
 const CORS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
   "access-control-allow-headers": "Content-Type, Authorization, Accept, Idempotency-Key, If-None-Match, Mcp-Session-Id, MCP-Protocol-Version, X-TypeSafe-SDK, X-TypeSafe-Runtime, X-TypeSafe-Retry-Count",
   "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, Retry-After-Ms, x-api-version, x-typesafe-request-id, Idempotency-Key",
 };

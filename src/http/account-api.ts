@@ -8,7 +8,9 @@ import { accountMcp } from "./mcp";
 export async function accountApi(request: Request, env: AppEnv & Env, ctx: ExecutionContext): Promise<Response | null> {
   // Preflights carry no key and must not enter account authentication or GET-only routes.
   if (request.method === "OPTIONS") {
-    return new URL(request.url).pathname.startsWith("/v1/account/") ? legacy.fetch(request, env, ctx) : null;
+    const path = new URL(request.url).pathname;
+    return path.startsWith("/v1/account/") || path.startsWith("/v1/long-context/jobs/")
+      ? legacy.fetch(request, env, ctx) : null;
   }
   let response: Response | null;
   try {
