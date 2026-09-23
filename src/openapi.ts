@@ -957,7 +957,10 @@ export const OPENAPI = {
         required: ["model", "answers", "usage"],
         properties: {
           model: { type: "string" },
-          answers: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_ANSWER },
+          answers: {
+            type: "object", minProperties: 1,
+            additionalProperties: { oneOf: [TYPESAFE_ANSWER, { type: "null", description: "A question the dgemma service skipped because its ask_if condition was not met." }] },
+          },
           usage: { type: "object", required: ["input_tokens", "output_tokens"], properties: {
             input_tokens: { type: "integer" }, output_tokens: { type: "integer" },
           } },
