@@ -430,7 +430,7 @@ function pauseGateway(kind: keyof typeof GATEWAY_PAUSE_MS, retryAfter?: string |
 }
 
 /** One attempt through the gateway. It is never retried here: TypeSafe is the retry. */
-async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset): Promise<JevPayload> {
+async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset, timeoutMs = UPSTREAM_TIMEOUT_MS): Promise<JevPayload> {
   const started = Date.now();
   const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "gateway", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: 1 });
   const questions = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, gatewayQuestion(q)]));
@@ -447,7 +447,7 @@ async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?
         "ai-model-id": GATEWAY_MODEL,
       },
       body: JSON.stringify({ state: body.state, questions }),
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
     const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
@@ -501,13 +501,13 @@ async function post(keys: JevKeys, body: JevBody, meter?: Meter, backend: Backen
   // unversioned gateway or silently follow a new model behind jev-latest.
   if (meter?.beforeCall) {
     if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
-    return postTypesafe(keys.typesafe, { ...body, model: backend.accountModel }, meter, keys.analytics);
+    return postTypesafe(keys.typesafe, { ...body, model: backend.accountModel }, meter, keys.analytics, backend);
   }
   // Without a TypeSafe key there is nothing to pause towards, so the gateway is always tried.
   const tryGateway = keys.gateway && (!keys.typesafe || Date.now() >= gatewayPausedUntil);
   if (keys.gateway && tryGateway) {
     try {
-      return await postGateway(keys.gateway, body, meter, keys.analytics);
+      return await postGateway(keys.gateway, body, meter, keys.analytics, backend.timeoutMs);
     } catch (e) {
       if (!keys.typesafe) throw e;
       // Too big for Jev is too big through either door: let the caller halve it
@@ -519,7 +519,7 @@ async function post(keys: JevKeys, body: JevBody, meter?: Meter, backend: Backen
     recordJevAttempt(keys.analytics, { provider: "gateway", outcome: "skipped", reason: "cooldown", status: 0, ms: 0, items: body.state.length, attempt: 0 });
   }
   if (!keys.typesafe) throw new JevError("typesafe: no key configured", 0, "unconfigured");
-  return postTypesafe(keys.typesafe, body, meter, keys.analytics);
+  return postTypesafe(keys.typesafe, body, meter, keys.analytics, backend);
 }
 
 /**
@@ -600,9 +600,9 @@ function beamFailureReason(status: number, raw: unknown) {
   return "upstream_error";
 }
 
-async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset): Promise<JevPayload> {
+async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics?: AnalyticsEngineDataset, backend: Backend = JEV_BACKEND): Promise<JevPayload> {
   let last: Error = new Error("typesafe: no attempt made");
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < backend.attempts; attempt++) {
     await meter?.beforeCall?.("typesafe", body.model, 0);
     const started = Date.now();
     const observe = (status: number, reason = "") => recordJevAttempt(analytics, { provider: "typesafe", outcome: reason ? "failure" : "success", reason, status, ms: Date.now() - started, items: body.state.length, attempt: attempt + 1 });
@@ -612,14 +612,14 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(backend.timeoutMs ?? UPSTREAM_TIMEOUT_MS),
       });
     } catch (e) {
       if (e instanceof SpendingError) throw e;
       const timeout = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
       observe(timeout ? 504 : 0, timeout ? "timeout" : "network");
       last = new JevError(`typesafe ${timeout ? "timeout" : "network failure"}`, timeout ? 504 : 0, timeout ? "timeout" : "network");
-      if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
+      if (attempt < backend.attempts - 1) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
       continue;
     }
     const rawPayload = await res.json().catch(() => null);
@@ -643,7 +643,7 @@ async function postTypesafe(key: string, body: JevBody, meter?: Meter, analytics
     );
     // 429 and 529 are the documented "back off and retry" statuses.
     const retryable = res.status === 408 || res.status === 425 || res.status === 429 || res.status === 529 || res.status >= 500 || res.ok;
-    if (!retryable || attempt >= 2) break;
+    if (!retryable || attempt >= backend.attempts - 1) break;
     await new Promise((r) => setTimeout(r, 300 * 2 ** attempt + Math.random() * 200));
   }
   throw last;

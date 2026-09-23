@@ -1,7 +1,7 @@
 import { RecursiveChunker, RecursiveRules, Tokenizer } from "@chonkiejs/core";
 import { countTokens } from "gpt-tokenizer/encoding/cl100k_base";
 import type { Meter } from "./cost";
-import { jevClassificationFits, jevClassify, type JevKeys, type JevResult } from "./jev";
+import { JEV_BACKEND, jevClassificationFits, jevClassify, type JevKeys, type JevResult, type Backend } from "./jev";
 
 export const LONG_CONTEXT_THRESHOLD = 32_000;
 export const LONG_CONTEXT_MAX_TOKENS = 250_000;
@@ -14,6 +14,8 @@ const EVIDENCE_TOKENS = 20_000;
 const IRRELEVANT_CONFIDENCE = 0.9;
 const SCREEN_LABELS = ["relevant", "uncertain", "irrelevant"];
 const tokenOptions = { disallowedSpecial: new Set<string>() };
+const LONG_CONTEXT_BACKEND: Backend = { ...JEV_BACKEND, timeoutMs: 30_000, attempts: 2 };
+const SCREENING_BACKEND: Backend = { ...LONG_CONTEXT_BACKEND, limits: { ...JEV_BACKEND.limits, maxItems: 8 } };
 
 export class LongContextError extends Error {
   constructor(message: string, readonly status: number, readonly code:
@@ -165,7 +167,7 @@ export async function classifyLongContext(
     throw new LongContextError("A chunk and rubric exceed the Jev context budget", 400, "long_context_input");
   }
   const screened = await phase(meter, stats, "screening", () =>
-    jevClassify(keys, chunks, SCREEN_LABELS, screeningInstructions, false, meter));
+    jevClassify(keys, chunks, SCREEN_LABELS, screeningInstructions, false, meter, SCREENING_BACKEND));
   stats.screenedChunks += screened.length;
   let offset = 0;
   const evidence: string[] = [];
@@ -194,5 +196,5 @@ export async function classifyLongContext(
   if (missingEvidence) {
     throw new LongContextError("No usable evidence was selected for at least one input", 422, "long_context_no_evidence");
   }
-  return phase(meter, stats, "final", () => jevClassify(keys, evidence, labels, finalInstructions, multi, meter));
+  return phase(meter, stats, "final", () => jevClassify(keys, evidence, labels, finalInstructions, multi, meter, LONG_CONTEXT_BACKEND));
 }
