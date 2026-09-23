@@ -79,6 +79,10 @@ LAYA_ENABLED = "true"
 # Worker secrets CHUNKLAYA_URL and CHUNKLAYA_TOKEN are set. Automatic long
 # context now uses Jev screening and judgment with funded-workspace admission.
 CHUNKLAYA_ENABLED = "true"
+# model="dgemma" or an images array on POST /v1/systemone routes to the
+# image-capable DiffusionGemma service when the Worker secrets DGEMMA_URL and
+# DGEMMA_TOKEN are set; otherwise such requests answer dgemma_unavailable.
+DGEMMA_ENABLED = "true"
 # Enable only after account migration, pricing and Autumn reconciliation checks.
 APP_ACCOUNTS_ENABLED = "true"
 # Gateway free-tier 429s observed in production. Re-enable only after capacity is verified.

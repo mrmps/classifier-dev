@@ -56,7 +56,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
         throw new SpendingError(400, "long_context_too_large", `Long context supports at most ${LONG_CONTEXT_MAX_TOKENS.toLocaleString("en-US")} original context tokens per request.`);
       contextTokens = count;
     }
-    const trial = body.model === "laya" || body.model === "kev" || body.model === "chunklaya";
+    const trial = body.model === "laya" || body.model === "kev" || body.model === "chunklaya" || body.model === "dgemma";
     const quotedCharge = contextTokens !== undefined ? longContextCharge(contextTokens)
       : classificationCharge(trial ? 0 : 65536 * decisions, body.tier === "smart" ? decisions : 0);
     const quote = Number((quotedCharge.nanodollars + 9999n) / 10000n);

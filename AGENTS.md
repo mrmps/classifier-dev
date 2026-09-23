@@ -69,6 +69,15 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   request; the service refuses rather than truncates, its 4xx become
   `chunklaya_input`, and there is no fallback to Jev or the LLM chain. It is
   billed by the hour, so no per-token provider cost is metered.
+- dgemma (`dgemma`) is DiffusionGemma 26B-A4B in vLLM's structured-read mode
+  (vllm-project/vllm#57250), on a RunPod pod, behind the PR's `/v1/systemone`
+  interposer, which speaks System One and reads an `images` array. It is the
+  image door of POST /v1/systemone: `src/dgemma.ts` sends a body that names
+  model "dgemma" or carries images there, with `DGEMMA_URL` and `DGEMMA_TOKEN`
+  (Worker secrets) when `DGEMMA_ENABLED` is `"true"`; every other body stays
+  TypeSafe's. Nothing answers for the other: a refused body is `dgemma_input`,
+  a busy service `dgemma_busy`, a down or unconfigured one `dgemma_unavailable`,
+  and images under another model `images_unsupported`. Billed by the hour.
 - The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
   text, the signup form and the Markdown all render from it. Addresses go to the
   `subscriber` table in the shared application Neon database. Preserve consent,

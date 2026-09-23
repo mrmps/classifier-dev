@@ -44,6 +44,7 @@ const models: Record<string, { context: number; input: number; output: number }>
   "beam:jev/kev": { context: 8192, input: 0.021, output: 0 },
   // Our own pod, billed by the hour: no per-token provider price. The context is the service's document ceiling.
   "chunklaya:chunklaya/multilingual": { context: 1048576, input: 0, output: 0 },
+  "dgemma:dgemma": { context: 32768, input: 0, output: 0 },
   "openrouter:google/gemini-3.8-flash": { context: 1048576, input: 0.75, output: 3.75 },
   "openrouter:ibm-granite/granite-4.0-h-micro": { context: 131000, input: 0.017, output: 0.112 },
   "openrouter:deepseek/deepseek-v4-flash": { context: 1048576, input: 0.056, output: 0.111 },

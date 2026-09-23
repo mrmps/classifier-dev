@@ -14,6 +14,7 @@ export const ERROR_CODES = [
   ...SPENDING_ERROR_CODES,
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   "chunklaya_input", "chunklaya_busy", "chunklaya_unavailable",
+  "dgemma_input", "dgemma_busy", "dgemma_unavailable", "images_unsupported",
   "long_context_payment_required", "long_context_too_large", "long_context_no_evidence", "long_context_unavailable", "long_context_input",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
@@ -548,7 +549,8 @@ export const OPENAPI = {
         description:
           "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
           "Use any non-empty placeholder API key for anonymous per-IP limits, or a classifier_agent_ workspace key to use workspace quota, credits and usage history. Free workspaces have the public ceilings and Pro workspaces get 10x limits. " +
-          "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/.",
+          "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/. " +
+          "Images: set model to \"dgemma\" and add an images array of data URLs; the same questions are then answered about the images and the state by DiffusionGemma, never by Jev, and a body with images under another model is refused with images_unsupported.",
         tags: ["classify"],
         security: [{ accountKey: [] }, {}],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneRequest" } } } },
@@ -567,9 +569,10 @@ export const OPENAPI = {
           "402": { description: "The workspace balance cannot cover the provider reservation; TypeSafe is not called.", content: { "application/json": { schema: { type: "object" } } } },
           "403": { description: "The workspace key is inactive or the workspace cannot authorize usage.", content: { "application/json": { schema: { type: "object" } } } },
           "413": { description: "The request body exceeds 1 MB.", content: { "application/json": { schema: { type: "object" } } } },
-          "429": { description: "classifier.dev or TypeSafe rate limit; Retry-After or Retry-After-Ms is preserved.", headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS }, content: { "application/json": { schema: { type: "object" } } } },
+          "400": { description: "An image request was refused: images_unsupported (images under a model other than dgemma) or dgemma_input (a malformed image, too many images, or a schema the image-capable model refuses; its reason is the error).", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "classifier.dev or TypeSafe rate limit; Retry-After or Retry-After-Ms is preserved. dgemma_busy when the image-capable model is saturated.", headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS }, content: { "application/json": { schema: { type: "object" } } } },
           "502": { description: "TypeSafe could not be reached.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
-          "503": { description: "The compatibility endpoint or workspace billing is temporarily unavailable.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+          "503": { description: "The compatibility endpoint or workspace billing is temporarily unavailable; dgemma_unavailable when the image-capable model is down or not configured.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
         },
       },
     },
@@ -935,8 +938,13 @@ export const OPENAPI = {
         required: ["state", "model", "questions"],
         properties: {
           state: TYPESAFE_ENTRY,
-          model: { type: "string", description: "A name or alias returned by GET /v1/models." },
+          model: { type: "string", description: "A name or alias returned by GET /v1/models, or \"dgemma\" for the image-capable DiffusionGemma model (required when images are sent)." },
           questions: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_QUESTION },
+          images: {
+            type: "array", maxItems: 4,
+            items: { type: "string", pattern: "^data:image/(png|jpeg|webp|gif);base64,", maxLength: 900000 },
+            description: "Images the questions are asked about, ahead of the state, as data URLs; at most 4 and 900,000 base64 characters in total. Only model \"dgemma\" reads them.",
+          },
         },
         example: {
           state: { ticket: "I was charged twice. Please fix this today." },

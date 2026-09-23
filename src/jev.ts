@@ -75,14 +75,15 @@ export function resetGatewayPause() {
 }
 
 /** Where Jev can be asked. Either key alone works; with both, the gateway goes first and TypeSafe catches what it drops. */
-export type JevKeys = { typesafe?: string; gateway?: string; beam?: string; chunklaya?: { url: string; token: string }; analytics?: AnalyticsEngineDataset };
+export type JevKeys = { typesafe?: string; gateway?: string; beam?: string; chunklaya?: { url: string; token: string }; dgemma?: { url: string; token: string }; analytics?: AnalyticsEngineDataset };
 
-export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string; AI_GATEWAY_DISABLED?: string; BEAM_API_KEY?: string; CHUNKLAYA_URL?: string; CHUNKLAYA_TOKEN?: string; JEV_AE?: AnalyticsEngineDataset }): JevKeys | null => {
+export const jevKeys = (env: { TYPESAFE_API_KEY?: string; AI_GATEWAY_API_KEY?: string; AI_GATEWAY_DISABLED?: string; BEAM_API_KEY?: string; CHUNKLAYA_URL?: string; CHUNKLAYA_TOKEN?: string; DGEMMA_URL?: string; DGEMMA_TOKEN?: string; JEV_AE?: AnalyticsEngineDataset }): JevKeys | null => {
   const gateway = env.AI_GATEWAY_DISABLED === "true" ? undefined : env.AI_GATEWAY_API_KEY;
   // Both halves or neither: a URL without its token would send documents to a service that refuses them.
   const chunklaya = env.CHUNKLAYA_URL && env.CHUNKLAYA_TOKEN ? { url: env.CHUNKLAYA_URL, token: env.CHUNKLAYA_TOKEN } : undefined;
-  return env.TYPESAFE_API_KEY || gateway || env.BEAM_API_KEY || chunklaya
-    ? { typesafe: env.TYPESAFE_API_KEY, gateway, beam: env.BEAM_API_KEY, chunklaya, ...(env.JEV_AE ? { analytics: env.JEV_AE } : {}) }
+  const dgemma = env.DGEMMA_URL && env.DGEMMA_TOKEN ? { url: env.DGEMMA_URL, token: env.DGEMMA_TOKEN } : undefined;
+  return env.TYPESAFE_API_KEY || gateway || env.BEAM_API_KEY || chunklaya || dgemma
+    ? { typesafe: env.TYPESAFE_API_KEY, gateway, beam: env.BEAM_API_KEY, chunklaya, dgemma, ...(env.JEV_AE ? { analytics: env.JEV_AE } : {}) }
     : null;
 };
 
