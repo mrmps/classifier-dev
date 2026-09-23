@@ -96,3 +96,136 @@ func TestSingleResultShape(t *testing.T) {
 		t.Fatalf("expected a shape error, got %v", err)
 	}
 }
+
+func TestInputValidation(t *testing.T) {
+	cases := []struct {
+		name   string
+		inputs []string
+		labels []string
+		msg    string
+	}{
+		{"no inputs", nil, []string{"a", "b"}, "inputs must hold 1 to 1,000 texts"},
+		{"empty inputs", []string{}, []string{"a", "b"}, "inputs must hold 1 to 1,000 texts"},
+		{"one label", []string{"x"}, []string{"a"}, "labels must hold 2 to 100 names"},
+		{"no labels", []string{"x"}, nil, "labels must hold 2 to 100 names"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := (&Client{}).Classify(context.Background(), Request{Inputs: tc.inputs, Labels: tc.labels})
+			if err == nil || err.Error() != "classifier.dev: "+tc.msg {
+				t.Fatalf("expected %q, got %v", tc.msg, err)
+			}
+		})
+	}
+}
+
+func TestMultiLabelHappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req Request
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if !req.Multi {
+			t.Error("expected multi=true on the wire")
+		}
+		_, _ = w.Write([]byte(`{"tier":"fast","model":"m","results":[{"labels":["bug","billing"],"scores":{"bug":0.9,"billing":0.8,"praise":0.1}}]}`))
+	}))
+	defer srv.Close()
+	res, err := (&Client{BaseURL: srv.URL}).Classify(context.Background(), Request{
+		Inputs: []string{"x"}, Labels: []string{"bug", "billing", "praise"}, Multi: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results[0].Labels) != 2 || res.Results[0].Labels[0] != "bug" {
+		t.Fatalf("unexpected multi-label result: %v", res.Results[0])
+	}
+}
+
+func TestUserAgent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua := r.Header.Get("User-Agent")
+		if ua != "classifier-dev-go/0.1.0" {
+			t.Errorf("unexpected User-Agent %q", ua)
+		}
+		conf := 0.5
+		_ = json.NewEncoder(w).Encode(Response{Results: []Result{{Label: "a", Confidence: &conf}}})
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL}).Classify(context.Background(), Request{Inputs: []string{"x"}, Labels: []string{"a", "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAPIKeyHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Error("expected Authorization header")
+		}
+		conf := 0.5
+		_ = json.NewEncoder(w).Encode(Response{Results: []Result{{Label: "a", Confidence: &conf}}})
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL, APIKey: "test-key"}).Classify(context.Background(), Request{Inputs: []string{"x"}, Labels: []string{"a", "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResultCountMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"label":"a"}]}`))
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL}).Classify(context.Background(), Request{
+		Inputs: []string{"x", "y"}, Labels: []string{"a", "b"},
+	})
+	if err == nil {
+		t.Fatal("expected error for result count mismatch")
+	}
+}
+
+func TestTopLevelClassify(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conf := 0.9
+		_ = json.NewEncoder(w).Encode(Response{Results: []Result{{Label: "a", Confidence: &conf}}})
+	}))
+	defer srv.Close()
+	// The top-level Classify uses the default client (https://classifier.dev),
+	// so we test via Client directly with the mock to keep it offline.
+	res, err := (&Client{BaseURL: srv.URL}).Classify(context.Background(), Request{Inputs: []string{"x"}, Labels: []string{"a", "b"}})
+	if err != nil || res.Results[0].Label != "a" {
+		t.Fatalf("got %v, %v", res, err)
+	}
+}
+
+func TestCancelledContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("should not reach the server")
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (&Client{BaseURL: srv.URL}).Classify(ctx, Request{Inputs: []string{"x"}, Labels: []string{"a", "b"}})
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+}
+
+func TestOptionsReachWire(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req Request
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Tier != "smart" || req.Instructions != "be strict" || !req.Multi || req.MaxLabels != 3 {
+			t.Errorf("options not on wire: %+v", req)
+		}
+		_, _ = w.Write([]byte(`{"results":[{"labels":["a"],"scores":{"a":0.9,"b":0.1}}]}`))
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL}).Classify(context.Background(), Request{
+		Inputs: []string{"x"}, Labels: []string{"a", "b"},
+		Tier: "smart", Instructions: "be strict", Multi: true, MaxLabels: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
