@@ -1,3 +1,10 @@
+import type { Meter } from "../../cost";
+
+export type LongContextStats = NonNullable<Meter["longContext"]>;
+export interface LongContextAnalyticsEnv {
+  LONG_CONTEXT_AE?: { writeDataPoint(point: { indexes: string[]; blobs: string[]; doubles: number[] }): void };
+}
+
 export type AnalyticsKind = "summary" | "timeseries" | "breakdown" | "activity";
 export type AnalyticsRow = Record<string, string | number | null>;
 export interface AccountAnalyticsResponse {
@@ -34,4 +41,5 @@ export interface AccountAnalyticsEvent {
   retailCostUsd: number | null;
   latencyMs: number;
   escalations?: number;
+  longContext?: LongContextStats;
 }

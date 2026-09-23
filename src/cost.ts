@@ -37,6 +37,22 @@ export type ModelTokenUsage = TokenCounts & {
 
 /** Per-request accumulator. Token counts are upstream usage, not a retail price. */
 export type Meter = {
+  longContext?: {
+    contextTokens: number;
+    documents: number;
+    chunks: number;
+    screenedChunks: number;
+    eligibleChunks: number;
+    selectedChunks: number;
+    omittedChunks: number;
+    screeningInputTokens: number | null;
+    finalInputTokens: number | null;
+    screeningCalls: number;
+    finalCalls: number;
+    screeningMs: number;
+    finalMs: number;
+    tokenizer: "cl100k_base";
+  };
   permit?: import("./spending/permit").Permit;
   usd: number;
   tokens: ModelTokenUsage[];

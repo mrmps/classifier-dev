@@ -42,6 +42,10 @@ dataset = "classifier_jev_attempts"
 binding = "ACCOUNT_AE"
 dataset = "classifier_account_events"
 
+[[analytics_engine_datasets]]
+binding = "LONG_CONTEXT_AE"
+dataset = "classifier_long_context_events"
+
 # A local, permissive burst shield lets exact Durable Object admission overlap
 # the fast inference call without exposing the single warm GPU to obvious floods.
 [[ratelimits]]
@@ -71,11 +75,9 @@ SPUR_MONTHLY_LOOKUPS = "45000"
 # deployment of our own to point at. BEAM_API_KEY is a Worker secret, never a
 # plaintext var, and it is the only credential either model needs.
 LAYA_ENABLED = "true"
-# Documents over 32,000 characters go to chunklaya, our own long-document
-# service (github.com/myxamediyar/chunklaya, serve/), when CHUNKLAYA_URL (the
-# pod's proxy address) and CHUNKLAYA_TOKEN (its bearer) are set as Worker
-# secrets. Without them such inputs keep answering 400 input_too_long, so this
-# flag is safe to leave on.
+# Explicit model="chunklaya" retains the legacy document service when its
+# Worker secrets CHUNKLAYA_URL and CHUNKLAYA_TOKEN are set. Automatic long
+# context now uses Jev screening and judgment with funded-workspace admission.
 CHUNKLAYA_ENABLED = "true"
 # Enable only after account migration, pricing and Autumn reconciliation checks.
 APP_ACCOUNTS_ENABLED = "true"

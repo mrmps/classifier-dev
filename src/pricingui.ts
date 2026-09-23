@@ -1,6 +1,6 @@
 import { FOOT, HOME_CSS, META, NAV } from "./home";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
-import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND } from "./lib/classification-pricing";
+import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
 import { esc, page } from "./ui";
 
 const feature = (text: string) => `<li>${esc(text)}</li>`;
@@ -64,10 +64,14 @@ export function pricingHtml(signedIn = false) {
     <div class="pricing-table rate-limits"><table><thead><tr><th scope="col">Usage</th><th scope="col">Price</th></tr></thead><tbody>
       <tr><th scope="row">Input tokens</th><td>$${INPUT_PRICE_PER_MILLION.toFixed(3)} / million</td></tr>
       <tr><th scope="row">Smart escalation</th><td>+$${ESCALATION_PRICE_PER_THOUSAND.toFixed(2)} / 1,000</td></tr>
+      <tr><th scope="row">Jev long context (original context tokens)</th><td>$${(LONG_CONTEXT_PRICING.inputNanodollars / 1000).toFixed(3)} / million</td></tr>
     </tbody></table></div>
     <p>Smart starts with Fast and reviews uncertain answers. You pay the extra charge only for answers that are successfully reviewed. No escalation means no extra charge.</p>
     <p>For example, 1 million input tokens with 50 Smart escalations cost <strong>$0.142</strong>.</p>
     <p class="pricing-note">Output tokens are free. Input usage includes the text, labels and instructions processed by the base classifier. Retries, fallback routing and Smart model tokens add no separate charges. Paid requests already admitted can finish and leave a negative balance. New requests require a positive available balance. No automatic top-ups.</p>
+    <p>Jev long context starts automatically above 32,000 characters with the default model or explicit Jev. It costs 2 × Jev's $${INPUT_PRICE_PER_MILLION.toFixed(3)} rate: <strong>$${(LONG_CONTEXT_PRICING.inputNanodollars / 1000).toFixed(3)} per million original context tokens</strong>, counted with cl100k_base once across inputs. Dimensions and actual screening or final-call usage do not multiply this price. 250,000 context tokens cost $${(250000 * LONG_CONTEXT_PRICING.inputNanodollars / 1e9).toFixed(3)}.</p>
+    <p>Requires paid workspace balance or an active paid subscription; anonymous access and free signup credit do not qualify. Fast only, up to 250,000 original context tokens, 20 documents and 32 decisions within a 1 MB request. Each document × dimension or multi-label category counts as a decision.</p>
+    <p class="pricing-note">Final Jev reads selected evidence. Eligible chunks can be omitted when the final budget fills; usage.long_context reports selection. No usable evidence returns 422 long_context_no_evidence without charge. Explicit chunklaya remains a separate legacy opt-in. <a href="/docs">Read the long-context limits</a>.</p>
   </section>
   <section class="pricing-section" aria-label="Included on every plan"><h2>Included on every plan</h2>
     <p>Fast and Smart classification with your own labels through REST, MCP or the CLI.</p>

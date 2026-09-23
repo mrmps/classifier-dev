@@ -1,7 +1,7 @@
 # AGENTS.md — working in this repository
 
-classifier.dev is one Cloudflare Worker (`src/index.ts`) with no runtime
-dependencies, a one-file CLI (`cli/classify.js`) and a Python eval harness
+classifier.dev is one Cloudflare Worker (`src/index.ts`),
+a one-file CLI (`cli/classify.js`) and a Python eval harness
 (`eval/`). Everything the site says is generated from constants in `src/`, so
 the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
 
@@ -42,13 +42,30 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   oversized context rather than truncating, so a context refusal is
   translated to `max_tokens_exceeded` and the batch halves and retries.
   Unlike Jev, a Beam request is never retried: a lane quota counts attempts.
-- chunklaya (`chunklaya/multilingual`) is our own long-document service: Laya
+- Default/explicit Jev inputs over 32,000 characters use long-context Jev:
+  Chonkie RecursiveChunker with 600 cl100k_base tokens, parallel relevance/
+  uncertainty screening that preserves opposing evidence and exceptions,
+  then whole eligible chunks in source order for final Jev within 20,000
+  cl100k_base tokens and a safe provider estimate. Eligible evidence can be
+  omitted when the budget fills; disclose selection in usage.long_context.
+  Limits: 250,000 original context tokens summed once across inputs, 20
+  documents, 32 decisions (documents × dimensions or multi-label categories),
+  1 MB request body. Fast only. Require a workspace
+  with paid balance or active paid subscription; signup credit is insufficient.
+  Retail is original context tokens × 2 × $0.042/M, independent of dimensions
+  and actual screening/final usage. No evidence returns 422
+  long_context_no_evidence without charge. Never claim universal accuracy or
+  that the final call reads the full original document.
+  Preserve existing trusted dedicated enterprise/operator access. Aggregate
+  long-context counts go to classifier_long_context_events and appended
+  account analytics fields; never record document text or caller identifiers.
+- Explicit chunklaya (`chunklaya/multilingual`) is our legacy opt-in service: Laya
   behind a chunk-and-index harness, github.com/myxamediyar/chunklaya under
   `serve/`, on a RunPod pod. It speaks System One too, so it is a fourth
   transport in `src/jev.ts`, reached through `CHUNKLAYA_URL` and
-  `CHUNKLAYA_TOKEN` (Worker secrets). The Worker sends an input over
-  `MAX_CHARS` there when `CHUNKLAYA_ENABLED` is `"true"` and both secrets are
-  set; otherwise such inputs stay `input_too_long`. One document is one
+  `CHUNKLAYA_TOKEN` (Worker secrets). It requires explicit model: "chunklaya",
+  `CHUNKLAYA_ENABLED` set to `"true"` and both secrets; it is never selected
+  automatically for long text. One document is one
   request; the service refuses rather than truncates, its 4xx become
   `chunklaya_input`, and there is no fallback to Jev or the LLM chain. It is
   billed by the hour, so no per-token provider cost is metered.

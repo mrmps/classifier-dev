@@ -8,9 +8,7 @@ import { newMeter } from "../src/cost";
 import rates from "../src/retail-rates.json";
 
 /**
- * The long-document route. chunklaya speaks System One at the pod's address;
- * the Worker sends it any input over MAX_CHARS when it is configured, one
- * document per request, and never answers such a request from another model.
+ * The explicit legacy chunklaya route, independent of automatic Jev screening.
  */
 const original = globalThis.fetch;
 afterEach(() => { globalThis.fetch = original; });
@@ -24,7 +22,7 @@ const env = {
 const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
 const LONG = "The invoice was paid twice on Monday.\n\n".repeat(900); // 34,200 characters, over MAX_CHARS
 const request = (body: object, bindings = env) => worker.fetch(new Request("https://classifier.dev/v1/classify", {
-  method: "POST", body: JSON.stringify(body) }), bindings, ctx);
+  method: "POST", body: JSON.stringify({ model: "chunklaya", ...body }) }), bindings, ctx);
 
 type Call = { url: string; auth: string | null; body: { model: string; state: { id: string; text: string }[]; questions: Record<string, { type: string; criteria?: Record<string, null> }> } };
 
@@ -46,7 +44,7 @@ function mockPod(refuse?: { status: number; body?: unknown } | Error) {
   return calls;
 }
 
-test("an input over 32,000 characters is answered by chunklaya, one document per request, with the pod's bearer", async () => {
+test("explicit chunklaya answers a long input, one document per request, with the pod's bearer", async () => {
   const calls = mockPod();
   const response = await request({ input: LONG, labels: ["billing", "technical"] });
   expect(response.status).toBe(200);
@@ -64,18 +62,17 @@ test("an input over 32,000 characters is answered by chunklaya, one document per
   expect(response.headers.get("x-classifier-processing")).toBeNull();
 });
 
-test("without the service configured, or under an explicit jev, a long input is still input_too_long", async () => {
+test("unconfigured explicit chunklaya is unavailable; Jev long context requires funding", async () => {
   const calls = mockPod();
   for (const bindings of [{ ...env, CHUNKLAYA_URL: undefined }, { ...env, CHUNKLAYA_TOKEN: undefined }, { ...env, CHUNKLAYA_ENABLED: "false" }]) {
     const response = await request({ input: LONG, labels: ["a", "b"] }, bindings as Env);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(503);
     const body = await response.json() as { code: string; error: string };
-    expect(body.code).toBe("input_too_long");
-    expect(body.error).toContain("at most 32,000");
+    expect(body.code).toBe("chunklaya_unavailable");
   }
   const explicit = await request({ model: "jev", input: LONG, labels: ["a", "b"] });
-  expect(explicit.status).toBe(400);
-  expect((await explicit.json() as { code: string }).code).toBe("input_too_long");
+  expect(explicit.status).toBe(402);
+  expect((await explicit.json() as { code: string }).code).toBe("long_context_payment_required");
   expect(calls).toHaveLength(0);
 });
 
@@ -165,7 +162,7 @@ test("under a spending permit the route is priced as chunklaya, not as Beam", as
   meter.permit = new Permit(10_000_000_000, Date.now() + 90_000);
   meter.beforeCall = async () => {};
   const response = await worker.fetch(new Request("https://classifier.dev/v1/classify", {
-    method: "POST", body: JSON.stringify({ input: LONG, labels: ["billing", "technical"] }) }), env, ctx, { meter } as never);
+    method: "POST", body: JSON.stringify({ model: "chunklaya", input: LONG, labels: ["billing", "technical"] }) }), env, ctx, { meter } as never);
   expect(response.status).toBe(200);
   expect(meter.permit.error).toBeUndefined();
   expect(calls).toHaveLength(1);

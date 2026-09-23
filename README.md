@@ -214,10 +214,41 @@ The copy is one constant — `ROADMAP` in `src/newsletter.ts`. The plain text at
 `curl classifier.dev`, the form on the rendered page and `index.md` all read it,
 so a change to the roadmap changes all three or none.
 
+## Jev long context
+
+Default Jev and explicit `model: "jev"` inputs over 32,000 characters use
+Chonkie RecursiveChunker with 600-token `cl100k_base` chunks, parallel Jev
+screening for relevant or uncertain evidence (including opposing evidence and
+exceptions), then final Jev over whole eligible chunks in source order.
+The final evidence budget is 20,000 `cl100k_base` tokens plus a conservative
+provider context check. Eligible chunks can be omitted when that budget fills;
+`usage.long_context` reports selection counts, tokens, calls and timing.
+This does not guarantee full-document final reading or universal accuracy.
+
+Use Fast with a workspace key backed by paid balance or an active paid
+subscription; anonymous access and signup credit do not qualify. Per request:
+250,000 original context tokens summed across inputs, 20 documents, 32 decisions,
+and a 1 MB body. Retail is $0.084/M original `cl100k_base` context tokens,
+counted once across inputs regardless of dimensions and actual inference usage.
+Each continuous whitespace or non-whitespace run is limited to 8,192 UTF-16
+code units. Longer runs return `400 long_context_input` before document
+tokenization or chunking, bounding tokenizer work on pathological inputs.
+No eligible evidence returns `422 long_context_no_evidence` without charge.
+Explicit `model: "chunklaya"` keeps its separate legacy opt-in behavior.
+
 ## Analytics
 
 Every request writes one Analytics Engine datapoint (tier, label-set fingerprint,
 country, status, count, latency). No request text is ever stored.
+
+Long-context aggregates also go to `classifier_long_context_events`, with
+context/document totals, chunk screening/selection/omission counts, phase input
+tokens (including unknown-count flags), answered-call counts and phase timings.
+Account events append the corresponding fields; their ordered column contract
+is in [`src/server/analytics/schema.ts`](src/server/analytics/schema.ts).
+Documents and original context tokens count once; chunk and phase counters
+accumulate across dimension passes. No document text or caller identifiers are
+written to the dedicated dataset.
 
 Every request also records what it cost us: OpenRouter returns the charge for
 a call when asked, and Jev is billed on the input tokens it reports, at the

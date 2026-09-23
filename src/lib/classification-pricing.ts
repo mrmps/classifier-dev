@@ -9,6 +9,20 @@ export const CLASSIFICATION_PRICING = {
 export const INPUT_PRICE_PER_MILLION = CLASSIFICATION_PRICING.inputNanodollars / 1000;
 export const ESCALATION_PRICE_PER_THOUSAND = CLASSIFICATION_PRICING.escalationNanodollars / 1e6;
 
+export const LONG_CONTEXT_PRICING = {
+  version: "2026-09-23-original-context-v1",
+  inputNanodollars: 84,
+  tokenizer: "cl100k_base",
+  basis: "original_context_tokens",
+} as const;
+
+export function longContextCharge(contextTokens: number) {
+  if (!Number.isSafeInteger(contextTokens) || contextTokens < 0)
+    throw new Error("Invalid long-context billing count.");
+  return { version: LONG_CONTEXT_PRICING.version,
+    nanodollars: BigInt(contextTokens) * BigInt(LONG_CONTEXT_PRICING.inputNanodollars) };
+}
+
 export function classificationCharge(inputTokens: number, escalations: number) {
   if (!Number.isSafeInteger(inputTokens) || inputTokens < 0 || !Number.isSafeInteger(escalations) || escalations < 0)
     throw new Error("Invalid classification billing counts.");

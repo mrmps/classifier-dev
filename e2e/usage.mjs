@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 const report = { runtime: 'built Worker in workerd', upstream: 'deterministic HTTP fixtures; no live inference', results: [] };
 let missing = false;
-const modules = (await readdir('dist/server', { recursive: true })).filter(p => p.endsWith('.js')).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: 'ESModule', path: `dist/server/${p}` }));
+const modules = (await readdir('dist/server', { recursive: true })).filter(p => /\.(js|wasm)$/.test(p)).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: p.endsWith('.wasm') ? 'CompiledWasm' : 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'usage', modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
   bindings: { TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', PRIVACY_SALT: 'fixture' },

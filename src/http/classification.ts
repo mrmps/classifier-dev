@@ -11,6 +11,7 @@ import { extendTokenReservation, providerCallBound } from "../server/token-reser
 import { refundTokenReservation, settleTokenReservation } from "../server/token-ledger";
 import { writeAccountAnalytics } from "../server/analytics/write";
 import { typeSafeDecisionCount } from "../typesafe-compat";
+import { isLongContextRequest } from "../long-context";
 
 const card = parseTokenRateCard(JSON.stringify(rates))!;
 const background = { waitUntil(promise: Promise<unknown>) { void promise.catch(() => {}); } } as ExecutionContext;
@@ -34,6 +35,8 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   } else {
     try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
+    if (isLongContextRequest(body)) return spendingClassification(
+      new Request(request.url, { method: "POST", headers: request.headers, body: text }), env, source, ctx);
     const rawInputs = body.inputs ?? body.items ?? body.input;
     const inputs = typeof rawInputs === "string" ? [rawInputs] : rawInputs;
     if (!Array.isArray(inputs) || !inputs.length || inputs.length > 10_000 || inputs.some((input) => typeof input !== "string"))

@@ -154,14 +154,14 @@ describe("the request body, read the way the docs describe it", () => {
     expect(j.results[0].label).toBe("b");
   });
 
-  test("exactly 32,000 characters is accepted and 32,001 is input_too_long, saying so", async () => {
+  test("exactly 32,000 characters is accepted and 32,001 requires long-context funding", async () => {
     const ok = await post(JSON.stringify({ input: "b".repeat(32_000), labels: ["a", "b"] }));
     expect(ok.status).toBe(200);
     const long = await post(JSON.stringify({ input: "b".repeat(32_001), labels: ["a", "b"] }));
-    expect(long.status).toBe(400);
+    expect(long.status).toBe(402);
     const j = (await long.json()) as { code: string; error: string };
-    expect(j.code).toBe("input_too_long");
-    expect(j.error).toContain("at most 32,000");
+    expect(j.code).toBe("long_context_payment_required");
+    expect(j.error).toContain("funded workspace");
   });
 
   test("a thousand inputs come back in order, across several packed requests; 1,001 do not go", async () => {

@@ -89,7 +89,7 @@ where one `fetch` is simpler than a subprocess.
 | Field          | Notes                                                                 |
 | -------------- | --------------------------------------------------------------------- |
 | `labels`       | 2–100 categories. Required.                                           |
-| `input`        | One text, up to 32,000 characters.                                    |
+| `input`        | One text; above 32,000 characters, default/explicit Jev uses paid Fast-only long context. |
 | `inputs`       | Up to 1,000 texts in one call.                                        |
 | `tier`         | `fast` (default) or `smart`: re-asks low-confidence answers of a reasoning model. |
 | `instructions` | Extra criteria — "judge only the service, ignore the food".           |
@@ -97,6 +97,16 @@ where one `fetch` is simpler than a subprocess.
 | `max_labels`   | Cap on how many multi-label answers come back.                        |
 | `verbose=1`    | On GET, returns JSON instead of a bare label.                         |
 | `text`         | On GET, the text as a query parameter: `/?labels=a,b&text=...`. `input` and `q` work too; `classes` and `categories` for labels. |
+
+Long context requires a workspace key backed by paid balance or an active paid
+subscription; signup credit and anonymous access do not qualify. Use POST with
+at most 250,000 original `cl100k_base` context tokens across inputs, 20 documents,
+32 decisions and a 1 MB body. Price: $0.084/M original context tokens counted
+once across inputs, independent of dimensions and actual screening/final usage.
+Final Jev reads selected whole chunks in source order; eligible evidence may be
+omitted when the budget fills. `usage.long_context` discloses selection. No
+evidence returns `422 long_context_no_evidence` without charge. Explicit
+`model: "chunklaya"` remains a separate legacy opt-in.
 
 On GET every option goes in the query string, whichever form carries the
 labels and text; the two forms mix (`/a,b?text=...`). If a GET is malformed

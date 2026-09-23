@@ -12,7 +12,7 @@ import { SPENDING_LIMITS } from "./docs";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
-import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND } from "./lib/classification-pricing";
+import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
 
 export const MCP_SETUP = `classifier.dev MCP
 
@@ -272,6 +272,31 @@ ENDPOINTS
   https://classifier.dev (PARAMETERS).
 
 
+LONG CONTEXT
+
+  Default Jev and explicit model: "jev" automatically process inputs over
+  32,000 characters through chunking, parallel Jev evidence screening and a
+  final Jev call. POST with a workspace key backed by paid balance or an active
+  paid subscription; anonymous access and free signup credit do not qualify.
+  Fast only. Limits: 250,000 original cl100k_base context tokens summed across
+  inputs, 20 documents, 32 decisions and a 1 MB request body.
+  Decisions count documents × dimensions, or documents × labels in multi-label
+  mode. Existing dedicated enterprise/operator access remains supported.
+  Each continuous whitespace or non-whitespace run is limited to 8,192 UTF-16
+  code units; longer runs return 400 long_context_input before tokenization
+  or chunking.
+
+  Relevant and uncertain chunks, including opposing evidence and exceptions,
+  are eligible for the final call. Whole chunks are packed in source order
+  within 20,000 cl100k_base tokens and a conservative provider estimate.
+  Eligible evidence may be omitted when full; usage.long_context reports
+  selection counts, token usage, calls and timing. No eligible evidence returns
+  422 long_context_no_evidence without charge, also when no eligible chunk
+  fits for a document. See LONG DOCUMENTS at
+  https://classifier.dev for the full field reference and limitations.
+  Explicit model: "chunklaya" remains a separate legacy opt-in.
+
+
 AUTHENTICATION
 
   Classification works without a key within the public limits. Create a
@@ -393,6 +418,9 @@ ERRORS
   uses anonymous proxy infrastructure. 402: insufficient_balance or
   request_spending_limit. Follow action and retryable in spending errors;
   retrying an unchanged over-budget request will not make it fit.
+  Long context: 400 long_context_input or long_context_too_large;
+  402 long_context_payment_required; 422 long_context_no_evidence (no charge);
+  503 long_context_unavailable. Smart long-context requests return 400 bad_tier.
   The list a client can validate against: components.schemas.Error in
   https://classifier.dev/openapi.json
 
@@ -504,6 +532,16 @@ USAGE PRICES
   processed by the base classifier. Retries, fallback routing and Smart model
   tokens add no separate charges. Paid requests already admitted can finish and
   leave a negative balance. New requests require a positive available balance.
+
+  Jev long context costs $${(LONG_CONTEXT_PRICING.inputNanodollars / 1000).toFixed(3)} per million original context tokens, counted
+  with cl100k_base once per input across the request: 2 × Jev's $${INPUT_PRICE_PER_MILLION.toFixed(3)} rate.
+  Dimensions do not multiply this price; actual screening and final-call
+  usage do not change it. A request with 250,000 original context tokens costs
+  $${(250000 * LONG_CONTEXT_PRICING.inputNanodollars / 1e9).toFixed(3)}. No eligible evidence returns 422 long_context_no_evidence, no charge.
+  Requires paid balance or an active paid subscription; free signup credit
+  and anonymous access do not qualify. Fast only, up to 20 documents and 32
+  decisions, within the 250,000-token and 1 MB request limits. Final Jev uses
+  selected evidence; eligible chunks can be omitted when its budget fills.
 
 
 INCLUDED ON EVERY PLAN

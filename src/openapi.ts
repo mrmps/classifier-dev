@@ -14,6 +14,7 @@ export const ERROR_CODES = [
   ...SPENDING_ERROR_CODES,
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   "chunklaya_input", "chunklaya_busy", "chunklaya_unavailable",
+  "long_context_payment_required", "long_context_too_large", "long_context_no_evidence", "long_context_unavailable", "long_context_input",
   // 400
   "bad_dimensions", "too_many_decisions", "dimension_context_too_large", "bad_json", "no_input", "too_many_inputs", "too_few_labels", "too_many_labels", "empty_label",
   "duplicate_labels", "empty_input", "input_too_long", "bad_tier", "bad_cursor", "invalid_submission", "skill_invalid", "account_route_required",
@@ -117,9 +118,10 @@ const TYPESAFE_ANSWER = {
 const errors = (plain: boolean) => ({
   "400": err("Malformed request: fewer than 2 labels, more than 1,000 inputs, empty or oversized text, an unknown tier, or a body that is not a JSON object. `code` says which; on the GET forms a 400 also carries `usage` and `try`, a URL built from what was sent that would have worked.", RATE_LIMIT_HEADERS, plain),
   "401": err("Invalid API key. Create a workspace key at /app/keys."),
-  "402": err("Insufficient workspace balance to reserve inference usage."),
+  "402": err("Insufficient workspace balance to reserve inference usage, or long_context_payment_required: long context requires paid balance or an active paid subscription; anonymous access and signup credit do not qualify."),
+  "422": err("long_context_no_evidence: at least one document has no selected evidence, either none qualified or no eligible chunk fit. No charge."),
   "403": err("The key is inactive or the workspace cannot authorize usage."),
-  "503": err("Workspace billing, label-set admission or Laya inference is temporarily unavailable. label_set_unavailable means the label allowance could not be checked and inference did not start. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
+  "503": err("Workspace billing, label-set admission or inference is temporarily unavailable. long_context_unavailable identifies Jev long-context failure. label_set_unavailable means the label allowance could not be checked and inference did not start. A cold bulk worker can return laya_unavailable; respect Retry-After and retry with backoff."),
   "404": err("No such path. The body points at the docs, llms.txt, the spec and the sitemap.", undefined, plain),
   "429": err("Quota or shared Laya capacity reached. Wait Retry-After seconds. Anonymous requests also share a global allowance with every request using the same label set; code label_set_limit identifies that limit. Laya trial caps also apply to paid keys and cannot be lifted by upgrading; code laya_rate_limit identifies that lane's admission limit. Daily per-caller limits use rate_limit_day.", {
     "Retry-After": { schema: { type: "integer" }, description: "Seconds until the window resets." },
@@ -651,7 +653,7 @@ export const OPENAPI = {
             name: "text",
             in: "query",
             required: false,
-            description: "The text to classify, up to 32,000 characters. `input` and `q` are read as aliases; `classes` and `categories` as aliases of `labels`.",
+            description: "The text to classify. For paid Jev long context above 32,000 characters, use POST /v1/classify with a funded workspace key. `input` and `q` are read as aliases; `classes` and `categories` as aliases of `labels`.",
             schema: { type: "string" },
             example: "Win+a+free+iPhone",
           },
@@ -737,7 +739,7 @@ export const OPENAPI = {
             name: "text",
             in: "path",
             required: true,
-            description: "The text to classify, up to 32,000 characters.",
+            description: "The text to classify. For paid Jev long context above 32,000 characters, use POST /v1/classify with a funded workspace key.",
             schema: { type: "string" },
             example: "Win+a+free+iPhone+now",
           },
@@ -968,6 +970,7 @@ export const OPENAPI = {
       },
       ClassifyRequest: {
         type: "object",
+        description: "Long-context limits count documents × dimensions, or documents × labels in multi-label mode, as decisions (maximum 32). Long-context instructions are limited to 4,000 characters and labels to 200 characters each. Existing dedicated enterprise/operator access remains a trusted operational exception to the public funding requirement.",
         oneOf: [
           { required: ["labels"], not: { required: ["dimensions"] } },
           { required: ["dimensions"], not: { anyOf: [{ required: ["labels"] }, { required: ["multi"] }, { required: ["max_labels"] }] } },
@@ -978,16 +981,16 @@ export const OPENAPI = {
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
-          model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "When omitted, uses Jev unless processing is supplied, which implies Laya, or an input exceeds 32,000 characters, which routes the request to chunklaya, our long-document model (up to 4,000,000 characters and 20 inputs per request; the result is labelled chunklaya/multilingual; tier smart is not available). \"chunklaya\" selects it explicitly. Laya and Kev are experimental models hosted by Beam: \"laya\" is ModernBERT-large with a 512-token context, \"kev\" is Qwen2.5-0.5B with a pointer head and an 8,192-token context. Both take 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. A result is labelled jev/laya or jev/kev; Beam does not report which checkpoint answered. Jev calibration claims do not apply to either." },
+          model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "Defaults to Jev unless processing implies Laya. Default/explicit jev inputs over 32,000 characters use paid Fast-only Jev long context: 600-token Chonkie chunks, parallel evidence screening and final Jev over whole eligible chunks in source order, bounded by 20,000 cl100k_base tokens and a conservative provider estimate. Eligible evidence may be omitted; usage.long_context discloses selection. Requires paid workspace balance or active paid subscription, not signup credit. Limits per request: 250,000 original cl100k_base context tokens, 20 documents, 32 decisions, 1 MB body. Price: $0.084/M original context tokens summed once across inputs, independent of dimensions and actual inference usage. Explicit chunklaya retains the legacy opt-in (4,000,000 characters/input, 20 inputs, subject to 1 MB body; chunklaya/multilingual results; no Smart). Laya and Kev are experimental Beam models with 512-token and 8,192-token contexts respectively, 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Results use jev/laya or jev/kev; Jev calibration claims do not apply." },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Implies Laya when model is omitted. Accepted but has no effect with explicit model jev, which handles batching automatically. When omitted for Laya, automatically selects fast for one decision with up to 4 yes/no questions, otherwise bulk. Explicit Laya lanes are honored. Fast allows 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
           dimensions: DIMENSIONS_SCHEMA,
-          items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 4000000 }, description: "Alias for inputs in dimensions mode; each up to 32,000 characters, or 4,000,000 when routed to chunklaya. Do not combine with input or inputs." },
+          items: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 4000000 }, description: "Alias for inputs in dimensions mode. Default/jev inputs above 32,000 characters use paid long context: at most 20 documents, 32 decisions and 250,000 original context tokens total, within a 1 MB body. Explicit chunklaya allows up to 4,000,000 characters/input within the body limit. Do not combine with input or inputs." },
           input: { type: "string", description: "A single text. Provide this or inputs; a string under `inputs` is read as one text too." },
           inputs: {
             type: "array",
             items: { type: "string" },
             maxItems: 1000,
-            description: "Up to 1,000 texts classified in one call, results in the same order. Public smart requests accept at most 200 so the batch fits its per-minute quota.",
+            description: "Up to 1,000 texts classified in one call, results in the same order. Long context allows 20 documents, 32 decisions and 250,000 original context tokens total within a 1 MB request. Public smart requests accept at most 200 so the batch fits its per-minute quota.",
           },
           labels: {
             type: "array",
@@ -1001,7 +1004,7 @@ export const OPENAPI = {
             enum: ["fast", "smart"],
             default: "fast",
             description:
-              "smart re-asks single-label answers below 0.7 confidence of a reasoning model; multi-label ignores it. Read case-insensitively; any other value is a 400 bad_tier.",
+              "smart re-asks single-label answers below 0.7 confidence of a reasoning model; multi-label ignores it. Long context and explicit chunklaya refuse smart with 400 bad_tier. Read case-insensitively; any other value is a 400 bad_tier.",
           },
           instructions: { type: "string", description: "Extra criteria for the classifier." },
           multi: { type: "boolean", description: "Return every label that applies, with a score per label. true, \"true\", 1 and \"1\" all mean yes." },
@@ -1011,6 +1014,7 @@ export const OPENAPI = {
       TokenUsage: {
         type: "object",
         properties: {
+          long_context: { $ref: "#/components/schemas/LongContextUsage" },
           input_tokens: { type: ["integer", "null"], description: "Provider-reported input tokens across all answered calls, including smart escalation. Null if any count is unavailable." },
           output_tokens: { type: ["integer", "null"] },
           total_tokens: { type: ["integer", "null"], description: "Input plus output; null if either is unknown." },
@@ -1021,11 +1025,33 @@ export const OPENAPI = {
           } } },
         },
       },
+      LongContextUsage: {
+        type: "object",
+        description: "Jev long-context processing totals. Documents/context tokens count original inputs once; chunk and selection counts and phase usage accumulate across dimension passes, not necessarily unique passages. Calls count answered provider calls, not attempts. Unknown provider token counts remain null. Final Jev sees selected evidence; eligible whole chunks may be omitted when the final context budget fills. No guarantee of full-document final reading or universal accuracy.",
+        properties: {
+          context_tokens: { type: "integer", minimum: 0, description: "Original input cl100k_base tokens summed once across inputs, independent of dimensions. Retail basis at $0.084/M, not actual screening/final usage." },
+          documents: { type: "integer", minimum: 0 },
+          chunks: { type: "integer", minimum: 0 },
+          screened_chunks: { type: "integer", minimum: 0 },
+          eligible_chunks: { type: "integer", minimum: 0, description: "Relevant or uncertain chunks eligible for final classification, including opposing evidence and exceptions." },
+          selected_chunks: { type: "integer", minimum: 0 },
+          omitted_chunks: { type: "integer", minimum: 0, description: "Eligible chunks omitted from final evidence due to context limits." },
+          screening_input_tokens: { type: ["integer", "null"], minimum: 0 },
+          final_input_tokens: { type: ["integer", "null"], minimum: 0 },
+          screening_calls: { type: "integer", minimum: 0 },
+          final_calls: { type: "integer", minimum: 0 },
+          screening_ms: { type: "number", minimum: 0 },
+          final_ms: { type: "number", minimum: 0 },
+          tokenizer: { type: "string", const: "cl100k_base" },
+        },
+      },
       ClassificationPricing: {
         type: "object",
-        description: "USD customer pricing, separate from upstream provider spend. total_usd is zero for unbilled requests, null when unknown, and before credit rounding. Pending settlement is not a receipt. Token totals include recovery and escalation; pricing.input_tokens includes only billable primary calls. Plain-text responses and TypeSafe-compatible responses retain their existing shapes.",
+        description: "USD customer pricing, separate from upstream provider spend. total_usd is zero for unbilled requests, null when unknown, and before credit rounding. Pending settlement is not a receipt. Ordinary pricing.input_tokens includes billable primary calls; Jev long context uses original cl100k_base context tokens summed once across inputs at $0.084/M, independent of dimensions and actual screening/final usage. Plain-text responses and TypeSafe-compatible responses retain their existing shapes.",
         properties: {
           currency: { const: "USD" }, rate_version: { type: "string" },
+          basis: { type: "string", const: "original_context_tokens", description: "Present for Jev long context." },
+          tokenizer: { type: "string", const: "cl100k_base", description: "Present for Jev long-context billing." },
           billing_status: { enum: ["not_billed", "pending", "settled", "review"] },
           total_usd: { type: ["number", "null"] },
           estimated_usd: { type: ["number", "null"], description: "Published classification price before free access or settlement; not an additional charge." },
@@ -1239,6 +1265,7 @@ export const OPENAPI = {
             type: "string",
             description:
               "Stable machine-readable code: one of the listed values, or typesafe_<status> / openrouter_<status> carrying the upstream HTTP status. " +
+              "Long context: 400 long_context_input or long_context_too_large; 402 long_context_payment_required; 422 long_context_no_evidence (no charge); 503 long_context_unavailable. " +
               "400: bad_dimensions, too_many_decisions, dimension_context_too_large, bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels, empty_label, duplicate_labels, empty_input, input_too_long, bad_tier, bad_cursor, invalid_submission, skill_invalid, account_route_required (use POST /v1/classify with a workspace key). " +
               "404: not_found. 409: duplicate_skill. 429: rate_limit_minute, rate_limit_day, rate_limit_hour, label_set_limit. 502: typesafe, typesafe_<status>, openrouter_<status>, chain_exhausted, batch_unavailable, timeout, upstream_other. 500: internal. 503: review_unavailable, inference_unavailable (provider credentials are not configured), label_set_unavailable (label allowance could not be checked; inference did not start).",
             anyOf: [{ enum: [...ERROR_CODES] }, { pattern: UPSTREAM_CODE_PATTERN }],
@@ -1407,9 +1434,17 @@ proxy check; the default maximum request allowance is $10. Request bodies
 are limited to 1 MB. Billing settles asynchronously after the response.
 
 Free, per IP, counted in classifications: 3,000/minute and 20,000/day on the fast
-tier, 200/minute and 2,000/day on the smart tier. Inputs cap at 32,000
-characters, or 4,000,000 for documents routed to chunklaya (at most 20 per
-request); free requests accept 1,000 inputs on fast or 200 on smart.
+tier, 200/minute and 2,000/day on the smart tier. Default/explicit Jev inputs
+over 32,000 characters use paid Fast-only long context. Requires paid workspace
+balance or active paid subscription; anonymous access and signup credit do not
+qualify. Limits: 250,000 original cl100k_base context tokens summed across inputs,
+20 documents, 32 decisions and 1 MB body. Retail: $0.084/M original context
+tokens, counted once regardless of dimensions or actual screening/final usage.
+Final Jev reads selected whole chunks in source order; eligible evidence can be
+omitted and usage.long_context discloses selection. No evidence returns 422
+long_context_no_evidence without charge. Explicit chunklaya remains legacy
+opt-in (4,000,000 characters/input, 20 inputs, within the 1 MB body limit).
+Ordinary free requests accept 1,000 inputs on fast or 200 on smart.
 Pro workspaces get 10x minute and daily limits shared across keys and agents,
 and up to 1,000 inputs on either tier. Current plans are at
 https://classifier.dev/pricing.
