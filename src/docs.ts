@@ -84,6 +84,28 @@ TYPESAFE SDK COMPATIBILITY
   credentials. GET /v1/models is public and does not spend quota or credits.
   The corresponding HTTP resources are POST /v1/systemone and GET /v1/models.
 
+  Images go through the same route. Set model to "dgemma" and add an images
+  array of data URLs (image/png, image/jpeg, image/webp or image/gif, base64;
+  at most 4 images and 900,000 characters of base64 in total, within the 1 MB
+  body). The questions keep the Choice, Noul and Score shapes and are answered
+  about the images and the state together:
+
+    {"model": "dgemma",
+     "state": {"note": "Look at the attached image."},
+     "images": ["data:image/png;base64,iVBORw0KGgo..."],
+     "questions": {"red": {"type": "noul",
+                           "instructions": "Does the image contain a red square?"}}}
+
+  "dgemma" is DiffusionGemma 26B-A4B in vLLM's structured-read mode: one
+  denoise step over a seeded answer template, read as a calibrated
+  distribution per question, re-read a few times when the first read is
+  uncertain. Text-only bodies may name it too. A choice question offers at
+  most 26 options and a request at most 64 questions. Jev never sees these
+  requests: when the model is down the answer is 503 dgemma_unavailable, not
+  a text-only guess. A body it refuses is 400 dgemma_input with its reason, a
+  saturated model is 429 dgemma_busy with Retry-After, and images sent under
+  another model are 400 images_unsupported.
+
 
 LAYA AND KEV
 
@@ -602,7 +624,8 @@ ERRORS
 
   400   bad_json, no_input, too_many_inputs, too_few_labels, too_many_labels,
         empty_label, duplicate_labels, empty_input, input_too_long, bad_tier,
-        chunklaya_input, long_context_input, long_context_too_large
+        chunklaya_input, dgemma_input, images_unsupported, long_context_input,
+        long_context_too_large
   401   invalid_api_key for unsupported credentials. Workspace authentication
         also rejects invalid, paused or revoked keys with an error message;
         workspace errors do not include a code.
@@ -611,13 +634,13 @@ ERRORS
   403   the key is inactive or the workspace cannot authorize usage
   404   not_found
   422   long_context_no_evidence; no charge
-  429   rate_limit_minute, rate_limit_day, label_set_limit, chunklaya_busy,
+  429   rate_limit_minute, rate_limit_day, label_set_limit, chunklaya_busy, dgemma_busy,
         with Retry-After; on the free tier the body also carries upgrade, the
         URL of the plan that lifts the limit (https://classifier.dev/pricing)
   502   typesafe or typesafe_<status> when the decision model failed;
         openrouter_<status>, chain_exhausted or timeout when the fallback
         chain did; upstream_other. Retry with backoff.
-  503   long_context_unavailable, chunklaya_unavailable;
+  503   long_context_unavailable, chunklaya_unavailable, dgemma_unavailable;
         label_set_unavailable when label admission cannot be checked;
         no inference starts. Respect Retry-After and retry with backoff.
   402   request_spending_limit: send fewer or shorter inputs, or use a funded
