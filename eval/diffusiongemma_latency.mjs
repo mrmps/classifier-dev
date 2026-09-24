@@ -1,14 +1,16 @@
 // node --env-file=.dev.vars eval/diffusiongemma_latency.mjs
 // Direct HTTP, one request in flight, alternating service order, no retries.
 import assert from 'node:assert/strict';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 
 const samples = Number(process.env.BENCH_SAMPLES || 20);
 assert.ok(Number.isInteger(samples) && samples > 0);
+assert.ok(process.env.DGEMMA_URL, 'DGEMMA_URL is required');
+const runpodUrl = new URL(process.env.DGEMMA_URL);
+assert.equal(runpodUrl.protocol, 'https:', 'RunPod requires HTTPS');
 const services = [
-  { name: 'TypeSafe Jev', url: 'https://api.typesafe.ai/v1/systemone', model: 'jev-1.13.0', key: process.env.TYPESAFE_API_KEY },
-  { name: 'Existing DiffusionGemma (classifier.dev)', url: 'https://classifier.dev/v1/systemone', model: 'dgemma', key: 'unused' },
+  { name: 'RunPod DiffusionGemma', url: runpodUrl.href.replace(/\/+$/, '') + '/v1/systemone', model: 'dgemma', key: process.env.DGEMMA_TOKEN },
   { name: 'Beam DiffusionGemma', url: 'https://app.beam.cloud/v1/systemone', model: 'jev/diffusiongemma', key: process.env.BEAM_API_KEY },
 ];
 for (const service of services) assert.ok(service.key, `${service.name} credential is required`);
@@ -20,7 +22,8 @@ const tickets = [
   ['I love the new design. Thank you for making it easier to use!', 'feedback'],
 ];
 const category = (instructions) => ({ type: 'choice', instructions, criteria });
-const image = 'data:image/png;base64,' + (await readFile('captures/diffusiongemma-red.png')).toString('base64');
+// Deterministic 128 × 128 red PNG, shared by both services.
+const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAABcUlEQVR4nO3UwQkAMAwDsey/dDuGHmfQAIdDe+9u4AJbHy+wA+wAeoK9AL/CvqAuXxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC+J8QZwviPMFcb4gzhfE+YI4XxDnC17bByBow7KSKBBvAAAAAElFTkSuQmCC';
 const workloads = [
   { name: 'single_text', state: tickets[0][0], questions: { category: category('Which team should handle this ticket?') }, expected: { category: 'billing' } },
   { name: 'batch_16', state: Array.from({ length: 16 }, (_, i) => ({ id: `i${i}`, text: tickets[i % 4][0] })),
@@ -34,15 +37,15 @@ const workloads = [
     intensity: { type: 'score', instructions: 'How red is the image?', criteria: ['Not red', 'Some red', 'Entirely red'] },
   }, expected: { color: 'red' } },
 ];
-const report = { startedAt: new Date().toISOString(), runtime: process.version,
+const report = { startedAt: new Date().toISOString(), runtime: process.version, runner: process.env.GITHUB_ACTIONS === 'true' ? 'GitHub Actions ubuntu-latest' : 'local',
   protocol: { samplesPerWorkload: samples, warmupsPerServiceAndWorkload: 2, concurrency: 1, retries: 0,
     order: 'alternate service order every round; same state/questions for both services',
     percentiles: 'Median averages the two middle observations; p95 uses nearest rank',
     latency: 'client end-to-end milliseconds including network, headers and complete JSON response; persistent Node fetch connections',
-    limitations: 'Same client, not co-located servers. Existing DiffusionGemma includes classifier.dev proxy overhead; TypeSafe and Beam use direct provider URLs. First request is not a verified cold start. Different models and tokenizers. Small synthetic correctness sanity check, not an accuracy or calibration benchmark. Image workload runs on both DiffusionGemma services; Jev is text-only.' },
+    limitations: 'Direct provider APIs from the same client; no classifier.dev proxy. Server regions, hardware and inference settings may differ. First request is not a verified cold start. Repeated synthetic workloads are a correctness sanity check, not an accuracy or calibration benchmark.' },
   workloads: workloads.map(({ name, state, questions, images }) => ({ name, stateCharacters: JSON.stringify(state).length, decisions: Object.keys(questions).length, images: images?.length ?? 0 })),
   rows: [], summaries: [] };
-const artifact = 'captures/diffusiongemma-latency.json';
+const artifact = 'captures/beam-runpod-latency.json';
 await mkdir('captures', { recursive: true });
 async function save() { await writeFile(artifact, JSON.stringify(report, null, 2)); }
 async function call(service, work, round, warmup) {
@@ -71,20 +74,19 @@ async function call(service, work, round, warmup) {
   console.log(`${warmup ? 'warmup' : 'sample'} ${work.name} ${service.name} ${round + 1}: ${row.status ?? row.error} ${Math.round(row.totalMs)}ms`);
   return row;
 }
-const applicable = (work) => services.filter(service => !work.images || service.model !== 'jev-1.13.0');
-for (const work of workloads) for (const service of applicable(work)) for (let i = 0; i < 2; i++) {
+for (const work of workloads) for (const service of services) for (let i = 0; i < 2; i++) {
   const row = await call(service, work, i, true);
   if (!row.valid) throw new Error(`${service.name} cannot run ${work.name}; see ${artifact}`);
 }
 for (let round = 0; round < samples; round++) for (const work of workloads) {
-  const order = applicable(work);
+  const order = [...services];
   if (round % 2) order.reverse();
   for (const service of order) await call(service, work, round, false);
 }
 const percentile = (values, q) => q === .5 && values.length % 2 === 0
   ? (values[values.length / 2 - 1] + values[values.length / 2]) / 2
   : values[Math.max(0, Math.ceil(values.length * q) - 1)];
-for (const work of workloads) for (const service of applicable(work)) {
+for (const work of workloads) for (const service of services) {
   const all = report.rows.filter(r => !r.warmup && r.service === service.name && r.workload === work.name);
   const rows = all.filter(r => r.valid), times = rows.map(r => r.totalMs).sort((a, b) => a - b);
   report.summaries.push({ service: service.name, workload: work.name, requests: all.length, successful: rows.length,
