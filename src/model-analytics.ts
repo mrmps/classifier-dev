@@ -3,6 +3,11 @@ import type { Meter } from "./cost";
 type Row = Record<string, unknown>;
 const n = (value: unknown) => Number(value) || 0;
 
+export const modelName = (value: unknown) => {
+  const model = String(value || "");
+  return model === "typesafe" ? "Unknown model (TypeSafe route)" : model || "Unattributed";
+};
+
 export function requestTokens(meter?: Meter) {
   const rows = meter?.tokens ?? [];
   const known = rows.length > 0 && rows.every(r => r.inputTokens !== null && r.outputTokens !== null);
@@ -34,7 +39,7 @@ export function modelUsage(rows: Row[]) {
     token_requests: number; images: number; image_requests: number; modality_requests: number; calls: number; providers: Set<string>;
   }>();
   for (const r of rows) {
-    const model = String(r.model || "Unattributed");
+    const model = modelName(r.model);
     const row = grouped.get(model) ?? {model, requests: 0, classifications: 0, usd: 0, ms_sum: 0,
       ok: 0, failures: 0, rejected: 0, input_tokens: 0, output_tokens: 0, token_requests: 0,
       images: 0, image_requests: 0, modality_requests: 0, calls: 0, providers: new Set<string>()};

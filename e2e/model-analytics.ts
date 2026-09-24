@@ -66,11 +66,12 @@ try {
   assert.equal((await originalFetch(`${origin}/admin`)).status, 401);
   assert.equal((await post({state:"PRIVATE INPUT", questions})).status, 200);
   const image = "data:image/png;base64,aGVsbG8=";
-  assert.equal((await post({state:"PRIVATE INPUT", images:[image], questions})).status, 200);
+  assert.equal((await post({model:"dgemma", state:"PRIVATE INPUT", images:[image], questions})).status, 200);
   noTokens = true;
   assert.equal((await post({questions})).status, 200);
   noTokens = false;
   down = true;
+  assert.equal((await post({questions})).status, 503);
   assert.equal((await post({model:"dgemma", questions})).status, 503);
   down = false;
   quota = true;
@@ -83,17 +84,29 @@ try {
   assert.equal(login.status, 302);
   const cookie = login.headers.get("set-cookie")!.split(";")[0];
   const {html, data} = await admin(cookie);
+  const developers = await (await originalFetch(`${origin}/developers`)).text();
+  const docs = await (await originalFetch(origin)).text();
   await mkdir("captures", {recursive:true});
   await writeFile(`captures/models-${baseline ? "before" : "after"}.html`, html);
   if (!baseline) {
     assert.deepEqual(data.unavailable, []);
-    assert.equal(events.length, 6);
+    assert.equal(events.length, 7);
+    assert.match(developers, /IMAGE CLASSIFICATION/);
+    assert.match(developers, /data:image\/png;base64/);
+    assert.doesNotMatch(developers, /Image classification\s+Labels in.*coming soon/i);
+    assert.match(docs, /data:image\/png;base64/);
     assert.equal(data.dimensionTraffic.length, 0);
     assert.doesNotMatch(JSON.stringify(events), /PRIVATE|203\.0\.113\.123|aGVsbG8/);
     const jev = data.byModel.find((r: any) => r.model === "jev-1.13.0");
     assert.equal(jev.requests, 2);
     assert.equal(jev.input_tokens, 42);
     assert.equal(jev.token_requests, 1);
+    const unknown = data.byModel.find((r: any) => r.model === "Unknown model (TypeSafe route)");
+    assert.equal(unknown.requests, 2);
+    assert.equal(unknown.provider, "Not recorded");
+    assert.ok(data.modelSeries.some((r: any) => r.model === unknown.model));
+    assert.ok(data.modelFailures.some((r: any) => r.model === unknown.model && r.reason === "typesafe_503"));
+    assert.ok(!data.byModel.some((r: any) => r.model === "typesafe"));
     const pod = data.byModel.find((r: any) => r.model === "dgemma");
     assert.equal(pod.requests, 3);
     assert.equal(pod.failures, 1);
@@ -109,7 +122,7 @@ try {
     assert.equal(legacy.input_tokens, null);
     assert.equal(legacy.image_requests, null);
     assert.equal(legacy.calls, null);
-    assert.equal(data.modelSeries.reduce((s: number, r: any) => s + Number(r.requests), 0), 16);
+    assert.equal(data.modelSeries.reduce((s: number, r: any) => s + Number(r.requests), 0), 17);
     assert.ok(data.modelFailures.some((r: any) => r.model === "dgemma" && r.reason === "rate_limit"));
     for (const range of ["7d", "30d"]) {
       const longer = (await admin(cookie, range)).data;
