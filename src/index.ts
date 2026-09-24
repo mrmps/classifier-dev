@@ -1547,7 +1547,7 @@ const worker = {
         record(env, ctx, {
           tier: "fast", n: status === 200 ? decisions : 0, ms: Date.now() - sdkStarted,
           labels: labelSets.length === 1 ? labelSets[0].labels : labelSets.map(set => JSON.stringify(set.labels)),
-          mode: labelSets.length === 1 ? "single" : "dimensions",
+          mode: labelSets.length > 1 ? "dimensions" : "single",
           ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : model,
           meter, images: imageCount, usd: meter.usd, reason, agent,
           attempted: decisions, escalationFailed: 0,

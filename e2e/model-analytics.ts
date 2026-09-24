@@ -10,8 +10,9 @@ const baseline = process.argv.includes("--baseline");
 const serve = process.argv.includes("--serve");
 const db = new Database(":memory:");
 db.exec(`CREATE TABLE classifier_events (timestamp INTEGER, _sample_interval REAL DEFAULT 1, index1 TEXT,
-  ${Array.from({length: 11}, (_, i) => `blob${i+1} TEXT DEFAULT ''`).join(",")},
-  ${Array.from({length: 14}, (_, i) => `double${i+1} REAL DEFAULT 0`).join(",")})`);
+  ${Array.from({length: 20}, (_, i) => `blob${i+1} TEXT DEFAULT ''`).join(",")},
+  ${Array.from({length: 20}, (_, i) => `double${i+1} REAL DEFAULT 0`).join(",")})`);
+db.exec("CREATE TABLE classifier_chat_events AS SELECT * FROM classifier_events WHERE 0");
 const events: unknown[] = [];
 let quota = false, down = false, noTokens = false, failQuery = false;
 const pending: Promise<unknown>[] = [];
@@ -87,6 +88,7 @@ try {
   if (!baseline) {
     assert.deepEqual(data.unavailable, []);
     assert.equal(events.length, 6);
+    assert.equal(data.dimensionTraffic.length, 0);
     assert.doesNotMatch(JSON.stringify(events), /PRIVATE|203\.0\.113\.123|aGVsbG8/);
     const jev = data.byModel.find((r: any) => r.model === "jev-1.13.0");
     assert.equal(jev.requests, 2);

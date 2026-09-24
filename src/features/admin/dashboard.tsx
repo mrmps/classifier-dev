@@ -884,9 +884,9 @@ export function Dashboard({
                 ]}/>
                 <p className="description">Historical blank models are Unattributed; older SDK traffic remains “typesafe.” Image and provider details start with this release. Before an answer exists, failed requests use the selected route name.</p>
               </Panel>
-              <Trend title={selectedModel ? `${selectedModel} requests` : "Model traffic over time"}
+              <div className="span-two"><Trend title={selectedModel ? `${selectedModel} requests` : "Model traffic over time"}
                 subtitle={`${bucket} request counts · UTC · includes rejections`}
-                rows={modelTimeline} field="requests" label="Requests" unavailable={missing("modelSeries")} />
+                rows={modelTimeline} field="requests" label="Requests" unavailable={missing("modelSeries")} /></div>
               <Breakdown title="Most used models" subtitle="Request counts for the selected period" rows={d.byModel}
                 name="model" unavailable={missing("byModel")} />
               <Panel title="Model reliability" subtitle="Server success and average latency exclude 4xx; rejections are shown separately" wide unavailable={missing("byModel")}>
@@ -898,7 +898,7 @@ export function Dashboard({
                   {key:"rejected", label:"Rejected (4xx)", format:count},
                 ]}/>
               </Panel>
-              <Panel title="Tokens & cost" subtitle="Reported upstream tokens and API charges; hourly RunPod GPUs and hosting are excluded" wide unavailable={missing("byModel")}>
+              <Panel title="Model economics" subtitle="Reported upstream tokens and API charges; hourly RunPod GPUs and hosting are excluded" wide unavailable={missing("byModel")}>
                 <Table rows={visibleModels} columns={[
                   {key:"model", label:"Model / combination"},
                   {key:"input_tokens", label:"Input tokens", format:count},
@@ -915,12 +915,6 @@ export function Dashboard({
                 "Recorded API cost only; hourly GPUs excluded")}
               <Breakdown title="Spend by tier" subtitle="Recorded API cost; hourly GPUs excluded" rows={d.byTier}
                 name="tier" value="usd" color={purple} format={money} unavailable={missing("byTier")} />
-              <Panel title="Failures by model" subtitle="Top 50 model, status and cause combinations" wide unavailable={missing("modelFailures")}>
-                <Table rows={d.modelFailures.filter(row => !selectedModel || String(row.model || "Unattributed") === selectedModel)} columns={[
-                  {key:"model", label:"Model / route"}, {key:"status", label:"HTTP status"},
-                  {key:"reason", label:"Cause"}, {key:"requests", label:"Requests", format:count},
-                ]}/>
-              </Panel>
             <Panel
               title="Public & enterprise usage"
               subtitle="Traffic and recorded upstream spend by client class"
@@ -934,6 +928,12 @@ export function Dashboard({
                 ]}
               />
             </Panel>
+              <Panel title="Failures by model" subtitle="Top 50 model, status and cause combinations" wide unavailable={missing("modelFailures")}>
+                <Table rows={d.modelFailures.filter(row => !selectedModel || String(row.model || "Unattributed") === selectedModel)} columns={[
+                  {key:"model", label:"Model / route"}, {key:"status", label:"HTTP status"},
+                  {key:"reason", label:"Cause"}, {key:"requests", label:"Requests", format:count},
+                ]}/>
+              </Panel>
           </div>
         </section>
         <section className="analytics-section" id="Adoption">
