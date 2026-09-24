@@ -37,6 +37,7 @@ const workloads = [
 const report = { startedAt: new Date().toISOString(), runtime: process.version,
   protocol: { samplesPerWorkload: samples, warmupsPerServiceAndWorkload: 2, concurrency: 1, retries: 0,
     order: 'alternate service order every round; same state/questions for both services',
+    percentiles: 'Median averages the two middle observations; p95 uses nearest rank',
     latency: 'client end-to-end milliseconds including network, headers and complete JSON response; persistent Node fetch connections',
     limitations: 'Same client, not co-located servers. Existing DiffusionGemma includes classifier.dev proxy overhead; TypeSafe and Beam use direct provider URLs. First request is not a verified cold start. Different models and tokenizers. Small synthetic correctness sanity check, not an accuracy or calibration benchmark. Image workload runs on both DiffusionGemma services; Jev is text-only.' },
   workloads: workloads.map(({ name, state, questions, images }) => ({ name, stateCharacters: JSON.stringify(state).length, decisions: Object.keys(questions).length, images: images?.length ?? 0 })),
@@ -80,7 +81,9 @@ for (let round = 0; round < samples; round++) for (const work of workloads) {
   if (round % 2) order.reverse();
   for (const service of order) await call(service, work, round, false);
 }
-const percentile = (values, q) => values[Math.max(0, Math.ceil(values.length * q) - 1)];
+const percentile = (values, q) => q === .5 && values.length % 2 === 0
+  ? (values[values.length / 2 - 1] + values[values.length / 2]) / 2
+  : values[Math.max(0, Math.ceil(values.length * q) - 1)];
 for (const work of workloads) for (const service of applicable(work)) {
   const all = report.rows.filter(r => !r.warmup && r.service === service.name && r.workload === work.name);
   const rows = all.filter(r => r.valid), times = rows.map(r => r.totalMs).sort((a, b) => a - b);
