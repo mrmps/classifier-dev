@@ -1,5 +1,5 @@
 @import "tailwindcss" source(none);
-@source "./client.tsx";
+@source "./dashboard.tsx";
 @source "../../components/evilcharts";
 @custom-variant dark (&:is(.dark *));
 @theme inline {
@@ -60,48 +60,28 @@ body:has(.admin-app) {
   outline: 2px solid #8caaff;
   outline-offset: 4px;
 }
-.admin-app .topbar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 22px 40px;
-  background: #10151e;
-}
-.admin-app .brand {
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.6px;
-}
-.admin-app .brand span {
-  color: #8993a7;
-}
-.admin-app .admin-label {
-  color: #a4adbf;
-  font-size: 13px;
-}
 .admin-app .signout {
-  margin-left: auto;
   color: #c0c9d9;
-  padding: 8px;
+  padding: 6px;
 }
 .admin-app main {
-  max-width: 1512px;
+  max-width: 1920px;
   margin: auto;
-  padding: 40px;
+  padding: 14px 20px;
 }
 .admin-app .page-heading {
   display: flex;
-  gap: 24px;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 30px;
+  margin-bottom: 12px;
 }
 .admin-app h1 {
   line-height: 1.2;
-  font-size: 32px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -1.1px;
-  margin: 0 0 9px;
+  margin: 0 0 3px;
 }
 .admin-app .page-heading p {
   margin: 0;
@@ -112,7 +92,7 @@ body:has(.admin-app) {
 }
 .admin-app .actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -126,7 +106,7 @@ body:has(.admin-app) {
   color: #dbe2ed;
 }
 .admin-app .control {
-  padding: 10px 14px;
+  padding: 7px 12px;
   display: inline-block;
 }
 .admin-app .control:hover {
@@ -138,7 +118,7 @@ body:has(.admin-app) {
   gap: 4px;
 }
 .admin-app .range a {
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 6px;
   color: #b1bbcc;
 }
@@ -149,17 +129,17 @@ body:has(.admin-app) {
 .admin-app .metrics {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 30px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 .admin-app .metric {
-  padding: 20px;
+  padding: 10px 12px;
   background: #131a25;
-  border-radius: 12px;
+  border-radius: 8px;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 3px;
 }
 .admin-app .metric > span {
   color: #b5bed0;
@@ -167,7 +147,7 @@ body:has(.admin-app) {
   font-weight: 500;
 }
 .admin-app .metric strong {
-  font-size: 27px;
+  font-size: 23px;
   font-weight: 550;
   letter-spacing: -0.8px;
   font-variant-numeric: tabular-nums;
@@ -180,70 +160,70 @@ body:has(.admin-app) {
 }
 .admin-app .section-nav {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
   flex-wrap: wrap;
-  margin: 0 0 30px;
+  margin-bottom: 14px;
 }
-.admin-app .section-nav button {
-  padding: 10px 17px;
-  background: transparent;
-  color: #a4adbf;
-  border: 0;
-  border-radius: 8px;
-  font-weight: 500;
-}
-.admin-app .section-nav button[aria-current] {
-  background: #273650;
+.admin-app .section-nav a {
+  padding: 5px 10px;
+  background: #19212e;
   color: #c3d3ff;
+  border-radius: 6px;
+  font-size: 12px;
 }
-.admin-app .section-nav button:hover {
+.admin-app .section-nav a:hover {
+  background: #273650;
   color: #fff;
-  background: #1c2738;
 }
-.admin-app .section-intro {
-  margin-bottom: 20px;
-}
-.admin-app .section-intro h2 {
-  font-size: 20px;
-  font-weight: 550;
-  letter-spacing: -0.4px;
-  margin: 0 0 5px;
-}
-.admin-app .section-intro p {
+.admin-app .section-nav span {
+  margin-left: auto;
   color: #a4adbf;
-  margin: 0;
-  font-size: 13px;
+  font-size: 11px;
+}
+.admin-app .analytics-section {
+  margin: 0 0 20px;
+  scroll-margin-top: 12px;
+}
+.admin-app .section-heading {
+  font-size: 15px;
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.admin-app .span-two {
+  grid-column: span 2;
 }
 .admin-app .panel-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
 }
 .admin-app .wide {
   grid-column: 1/-1;
   min-width: 0;
 }
 .admin-app .panel {
-  padding: 24px;
+  padding: 10px;
   background: #111823;
-  border-radius: 14px;
+  border-radius: 9px;
   min-width: 0;
   margin: 0;
 }
 .admin-app .panel h2 {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 550;
   margin: 0 0 4px;
   letter-spacing: -0.15px;
 }
 .admin-app .description {
   color: #a4adbf;
-  font-size: 12px;
-  line-height: 1.6;
-  margin: 0 0 18px;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0 0 8px;
 }
 .admin-app .admin-chart {
-  height: 240px;
+  height: 160px;
   width: 100%;
   aspect-ratio: auto;
   font-family: inherit;
@@ -256,25 +236,8 @@ body:has(.admin-app) {
   color: #a4adbf;
   margin: 8px 0;
 }
-.admin-app .chart-switch {
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-  margin: 0 0 10px;
-}
-.admin-app .chart-switch button {
-  border: 0;
-  border-radius: 6px;
-  padding: 7px 12px;
-  background: #17202f;
-  color: #a4adbf;
-}
-.admin-app .chart-switch button[aria-pressed="true"] {
-  background: #2b3b59;
-  color: #cfddff;
-}
 .admin-app details {
-  margin-top: 15px;
+  margin-top: 4px;
   font-size: 12px;
 }
 .admin-app summary::before {
@@ -283,18 +246,18 @@ body:has(.admin-app) {
 .admin-app summary {
   color: #b8c7e2;
   cursor: pointer;
-  padding: 8px 0;
-  min-height: 32px;
-  list-style: disclosure-closed;
+  padding: 4px 0;
+  min-height: 24px;
+  list-style: disclosure-closed inside;
 }
 .admin-app details[open] > summary {
-  list-style: disclosure-open;
+  list-style: disclosure-open inside;
 }
 .admin-app .table-scroll {
   overflow: auto;
-  max-height: 480px;
+  max-height: 280px;
   width: 100%;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 .admin-app table {
   border-collapse: collapse;
@@ -314,11 +277,11 @@ body:has(.admin-app) {
   background: none;
   border: 0;
   color: inherit;
-  padding: 10px 12px;
+  padding: 7px 8px;
   white-space: nowrap;
 }
 .admin-app td {
-  padding: 12px;
+  padding: 7px 8px;
   border-bottom: 1px solid #202b3c;
   font-variant-numeric: tabular-nums;
   color: #e0e7f1;
@@ -375,8 +338,8 @@ body:has(.admin-app) {
 }
 .admin-app .signals {
   display: grid;
-  gap: 24px;
-  margin: 24px 0;
+  gap: 10px;
+  margin: 12px 0;
 }
 .admin-app .signals > div {
   display: flex;
@@ -390,7 +353,7 @@ body:has(.admin-app) {
 }
 .admin-app .signals dd {
   margin: 0;
-  font-size: 19px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -401,19 +364,19 @@ body:has(.admin-app) {
 }
 .admin-app .dimension-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
 }
 .admin-app .empty-state {
-  padding: 36px 0;
+  padding: 20px 0;
   color: #abb9d1;
   font-size: 13px;
 }
 .admin-app .notice {
   background: #302719;
   color: #f1d4a0;
-  padding: 16px 20px;
-  margin-bottom: 24px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
   border-radius: 10px;
 }
 .admin-app .notice a {
@@ -423,79 +386,62 @@ body:has(.admin-app) {
   font-size: 11px;
   color: #94a0b6;
   max-width: 1050px;
-  margin-top: 30px;
+  margin-top: 16px;
   line-height: 1.8;
 }
 .admin-app footer p {
   margin: 6px 0;
 }
-@media (min-width: 1600px) {
-  .admin-app .admin-chart {
-    height: 280px;
+@media (max-width: 1050px) {
+  .admin-app .panel-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-@media (max-width: 1200px) {
-  .admin-app .metrics {
+  .admin-app .metrics,
+  .admin-app .dimension-metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .admin-app .page-heading {
-    align-items: flex-start;
-    flex-direction: column;
+  .admin-app .section-nav span {
+    width: 100%;
+    margin: 3px 0 0;
   }
 }
 @media (max-width: 720px) {
   .admin-app main {
-    padding: 24px 16px;
+    padding: 12px;
   }
-  .admin-app .topbar {
-    padding: 14px 16px;
-    gap: 12px;
-  }
-  .admin-app .admin-label {
-    display: none;
-  }
-  .admin-app h1 {
-    font-size: 28px;
-  }
-  .admin-app .metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .admin-app .page-heading {
+    align-items: flex-start;
+    flex-direction: column;
     gap: 10px;
   }
-  .admin-app .metric {
-    padding: 16px;
-  }
-  .admin-app .metric strong {
-    font-size: 24px;
-  }
-  .admin-app .panel-grid {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-  .admin-app .panel {
-    padding: 18px 14px;
-  }
-  .admin-app .section-nav {
-    gap: 3px;
-  }
-  .admin-app .section-nav button {
-    padding: 9px 11px;
-    font-size: 12px;
-  }
-  .admin-app .actions {
-    gap: 10px;
-  }
-  .admin-app .control {
-    padding: 9px 12px;
-    font-size: 12px;
-  }
+  .admin-app .metrics,
   .admin-app .dimension-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .admin-app .admin-chart {
-    height: 220px;
+  .admin-app .metric strong {
+    font-size: 21px;
+    overflow-wrap: anywhere;
   }
-  .admin-app .signals > div {
-    gap: 10px;
+  .admin-app .panel-grid {
+    grid-template-columns: 1fr;
+  }
+  .admin-app .span-two {
+    grid-column: auto;
+  }
+  .admin-app .admin-chart {
+    height: 180px;
+  }
+  .admin-app .actions {
+    width: 100%;
+    font-size: 12px;
+    gap: 6px;
+  }
+  .admin-app .range a {
+    padding: 4px 6px;
+  }
+  .admin-app .control {
+    font-size: 12px;
+    padding: 7px 8px;
   }
   .admin-app .signals dt {
     max-width: 60%;

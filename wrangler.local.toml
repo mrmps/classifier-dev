@@ -23,6 +23,10 @@ dataset = "classifier_events"
 
 
 [[analytics_engine_datasets]]
+binding = "CHAT_AE"
+dataset = "classifier_chat_events"
+
+[[analytics_engine_datasets]]
 binding = "JEV_AE"
 dataset = "classifier_jev_attempts"
 

@@ -40,6 +40,7 @@ export function timeline(data: AdminData, range: RangeKey) {
   const start = Math.floor((end - hours * 3600000) / step) * step;
   const traffic = new Map(data.series.map((r) => [timestamp(r.t), r]));
   const performance = new Map(data.performance.map((r) => [timestamp(r.t), r]));
+  const chat = new Map(data.chatSeries.map((r) => [timestamp(r.t), r]));
   const dimensions = new Map(
     data.dimensionSeries.map((r) => [timestamp(r.t), r]),
   );
@@ -74,6 +75,9 @@ export function timeline(data: AdminData, range: RangeKey) {
       batch: p ? number(p.batch_size) : null,
       decisions: number(d?.classifications),
       dimensionRequests: number(d?.requests),
+      chatTurns: number(chat.get(t)?.turns),
+      chatSpend: number(chat.get(t)?.usd),
+      chatLatency: chat.has(t) ? number(chat.get(t)?.avg_ms) : null,
       failed: status?.failed ?? 0,
       rejected: status?.rejected ?? 0,
       errorRate:

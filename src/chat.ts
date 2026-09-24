@@ -14,6 +14,7 @@
  */
 
 import { describeTool, handleMcp, type McpServer } from "./mcp";
+import { chatStats, type ChatStats, type ChatOutcome } from "./chat-analytics";
 
 /** A cheap model that calls tools well; the classification is Jev's job, not its. */
 export const CHAT_MODEL = "openai/gpt-5.6-luna";
@@ -118,7 +119,7 @@ async function contextFetch(key: string, path: string, init: RequestInit) {
   const res = await fetch(`${CONTEXT_API}${path}`, {
     ...init,
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json", ...(init.headers ?? {}) },
-    signal: AbortSignal.timeout(40_000),
+    signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(40_000)]) : AbortSignal.timeout(40_000),
   });
   const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw new Error(typeof j.message === "string" ? j.message : `HTTP ${res.status}`);
@@ -126,7 +127,7 @@ async function contextFetch(key: string, path: string, init: RequestInit) {
 }
 
 /** One of the web tools, run. Text for the model; an error is text too, so it can react. */
-export async function runWebTool(key: string, name: string, args: Record<string, unknown>): Promise<{ text: string; error?: boolean }> {
+export async function runWebTool(key: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<{ text: string; error?: boolean }> {
   try {
     if (name === "web_search") {
       const query = typeof args.query === "string" ? args.query.trim().slice(0, 500) : "";
@@ -134,7 +135,7 @@ export async function runWebTool(key: string, name: string, args: Record<string,
       const n = Number(args.count);
       const body: Record<string, unknown> = { query, numResults: Number.isFinite(n) ? Math.min(SEARCH_MAX, Math.max(10, Math.round(n))) : 10 };
       if (typeof args.freshness === "string") body.freshness = args.freshness;
-      const j = await contextFetch(key, "/web/search", { method: "POST", body: JSON.stringify(body) });
+      const j = await contextFetch(key, "/web/search", { method: "POST", signal, body: JSON.stringify(body) });
       const rows = (j.results as { url: string; title: string; description: string }[] | undefined) ?? [];
       if (!rows.length) return { text: "no results" };
       return { text: rows.map((r) => `${r.url}\t${r.title}\t${(r.description ?? "").replace(/\s+/g, " ")}`).join("\n") };
@@ -148,7 +149,7 @@ export async function runWebTool(key: string, name: string, args: Record<string,
         return { text: "error: url must be a full http(s) URL", error: true };
       }
       const q = new URLSearchParams({ url: url.href, useMainContentOnly: "true", includeLinks: "false" });
-      const j = await contextFetch(key, `/web/scrape/markdown?${q}`, { method: "GET" });
+      const j = await contextFetch(key, `/web/scrape/markdown?${q}`, { method: "GET", signal });
       const md = typeof j.markdown === "string" ? j.markdown.trim() : "";
       if (!md) return { text: "the page had no readable text" };
       return { text: md.length > PAGE_CHARS ? `${md.slice(0, PAGE_CHARS)}\n\n[truncated: ${md.length - PAGE_CHARS} more characters]` : md };
@@ -235,7 +236,13 @@ async function complete(
   key: string,
   body: Record<string, unknown>,
   onText: (s: string) => void,
+  stats: ChatStats,
+  signal: AbortSignal,
 ): Promise<{ text: string; calls: ToolCall[] }> {
+  stats.modelCalls++;
+  stats.unknownTokenCalls++;
+  stats.unknownCostCalls++;
+  let countedTokens = false, countedCost = false;
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -245,6 +252,7 @@ async function complete(
       "x-title": "classifier.dev",
     },
     body: JSON.stringify({ ...body, stream: true }),
+    signal,
   });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
@@ -265,13 +273,27 @@ async function complete(
       if (!line.startsWith("data:")) continue;
       const data = line.slice(5).trim();
       if (data === "[DONE]") continue;
-      let chunk: { choices?: { delta?: Delta }[]; error?: { message?: string } };
+      let chunk: { choices?: { delta?: Delta }[]; error?: { message?: string }; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number } };
       try {
         chunk = JSON.parse(data);
       } catch {
         continue;
       }
       if (chunk.error) throw new Error(`upstream: ${chunk.error.message ?? "error"}`);
+      const usage = chunk.usage;
+      if (usage) {
+        if (!countedTokens && Number.isSafeInteger(usage.prompt_tokens) && usage.prompt_tokens! >= 0 && Number.isSafeInteger(usage.completion_tokens) && usage.completion_tokens! >= 0) {
+          stats.inputTokens += usage.prompt_tokens!;
+          stats.outputTokens += usage.completion_tokens!;
+          stats.unknownTokenCalls--;
+          countedTokens = true;
+        }
+        if (!countedCost && typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0) {
+          stats.usd += usage.cost;
+          stats.unknownCostCalls--;
+          countedCost = true;
+        }
+      }
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
       if (delta.content) {
@@ -320,58 +342,87 @@ async function callTool(server: McpServer, req: Request, name: string, args: Rec
  * the results and speaks again, up to MAX_STEPS rounds. Errors after the
  * stream has started are events too, since the status line has already gone.
  */
-export function chatStream(o: { key: string; webKey?: string; server: McpServer; req: Request; messages: ChatMessage[] }): ReadableStream<Uint8Array> {
+export function chatStream(o: { key: string; webKey?: string; server: McpServer; req: Request; messages: ChatMessage[]; onFinish?: (outcome: ChatOutcome, stats: ChatStats) => Promise<void>; waitUntil?: (promise: Promise<void>) => void }): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
+  const stats = chatStats();
+  stats.starts = Number(o.messages.length === 1);
+  const started = performance.now();
+  const abort = new AbortController();
+  let stopped = false;
+  let recorded = false;
+  const finish = async (outcome: ChatOutcome) => {
+    if (recorded) return;
+    recorded = true;
+    stats.ms = performance.now() - started;
+    await o.onFinish?.(outcome, { ...stats });
+  };
   return new ReadableStream({
-    async start(controller) {
-      const send = (e: ChatEvent) => controller.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`));
-      const messages: Record<string, unknown>[] = [
-        { role: "system", content: systemPrompt(o.server) },
-        ...o.messages,
-      ];
-      const tools = [...toolsFor(o.server), TIME_TOOL, ...(o.webKey ? WEB_TOOLS : [])];
-      const isWeb = (name: string) => WEB_TOOLS.some((t) => t.function.name === name);
-      try {
-        for (let step = 0; ; step++) {
-          const last = step >= MAX_STEPS;
-          const { text, calls } = await complete(
-            o.key,
-            // Reasoning kept low: the thinking is Jev's job, and it is billed as output.
-            { model: CHAT_MODEL, messages, max_tokens: MAX_TOKENS, reasoning: { effort: "low" }, ...(last ? {} : { tools }) },
-            (d) => send({ t: "text", d }),
-          );
-          if (!calls.length) break;
-          messages.push({
-            role: "assistant",
-            content: text || null,
-            tool_calls: calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.args } })),
-          });
-          for (const c of calls) {
-            let args: Record<string, unknown> = {};
-            try {
-              args = JSON.parse(c.args || "{}");
-            } catch {
-              /* the tool reports the bad arguments */
+    start(controller) {
+      const run = async () => {
+        let outcome: ChatOutcome = "completed";
+        const send = (e: ChatEvent) => { if (!stopped) controller.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`)); };
+        const messages: Record<string, unknown>[] = [
+          { role: "system", content: systemPrompt(o.server) },
+          ...o.messages,
+        ];
+        const tools = [...toolsFor(o.server), TIME_TOOL, ...(o.webKey ? WEB_TOOLS : [])];
+        const isWeb = (name: string) => WEB_TOOLS.some((t) => t.function.name === name);
+        try {
+          for (let step = 0; ; step++) {
+            abort.signal.throwIfAborted();
+            const last = step >= MAX_STEPS;
+            const { text, calls } = await complete(
+              o.key,
+              // Reasoning kept low: the thinking is Jev's job, and it is billed as output.
+              { model: CHAT_MODEL, messages, max_tokens: MAX_TOKENS, reasoning: { effort: "low" }, ...(last ? {} : { tools }) },
+              (d) => send({ t: "text", d }),
+              stats, abort.signal,
+            );
+            if (!calls.length || last) break;
+            messages.push({
+              role: "assistant",
+              content: text || null,
+              tool_calls: calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.args } })),
+            });
+            for (const c of calls) {
+              abort.signal.throwIfAborted();
+              stats.toolCalls++;
+              if (["classify_texts", "classify_dimensions", "classify_multi_label", "count_labels", "review_uncertain"].includes(c.name)) stats.classifyCalls++;
+              else if (c.name === "web_search") stats.webSearches++;
+              else if (c.name === "read_page") stats.pageReads++;
+              else if (c.name === TIME_TOOL.function.name) stats.clockCalls++;
+              let args: Record<string, unknown> = {};
+              try {
+                args = JSON.parse(c.args || "{}");
+              } catch {
+                /* the tool reports the bad arguments */
+              }
+              send({ t: "tool", name: c.name, args });
+              const r =
+                Array.isArray(args.inputs) && args.inputs.length > CHAT_MAX_INPUTS
+                  ? { text: `error: the chat classifies at most ${CHAT_MAX_INPUTS} texts per call; send fewer`, error: true }
+                  : c.name === TIME_TOOL.function.name
+                    ? runTimeTool(args)
+                    : isWeb(c.name) && o.webKey
+                      ? await runWebTool(o.webKey, c.name, args, abort.signal)
+                      : await callTool(o.server, o.req, c.name, args);
+              if (r.error) stats.toolErrors++;
+              send({ t: "result", name: c.name, text: r.text.slice(0, RESULT_PREVIEW), ...(r.error ? { error: true } : {}) });
+              messages.push({ role: "tool", tool_call_id: c.id, content: r.text });
             }
-            send({ t: "tool", name: c.name, args });
-            const r =
-              Array.isArray(args.inputs) && args.inputs.length > CHAT_MAX_INPUTS
-                ? { text: `error: the chat classifies at most ${CHAT_MAX_INPUTS} texts per call; send fewer`, error: true }
-                : c.name === TIME_TOOL.function.name
-                  ? runTimeTool(args)
-                  : isWeb(c.name) && o.webKey
-                    ? await runWebTool(o.webKey, c.name, args)
-                    : await callTool(o.server, o.req, c.name, args);
-            send({ t: "result", name: c.name, text: r.text.slice(0, RESULT_PREVIEW), ...(r.error ? { error: true } : {}) });
-            messages.push({ role: "tool", tool_call_id: c.id, content: r.text });
           }
+          send({ t: "done" });
+        } catch (e) {
+          outcome = stopped ? "stopped" : "failed";
+          if (!stopped) send({ t: "error", message: "the assistant could not answer; try again" });
+        } finally {
+          if (!stopped) controller.close();
+          await finish(stopped ? "stopped" : outcome);
         }
-        send({ t: "done" });
-      } catch (e) {
-        console.warn(`chat failed: ${(e as Error).message}`);
-        send({ t: "error", message: "the assistant could not answer; try again" });
-      }
-      controller.close();
+      };
+      const finished = run();
+      o.waitUntil?.(finished);
     },
+    cancel() { stopped = true; abort.abort(); const recorded = finish("stopped"); o.waitUntil?.(recorded); return recorded; },
   });
 }

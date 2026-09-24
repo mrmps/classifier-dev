@@ -46,6 +46,13 @@ jobs:
         run: node .github/render-wrangler.mjs
       - name: Build application
         run: npm run build
+      - name: Verify chat usage and authenticated analytics
+        run: npm run test:e2e:chat-analytics
+      - name: Save chat analytics evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-analytics-e2e
+          path: captures/chat-analytics.json
       - name: Verify public chat and classification tools
         run: npm run test:e2e:chat
       - name: Save chat verification evidence

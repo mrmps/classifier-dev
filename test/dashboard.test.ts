@@ -48,7 +48,7 @@ describe("a dashboard with data on it", () => {
   test("renders the report and supplies authenticated chart data", async () => {
     const { res, body } = await dashboard();
     expect(res.status).toBe(200);
-    expect(body).toContain("API analytics");
+    expect(body).toContain("Service analytics");
     expect(body).toContain("jev-1.13.0");
     expect(body).toContain('src="/admin-assets/admin.js"');
     expect(body).toContain('&quot;series&quot;:');

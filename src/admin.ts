@@ -19,6 +19,7 @@
  */
 
 import type { Env } from "./index";
+import { CHAT_DATASET, CHAT_FIELDS } from "./chat-analytics";
 import { sql } from "./report";
 import { reasonText } from "./features/admin/reasons";
 import { esc, BASE_CSS } from "./ui";
@@ -235,6 +236,9 @@ async function load(env: Env, range: RangeKey) {
     previous,
     performance,
     outcomes,
+    chatOutcomes,
+    chatSeries,
+    chatCallers,
   ] = await Promise.all([
     q(
       "totals",
@@ -391,6 +395,14 @@ async function load(env: Env, range: RangeKey) {
       [] as Row[],
       (x) => x,
     ),
+    q("chatOutcomes", `SELECT blob2 AS outcome, ${CHAT_FIELDS.map((name, i) => `sum(double${i + 1} * _sample_interval) AS ${name}`).join(", ")}
+      FROM ${CHAT_DATASET} WHERE timestamp > ${since} GROUP BY outcome`, [] as Row[], x => x),
+    q("chatSeries", `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t,
+      sum(double1 * _sample_interval) AS turns, sum(double6 * _sample_interval) AS usd,
+      sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
+      FROM ${CHAT_DATASET} WHERE timestamp > ${since} AND blob2 IN ('completed', 'failed', 'stopped') GROUP BY t ORDER BY t`, [] as Row[], x => x),
+    q("chatCallers", `SELECT index1, sum(_sample_interval) AS n FROM ${CHAT_DATASET}
+      WHERE timestamp > ${since} AND blob2 IN ('completed', 'failed', 'stopped') GROUP BY index1`, 0, x => x.length),
   ]);
 
   const classifierNames = new Map<string, string>();
@@ -428,6 +440,9 @@ async function load(env: Env, range: RangeKey) {
     previous,
     performance,
     outcomes,
+    chatOutcomes,
+    chatSeries,
+    chatCallers,
     errors,
     unavailable,
     generatedAt: new Date().toISOString(),
@@ -506,9 +521,9 @@ export function dashboard(range: RangeKey, d: AdminData, nonce: string) {
       ? `<p>Data unavailable. Refresh to retry.</p>`
       : content;
   const table = (name: string, rows: Row[], keys: string[], query: string) =>
-    `<details><summary>${esc(name)}</summary>${unavailable(query, rows.length ? `<div class="scroll"><table><thead><tr>${keys.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${keys.map((k) => `<td>${esc(k === "reason" ? reasonText(String(r[k] || "")) : (r[k] ?? "—"))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<p>No activity in this period.</p>`)}</details>`;
+    `<section><h2>${esc(name)}</h2>${unavailable(query, rows.length ? `<div class="scroll"><table><thead><tr>${keys.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${keys.map((k) => `<td>${esc(k === "reason" ? reasonText(String(r[k] || "")) : (r[k] ?? "—"))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<p>No activity in this period.</p>`)}</section>`;
   const body = `<div class="page"><article class="doc">
-<h1>API analytics</h1><p>${esc(RANGES[range].label)} · ${esc(d.generatedAt)} · UTC</p>
+<h1>Service analytics</h1><p>${esc(RANGES[range].label)} · ${esc(d.generatedAt)} · UTC</p>
 <nav aria-label="Time range"><a href="/admin?range=24h">24h</a> · <a href="/admin?range=7d">7d</a> · <a href="/admin?range=30d">30d</a> · <a href="/admin?logout=1">Sign out</a></nav>
 <noscript><p>Enable JavaScript for interactive charts. The data report is available below.</p></noscript>
 ${d.errors.length ? `<p role="alert">some panels are empty because data is unavailable. Refresh to retry. ${esc(d.errors.join(" · ").slice(0, 300))}</p>` : ""}
@@ -549,6 +564,7 @@ ${d.errors.length ? `<p role="alert">some panels are empty because data is unava
       ],
     ]),
   )}</section>
+${table("Chat usage", d.chatOutcomes, ["outcome", "turns", "modelCalls", "inputTokens", "outputTokens", "usd", "unknownTokenCalls", "unknownCostCalls", "toolCalls", "starts"], "chatOutcomes")}
 ${table("Traffic buckets", d.series, ["t", "requests", "classifications", "usd"], "series")}
 ${table("Accepted-request performance", d.performance, ["t", "avg_ms", "batch_size"], "performance")}
 ${table("Models", d.byModel, ["model", "requests", "classifications", "usd", "avg_ms"], "byModel")}

@@ -59,8 +59,9 @@ test("analytics queries separate current and previous windows and exclude quota 
   const db = new Database(":memory:");
   const now = 2000000000;
   db.exec(`CREATE TABLE classifier_events (timestamp INTEGER, _sample_interval REAL,
-    index1 TEXT DEFAULT 'caller', ${Array.from({ length: 9 }, (_, i) => `blob${i + 1} TEXT DEFAULT ''`).join(",")},
-    ${Array.from({ length: 9 }, (_, i) => `double${i + 1} REAL DEFAULT 0`).join(",")})`);
+    index1 TEXT DEFAULT 'caller', ${Array.from({ length: 20 }, (_, i) => `blob${i + 1} TEXT DEFAULT ''`).join(",")},
+    ${Array.from({ length: 20 }, (_, i) => `double${i + 1} REAL DEFAULT 0`).join(",")})`);
+  db.exec("CREATE TABLE classifier_chat_events AS SELECT * FROM classifier_events WHERE 0");
   db.exec(`INSERT INTO classifier_events(timestamp,_sample_interval,blob4,double1,double2,double3) VALUES
     (${now - 3600},9,'200',6,100,.01), (${now - 3600},3,'502',0,500,0),
     (${now - 3600},100000,'429',0,1,0), (${now - 30 * 3600},2,'200',4,200,.02),
