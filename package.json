@@ -21,6 +21,7 @@
     "build:admin": "vite build --config vite.admin.config.ts",
     "prebuild": "npm run build:admin",
     "predev": "npm run build:admin",
+    "test:e2e:chat": "node e2e/chat.mjs",
     "test:e2e:spending": "node e2e/spending.mjs",
     "test:e2e:usage": "node e2e/usage.mjs",
     "test:e2e:long-context": "node e2e/long-context.mjs",
