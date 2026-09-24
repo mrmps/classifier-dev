@@ -120,103 +120,68 @@ In rough order of value: add cases from a real taxonomy with labels assigned
 before any model output is seen; split into tune and report halves; raise n past
 about thirty so confidence intervals mean something.
 
-## Compression classifiers
+## Zero-shot TF-IDF and compression on JevBench
 
-`compression.py` tests whether gzip/DEFLATE or Zstd can replace a learned text
-classifier. It compares gzip NCD nearest neighbors, per-class DEFLATE and Zstd
-dictionaries, Zstd dictionary mixtures, and a word/character TF-IDF logistic
-regression control. It does not change the Worker or call a paid model API.
+`jevbench_hybrid.py` measures arbitrary typed decisions using only the current
+state, instructions, labels, and option descriptions. There is no labeled
+training, support set, learned combination weight, or probability calibration.
+TF-IDF vocabulary and IDF are computed from the current request alone; compressor
+dictionaries are seeded with that request’s text at inference.
 
 ```sh
 git clone https://github.com/fstandhartinger/jevbench.git /tmp/compression-jevbench
 git -C /tmp/compression-jevbench checkout 2fa63fa3226cb369795525ed011800f57dcbd894
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 uv run --python 3.12 eval/compression.py \
-  --out eval/data/compression-reproduction --jevbench /tmp/compression-jevbench
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 uv run --python 3.12 eval/jevbench_hybrid.py \
+  --jevbench /tmp/compression-jevbench --out eval/data/jevbench-zero-shot-reproduction
 ```
 
-Run from the repository root. The output directory must be new. `uv` installs
-the script's pinned dependencies; Hugging Face downloads are cached. Omit
-`--jevbench` to run only the supervised datasets. `--datasets`, `--families`,
-`--seed`, `--train-cap`, `--validation-n`, and `--n` bound additional experiments.
+Run from the repository root. The output directory must be new. Dependencies
+are pinned in the script; no API keys, model downloads, or paid calls are needed.
+The benchmark repository supplies the 231 public questions and published Jev
+outcomes for comparison. Private, sealed, and imported questions are absent.
 
-The default uses seed 0 and 500 evaluation rows, matching the sampling protocol
-of [dhruvmehra/jevbench](https://github.com/dhruvmehra/jevbench). Each dataset has
-up to 10,000 training rows and 600 separate validation rows. Training is shuffled
-and deduplicated after excluding exact normalized matches anywhere in the
-held-out split. Classifier settings and probability temperature are chosen only
-on validation rows, then frozen for evaluation. This excludes exact duplicates,
-not semantic paraphrases or SST-2's related review fragments. Test rows remain
-in their original benchmark sample, including any duplicates within that split.
+The fixed sweep contains 54 methods: five TF-IDF scores (word, window, character,
+label-only, and a window/character combination), three compression scores
+(gzip normalized compression distance, DEFLATE conditional gain, and Zstd
+conditional gain), all 45 pairwise blends at 25/50/75% TF-IDF weight, and one
+equal four-way blend. Scores are standardized within each question before
+combining them. Negligible numerical variation is collapsed and final scores
+rounded before ties are resolved by label name, matching JevBench’s scorer.
 
-Gzip nearest neighbors deliberately retain at most 1,000 balanced examples; its
-accuracy is a bounded-compute baseline, not an estimate of full-data gzip kNN.
-DEFLATE uses raw zlib preset dictionaries (the same compression algorithm as
-gzip, without gzip framing). Zstd tries trained dictionaries and raw class
-text, with minimum or mean length over random shards. Compression length is
-only a score: softmax temperature is fitted on validation labels. Dictionaries
-store information from labeled examples; this is supervised learning, not a
-zero-shot or memory-free model. Oversized dictionary training failures are
-recorded in the validation sweep, never silently replaced by another method.
+### Public results
 
-Every run produces `summary.json`, per-dataset validation sweeps and selected
-settings, per-item predictions/probabilities, split hashes, dataset fingerprints,
-and software versions. Timing covers serial local normalization, scoring,
-probabilities and tie-breaking; it excludes training, loading, serving and
-network overhead. Empty, Unicode and long inputs are exercised for every
-selected supervised model. The output manifest identifies the script by hash.
+Generated measurements are in [jevbench-zero-shot-results.json](jevbench-zero-shot-results.json).
+No training examples were used for any row. Jev is a published reference on
+the exact same item IDs, not a fresh API run.
 
-The optional Benchmark Heaven diagnostic uses symmetric gzip NCD between the
-state/instructions and each label/criterion. The prediction function accepts
-only those inference fields; expected answers and author rationales cannot
-enter it. This has no labeled support set and returns labels without invented
-calibrated probabilities. Its three public cohorts total 231 decisions. These
-are public diagnostic accuracies, not an official JevBench score: private,
-sealed, and imported tasks are absent. A supervised banking/news classifier
-cannot be submitted as if it solves arbitrary typed decisions.
-
-The compression idea comes from [Nathan Barry's gzip language-model experiment](https://nathan.rs/posts/gzip-lm/)
-and [FTCC's class-dictionary approach](https://github.com/cyrilou242/ftcc).
-The TF-IDF control matters: [Gzip versus bag-of-words for text classification](https://arxiv.org/abs/2307.15002)
-examines whether compression's gains survive comparison with conventional text
-features.
-
-### Measured results (Apple M5 Max)
-
-Generated from [compression-results.json](compression-results.json). All rows
-use 500 held-out items per dataset; percentages are accuracy. Each family selects
-its settings on validation data. These are exploratory measurements on one seed,
-not evidence that small differences are statistically significant.
-
-| Up to 10k training rows | Gzip kNN (≤1k memory) | DEFLATE | Zstd mixture | TF-IDF + logistic |
+| Method | Overall (231) | Easy (48) | Original (72) | Hard (111) |
 |---|---:|---:|---:|---:|
-| agnews | 61.8% | 76.6% | 84.8% | 88.8% |
-| banking77 | 54.8% | 82.0% | 80.6% | 90.8% |
-| sst2 | 54.8% | 65.6% | 71.8% | 79.6% |
-| emotion | 29.8% | 40.6% | 56.2% | 85.2% |
+| Gzip | 42.0% | 52.1% | 34.7% | 42.3% |
+| Character TF-IDF | 49.4% | 79.2% | 38.9% | 43.2% |
+| Window + character TF-IDF | 48.9% | 79.2% | 40.3% | 41.4% |
+| 75% TF-IDF + 25% Zstd (best observed blend) | 50.6% | 81.2% | 41.7% | 43.2% |
+| Jev 1.13.0, published | 86.6% | 100.0% | 98.6% | 73.0% |
 
-Larger-training follow-up (same evaluation items, separately held-back validation):
+The best blend is the high end of an exploratory sweep, not an independently
+selected winner. It adds only three correct answers over character TF-IDF
+(+1.30 percentage points; paired scenario-bootstrap 95% interval −3.07 to +5.73
+points). This is not convincing evidence of an improvement. Uniform random
+choice averages 31.8% on these variable-sized label sets.
 
-| Dataset | Training rows | Zstd mixture | p50 | TF-IDF + logistic | p50 |
-|---|---:|---:|---:|---:|---:|
-| agnews | 119,239 | 90.0% | 0.246 ms | 91.2% | 0.593 ms |
-| sst2 | 66,378 | 70.0% | 0.034 ms | 85.0% | 0.432 ms |
+The methods are fast but miss many reasoning decisions: the highlighted blend
+gets 5/19 long-policy questions and 5/18 multi-hop questions correct. Running
+all 54 scoring rules together took a median 1.53 ms per request on an Apple M5
+Max, including per-request TF-IDF fitting and feature extraction. This excludes
+loading, verification, and network/serving overhead. It is not an API latency.
 
-The larger news mixture retains 28.25 MB of class text across 20 dictionaries;
-this is not a tiny parameter-free model. It is competitive here, but the lexical
-control is more accurate on every measured dataset. More data does not resolve
-the sentiment weakness.
+Every prediction function receives only inference fields. The harness scores
+answers afterward and checks every prediction again with reversed option order.
+All 12,474 predictions were independently checked with the upstream label scorer.
+No probabilities are invented from similarity scores; these are label accuracies,
+not official composite scores or a leaderboard submission.
 
-Reproduce the larger run by adding `--datasets agnews sst2 --families zstd
-zstd-mixture tfidf-logistic --train-cap 120000` and choosing a new output directory.
-
-On Benchmark Heaven’s public cohorts, zero-shot gzip scores **45.8% easy**,
-**36.1% original**, and **42.3% hard**. All 231 labels were checked against the
-upstream scorer and were invariant to reversing the option order. No official
-score or leaderboard submission is claimed. The audit fixed ordinal gold labels
-being compared as integers against strings, and removed class-order bias when
-gzip neighbor distances tie.
-
-The checked-in JSON combines the two generated `summary.json` files and the
-audit record. Raw item predictions stay under `eval/data/`. Across the default
-and larger runs, 13,000 probability vectors and accuracies were independently
-checked; the default run’s 8,000 dictionary/lexical predictions reproduced exactly.
+Each run writes per-item predictions and scores, the full per-family sweep,
+source/script hashes, software versions, timing, and paired bootstrap intervals
+to `eval/data/`. The checked-in summary retains the full accuracy sweep and
+selected family breakdowns; raw predictions stay in the ignored output folder.
+The Worker and deployed service are unchanged.
