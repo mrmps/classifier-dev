@@ -1,3 +1,4 @@
+import { requestTokens } from "./model-analytics";
 import { classificationUsage, classificationPricing } from "./classification-usage";
 import { classifyLongContext, LongContextError, longContextInputTokens, LONG_CONTEXT_THRESHOLD, LONG_CONTEXT_MAX_TOKENS, LONG_CONTEXT_MAX_INPUTS, LONG_CONTEXT_MAX_DECISIONS } from "./long-context";
 import { recordLongContext } from "./long-context-analytics";
@@ -1258,6 +1259,8 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   attempted: number;
   /** Smart-tier answers that could not reach the reasoning model. */
   escalationFailed: number;
+  meter?: Meter;
+  images?: number;
   mode?: "single" | "multi" | "dimensions";
   dimensions?: number;
   uncertain?: number;
@@ -1271,12 +1274,13 @@ export function record(env: Env, ctx: ExecutionContext, d: {
     (async () => {
       const [caller, labels] = await Promise.all([callerId(env, d.ip), classifierId(env, d.labels)]);
       try {
+        const usage = requestTokens(d.meter);
         env.AE?.writeDataPoint({
-          blobs: [d.tier, labels, d.country, String(d.status), d.client, d.model, d.reason, d.agent, d.mode ?? "single"],
+          blobs: [d.tier, labels, d.country, String(d.status), d.client, d.model, d.reason, d.agent, d.mode ?? "single", d.images ? "image" : "text", usage.providers],
           // double3 and blob7/blob8 were added after launch: rows written before
           // that read back as 0 and "", so cost and failure reasons are only
           // meaningful from that deploy forward.
-          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed, d.status === 200 ? d.attempted : 0, d.dimensions ?? 1, d.uncertain ?? 0, d.fallbackDecisions ?? 0],
+          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed, d.status === 200 ? d.attempted : 0, d.dimensions ?? 1, d.uncertain ?? 0, d.fallbackDecisions ?? 0, usage.input, usage.output, usage.known, d.images ?? 0, usage.calls],
           indexes: [caller],
         });
       } catch {
@@ -1535,13 +1539,17 @@ const worker = {
         : 0;
       const labelSets = decisions ? typeSafeLabelSets(body ?? "") : [];
       const sdkStarted = Date.now();
-      const sdkRecord = (status: number, reason = "", model = "typesafe") => {
-        if (!decisions) return;
+      let imageCount = 0;
+      try { const parsed = JSON.parse(body ?? ""); imageCount = Array.isArray(parsed?.images) ? parsed.images.length : 0; } catch {}
+      const door = decisions ? dgemmaRoute(body ?? "") : { kind: "typesafe" as const };
+      const sdkRecord = (status: number, reason = "", model = door.kind === "typesafe" ? "typesafe" : "dgemma") => {
+        if (path !== "v1/systemone" || req.method !== "POST") return;
         record(env, ctx, {
           tier: "fast", n: status === 200 ? decisions : 0, ms: Date.now() - sdkStarted,
           labels: labelSets.length === 1 ? labelSets[0].labels : labelSets.map(set => JSON.stringify(set.labels)),
           mode: labelSets.length === 1 ? "single" : "dimensions",
-          ip, country, client, status, model, usd: meter.usd, reason, agent,
+          ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : model,
+          meter, images: imageCount, usd: meter.usd, reason, agent,
           attempted: decisions, escalationFailed: 0,
         });
       };
@@ -1555,6 +1563,7 @@ const worker = {
         remaining = gate.remaining;
         if (gate.limited) {
           const retryAfter = gate.resetIn ?? 60;
+          sdkRecord(429, "rate_limit");
           return json(
             { error: `Rate limit reached; retry in ${retryAfter}s.` },
             429,
@@ -1578,7 +1587,6 @@ const worker = {
       // A body that names model "dgemma" or carries images belongs to the
       // image-capable service, which speaks the same contract; everything
       // else stays TypeSafe's to validate. Neither answers for the other.
-      const door = decisions ? dgemmaRoute(body ?? "") : { kind: "typesafe" as const };
       if (door.kind === "refuse") {
         sdkRecord(door.status, door.code, "dgemma");
         return json({ error: door.message, code: door.code }, door.status);
@@ -2088,7 +2096,7 @@ const worker = {
     const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, unknown> = {}) => {
       recordLongContext(env, meter.longContext, "error");
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.model : layaModel(selectedModel),
-        usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
+        meter, usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
       const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
@@ -2400,7 +2408,7 @@ const worker = {
     const modelSummary = summarizeModels(results);
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
-      model: modelSummary.modelsUsed.join(","), usd: meter.usd,
+      model: modelSummary.modelsUsed.join(","), meter, usd: meter.usd,
       reason: "", agent, attempted: inputs.length, escalationFailed, mode,
       dimensions: dimensions?.length ?? 1,
       uncertain: results.filter((r) => r.confidence === null || r.confidence < ESCALATE_BELOW).length,

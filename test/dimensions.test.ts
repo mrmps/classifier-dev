@@ -63,7 +63,7 @@ describe("multidimensional HTTP contract", () => {
     expect(body.usage).toMatchObject({ items: 2, dimensions: 2, classifications: 4, escalated: 0, fallback: 0 });
     expect(h.gates[0]).toContain("cost=4");
     expect(h.points[0].blobs[8]).toBe("dimensions");
-    expect(h.points[0].doubles.slice(5)).toEqual([2, 2, 0, 0]);
+    expect(h.points[0].doubles.slice(5, 9)).toEqual([2, 2, 0, 0]);
     const stored = JSON.stringify(h.points);
     for (const privateValue of ["203.0.113.12", ...items, "billing", "identity", "team", "kind"]) expect(stored).not.toContain(privateValue);
     expect(h.points[0].blobs[1]).toMatch(/^ls_/);
