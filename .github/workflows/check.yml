@@ -53,6 +53,13 @@ jobs:
         with:
           name: chat-analytics-e2e
           path: captures/chat-analytics.json
+      - name: Verify model analytics from request to dashboard
+        run: npm run test:e2e:model-analytics
+      - name: Save model analytics evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-analytics-e2e
+          path: captures/model-analytics-e2e.json
       - name: Verify public chat and classification tools
         run: npm run test:e2e:chat
       - name: Save chat verification evidence

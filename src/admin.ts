@@ -18,6 +18,7 @@
  * fingerprints to aggregate label names; it contains no caller or source text.
  */
 
+import { modelUsage, modelUsageQuery } from "./model-analytics";
 import type { Env } from "./index";
 import { CHAT_DATASET, CHAT_FIELDS } from "./chat-analytics";
 import { sql } from "./report";
@@ -221,6 +222,8 @@ async function load(env: Env, range: RangeKey) {
     series,
     byTier,
     byModel,
+    modelSeries,
+    modelFailures,
     byCountry,
     byStatus,
     byClient,
@@ -266,12 +269,23 @@ async function load(env: Env, range: RangeKey) {
     ),
     q(
       "byModel",
-      `SELECT blob6 AS model, sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications,
-                sum(double3 * _sample_interval) AS usd, sum(double2 * _sample_interval) / sum(_sample_interval) AS avg_ms
-         FROM ${DATASET} WHERE timestamp > ${since} AND blob6 != ''
-         GROUP BY model ORDER BY requests DESC LIMIT 10`,
-      [] as Row[],
-      (x) => x,
+      modelUsageQuery(since),
+      [] as ReturnType<typeof modelUsage>,
+      modelUsage,
+    ),
+    q(
+      "modelSeries",
+      `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t, blob6 AS model,
+        sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications
+        FROM ${DATASET} WHERE timestamp > ${since} GROUP BY t, model ORDER BY t`,
+      [] as Row[], (x) => x,
+    ),
+    q(
+      "modelFailures",
+      `SELECT blob6 AS model, blob7 AS reason, blob4 AS status, sum(_sample_interval) AS requests
+        FROM ${DATASET} WHERE timestamp > ${since} AND blob4 != '200'
+        GROUP BY model, reason, status ORDER BY requests DESC LIMIT 50`,
+      [] as Row[], (x) => x,
     ),
     q(
       "byCountry",
@@ -425,6 +439,8 @@ async function load(env: Env, range: RangeKey) {
     series,
     byTier,
     byModel,
+    modelSeries,
+    modelFailures,
     byCountry,
     byStatus,
     byClient,
@@ -567,7 +583,9 @@ ${d.errors.length ? `<p role="alert">some panels are empty because data is unava
 ${table("Chat usage", d.chatOutcomes, ["outcome", "turns", "modelCalls", "inputTokens", "outputTokens", "usd", "unknownTokenCalls", "unknownCostCalls", "toolCalls", "starts"], "chatOutcomes")}
 ${table("Traffic buckets", d.series, ["t", "requests", "classifications", "usd"], "series")}
 ${table("Accepted-request performance", d.performance, ["t", "avg_ms", "batch_size"], "performance")}
-${table("Models", d.byModel, ["model", "requests", "classifications", "usd", "avg_ms"], "byModel")}
+${table("Models", d.byModel, ["model", "provider", "requests", "classifications", "failures", "rejected", "avg_ms", "input_tokens", "output_tokens", "token_requests", "image_requests", "usd", "cost_basis"], "byModel")}
+<p>Model combinations share a request; totals are not per-model allocations. Latency excludes 4xx. Token and image details start with this release; missing historical usage is unknown. Recorded spend excludes hourly GPUs, hosting and revenue.</p>
+${table("Model failures", d.modelFailures, ["model", "reason", "status", "requests"], "modelFailures")}
 ${table("Tiers", d.byTier, ["tier", "requests", "classifications", "usd", "avg_ms"], "byTier")}
 ${table("Failure causes", d.byReason, ["reason", "status", "agent", "requests"], "byReason")}
 ${table("Dimension outcomes", d.dimensionTraffic, ["status", "reason", "requests", "uncertain", "fallback"], "dimensionTraffic")}

@@ -451,3 +451,7 @@ body:has(.admin-app) {
 .admin-app text.recharts-cartesian-axis-tick-value {
   fill: #a4adbf;
 }
+
+.model-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.model-filter select { max-width: 100%; padding: 8px 12px; border: 1px solid #48516a; border-radius: 6px; background: #111827; color: #edf0f7; font: inherit; }
+.model-filter select:focus-visible { outline: 2px solid #8caaff; outline-offset: 3px; }

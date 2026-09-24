@@ -56,6 +56,8 @@ export function adminFixture(): AdminData {
         avg_ms: 706,
       },
     ],
+    modelSeries: [],
+    modelFailures: [],
     byModel: [
       {
         model: "jev-4.1",

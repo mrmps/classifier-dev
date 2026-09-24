@@ -349,6 +349,7 @@ export function Dashboard({
     );
     if (section) document.getElementById(sectionId(section))?.scrollIntoView();
   }, []);
+  const [selectedModel, setSelectedModel] = useState("");
   const [exportStatus, setExportStatus] = useState("");
   const t = d.totals[0] ?? {},
     prev = d.previous[0] ?? {},
@@ -393,11 +394,24 @@ export function Dashboard({
     range === "24h" ? "24 hours" : range === "7d" ? "7 days" : "30 days";
   const modelRows = d.byModel.map((r) => ({
     ...r,
-    unitCost: n(r.classifications)
+    share: requests ? n(r.requests) / requests * 100 : null,
+    success: n(r.ok) + n(r.failures) ? n(r.ok) / (n(r.ok) + n(r.failures)) * 100 : null,
+    coverage: n(r.requests) ? n(r.token_requests) / n(r.requests) * 100 : null,
+    unitCost: r.cost_basis !== "Hourly GPU excluded" && n(r.classifications)
       ? (n(r.usd) / n(r.classifications)) * 1000
       : null,
-    batch: n(r.requests) ? n(r.classifications) / n(r.requests) : null,
+    batch: n(r.ok) ? n(r.classifications) / n(r.ok) : null,
+    recordedCost: r.cost_basis === "Hourly GPU excluded" ? null : n(r.usd),
   }));
+  const selectedSeries = new Map<string, number>();
+  for (const row of d.modelSeries) {
+    if (!selectedModel || String(row.model || "Unattributed") === selectedModel) {
+      const key = String(row.t).replace("T", " ").slice(0, 16);
+      selectedSeries.set(key, (selectedSeries.get(key) ?? 0) + n(row.requests));
+    }
+  }
+  const modelTimeline = series.map(row => ({time: row.time, requests: selectedSeries.get(row.time) ?? 0}));
+  const visibleModels = modelRows.filter(row => !selectedModel || row.model === selectedModel);
   const reasons = new Map<string, number>();
   for (const r of d.byReason)
     reasons.set(
@@ -851,54 +865,56 @@ export function Dashboard({
         <section className="analytics-section" id="Cost-&-models">
           <h2 className="section-heading">Cost & models</h2>
           <div className="panel-grid">
-            {trend(
-              "Cost per 1,000 decisions",
-              "cost",
-              "USD / 1k decisions",
-              "series",
-              green,
-              money,
-            )}
-            <Breakdown
-              title="Spend by model"
-              subtitle="Top 10 models by request volume · recorded provider cost"
-              rows={d.byModel}
-              name="model"
-              value="usd"
-              color={amber}
-              format={money}
-              unavailable={missing("byModel")}
-            />
-            <Breakdown
-              title="Spend by tier"
-              subtitle="Compare the cost of fast and smart classification"
-              rows={d.byTier}
-              name="tier"
-              value="usd"
-              color={purple}
-              format={money}
-              unavailable={missing("byTier")}
-            />
-            <Panel
-              title="Model economics"
-              subtitle="Top 10 models by requests · click a column to sort"
-              className="span-two"
-              unavailable={missing("byModel")}
-            >
-              <Table
-                rows={modelRows}
-                columns={[
-                  { key: "model", label: "Model" },
-                  ...numeric,
-                  { key: "unitCost", label: "Cost / 1k", format: money },
-                  {
-                    key: "batch",
-                    label: "Decisions / req",
-                    format: (v) => v.toFixed(1),
-                  },
-                ]}
-              />
-            </Panel>
+              <Panel title="Usage by model" subtitle="Share of recorded requests · combinations represent requests answered by multiple models" wide unavailable={missing("byModel")}>
+                <div className="model-filter">
+                  <label htmlFor="model-filter">Explore a model</label>
+                  <select id="model-filter" value={selectedModel} onChange={event => setSelectedModel(event.target.value)}>
+                    <option value="">All models</option>
+                    {modelRows.map(row => <option key={row.model} value={row.model}>{row.model}</option>)}
+                  </select>
+                </div>
+                <Table rows={visibleModels} columns={[
+                  {key:"model", label:"Model / combination"},
+                  {key:"provider", label:"Provider"},
+                  {key:"requests", label:"Requests", format:count},
+                  {key:"share", label:"Traffic share", format:v => `${v.toFixed(1)}%`},
+                  {key:"classifications", label:"Decisions", format:count},
+                  {key:"batch", label:"Decisions / success", format:v => v.toFixed(1)},
+                  {key:"image_requests", label:"Recorded image requests", format:count},
+                ]}/>
+                <p className="description">Historical blank models are Unattributed; older SDK traffic remains “typesafe.” Image and provider details start with this release. Before an answer exists, failed requests use the selected route name.</p>
+              </Panel>
+              <div className="span-two"><Trend title={selectedModel ? `${selectedModel} requests` : "Model traffic over time"}
+                subtitle={`${bucket} request counts · UTC · includes rejections`}
+                rows={modelTimeline} field="requests" label="Requests" unavailable={missing("modelSeries")} /></div>
+              <Breakdown title="Most used models" subtitle="Request counts for the selected period" rows={d.byModel}
+                name="model" unavailable={missing("byModel")} />
+              <Panel title="Model reliability" subtitle="Server success and average latency exclude 4xx; rejections are shown separately" wide unavailable={missing("byModel")}>
+                <Table rows={visibleModels} columns={[
+                  {key:"model", label:"Model / combination"},
+                  {key:"success", label:"Server success", format:v => `${v.toFixed(2)}%`},
+                  {key:"avg_ms", label:"Avg latency", format:latency},
+                  {key:"failures", label:"Server failures", format:count},
+                  {key:"rejected", label:"Rejected (4xx)", format:count},
+                ]}/>
+              </Panel>
+              <Panel title="Model economics" subtitle="Reported upstream tokens and API charges; hourly RunPod GPUs and hosting are excluded" wide unavailable={missing("byModel")}>
+                <Table rows={visibleModels} columns={[
+                  {key:"model", label:"Model / combination"},
+                  {key:"input_tokens", label:"Input tokens", format:count},
+                  {key:"output_tokens", label:"Output tokens", format:count},
+                  {key:"coverage", label:"Token coverage", format:v => `${v.toFixed(1)}%`},
+                  {key:"calls", label:"Answered calls", format:count},
+                  {key:"recordedCost", label:"API cost", format:money},
+                  {key:"unitCost", label:"API cost / 1k decisions", format:money},
+                  {key:"cost_basis", label:"Cost basis"},
+                ]}/>
+                <p className="description">Token coverage is the share of requests with complete input and output counts. Totals include available counts and can be partial; — means unknown. Answered calls exclude attempts without usage. Combined-model cost and tokens belong to the whole request, not each model.</p>
+              </Panel>
+              {trend("Cost per 1,000 decisions", "cost", "USD / 1k decisions", "series", green, money,
+                "Recorded API cost only; hourly GPUs excluded")}
+              <Breakdown title="Spend by tier" subtitle="Recorded API cost; hourly GPUs excluded" rows={d.byTier}
+                name="tier" value="usd" color={purple} format={money} unavailable={missing("byTier")} />
             <Panel
               title="Public & enterprise usage"
               subtitle="Traffic and recorded upstream spend by client class"
@@ -912,6 +928,12 @@ export function Dashboard({
                 ]}
               />
             </Panel>
+              <Panel title="Failures by model" subtitle="Top 50 model, status and cause combinations" wide unavailable={missing("modelFailures")}>
+                <Table rows={d.modelFailures.filter(row => !selectedModel || String(row.model || "Unattributed") === selectedModel)} columns={[
+                  {key:"model", label:"Model / route"}, {key:"status", label:"HTTP status"},
+                  {key:"reason", label:"Cause"}, {key:"requests", label:"Requests", format:count},
+                ]}/>
+              </Panel>
           </div>
         </section>
         <section className="analytics-section" id="Adoption">
