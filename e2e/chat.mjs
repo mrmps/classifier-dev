@@ -75,7 +75,7 @@ try {
   report.results.push({ name: 'ten turns per minute; rejected before provider call', status: limited.status });
   const failure = await events(await post(message('fail upstream'), '203.0.113.11'));
   assert.equal(failure.at(-1).t, 'error');
-  for (const path of ['/skills', '/v1/skills', '/%76%31/skills']) assert.equal((await mf.dispatchFetch(`https://classifier.dev${path}`)).status, 404);
+  for (const path of ['/skills', '/v1/skills', '/%76%31/skills', '/chat.md', '/chat/private']) assert.equal((await mf.dispatchFetch(`https://classifier.dev${path}`)).status, 404);
   report.results.push({ name: 'upstream error terminates stream; skills remain private', status: 'passed' });
   if (process.argv.includes('--browser')) {
     const run = promisify(execFile);

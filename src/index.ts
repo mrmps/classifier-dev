@@ -1332,8 +1332,8 @@ const worker = {
     let chatEndpoint = false;
     try {
       const decoded = decodeURIComponent(endpoint).replace(/^\/+/, "/");
-      internalEndpoint = /^\/(?:v1\/)?skills(?:\/|\.md$|$)/.test(decoded);
       chatEndpoint = decoded === "/chat" || decoded === "/v1/chat";
+      internalEndpoint = !chatEndpoint && /^\/(?:v1\/)?(?:chat|skills)(?:\/|\.md$|$)/.test(decoded);
     } catch { /* Invalid routes are handled below. */ }
     if (internalEndpoint && !execution?.internal) {
       const credential = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
