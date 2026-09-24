@@ -9,7 +9,7 @@ import { SCRAPE_PRICE } from "./scrape";
  * canonical document and nothing can drift between the three.
  */
 
-import { SPENDING_LIMITS, URL_CLASSIFICATION } from "./docs";
+import { SPENDING_LIMITS, URL_CLASSIFICATION, IMAGE_CLASSIFICATION } from "./docs";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
@@ -207,18 +207,16 @@ QUICKSTART
     });
 
 
+${IMAGE_CLASSIFICATION}
+
 COMING SOON
 
-  Two things are being built on the same call shape:
-
-    Image classification   Labels in, one calibrated answer out, for images
-                           instead of text.
     Private inference      Zero-knowledge, end-to-end encrypted classification:
                            the input is unreadable in transit and unreadable to
                            the service that classifies it.
 
-  If either is on your roadmap, say so now and it gets built against your
-  case.
+  If private inference is on your roadmap, say so now and it gets built
+  against your case.
 
     Book a call   ${SITE.author.cal}
     Email         ${SITE.email}

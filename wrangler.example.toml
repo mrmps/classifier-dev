@@ -83,8 +83,8 @@ LAYA_ENABLED = "true"
 # context now uses Jev screening and judgment with funded-workspace admission.
 CHUNKLAYA_ENABLED = "true"
 # model="dgemma" or an images array on POST /v1/systemone routes to the
-# image-capable DiffusionGemma service when the Worker secrets DGEMMA_URL and
-# DGEMMA_TOKEN are set; otherwise such requests answer dgemma_unavailable.
+# Beam DiffusionGemma endpoint with BEAM_API_KEY. Without Beam, DGEMMA_URL
+# and DGEMMA_TOKEN select a separately hosted service. No text-only fallback.
 DGEMMA_ENABLED = "true"
 # Enable only after account migration, pricing and Autumn reconciliation checks.
 APP_ACCOUNTS_ENABLED = "true"

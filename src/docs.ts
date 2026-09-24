@@ -64,6 +64,74 @@ export const URL_CLASSIFICATION = `SCRAPE AND CLASSIFY A URL
   are not stored in the usage ledger. MCP accepts url and include on
   classify_texts, classify_dimensions and classify_multi_label.`;
 
+export const IMAGE_CLASSIFICATION = `IMAGE CLASSIFICATION
+
+  Classify an inline image at POST /v1/systemone with model "jev/diffusiongemma"
+  ("dgemma" is an alias). Beam hosts DiffusionGemma 26B-A4B: text and an image
+  in, typed decisions and probabilities out. It does not generate images.
+  Text-only requests can select this model too. It is experimental; Jev's
+  calibration measurements do not apply to its probabilities.
+
+  Send one PNG, JPEG, WebP or GIF as a base64 data URL in images. Remote URLs
+  are not fetched. The image URL must fit 900,000 characters and the entire
+  JSON body must fit 1 MB. Beam accepts at most 32 questions in a request,
+  within its 32,768-token rendered context. Each question uses the existing
+  Choice, Noul or Score shape:
+
+    {"model": "jev/diffusiongemma",
+     "state": "Look at the attached image.",
+     "images": ["data:image/png;base64,iVBORw0KGgo..."],
+     "questions": {"color": {"type": "choice",
+         "instructions": "What color is the image?",
+         "criteria": {"red": null, "blue": null}}}}
+
+  The official TypeSafe SDKs can send images as an extra request field.
+  JavaScript has no images property in SystemOneRequest; use a variable so
+  TypeScript accepts the additional field. The SDK forwards it unchanged:
+
+    import { readFileSync } from "node:fs";
+    import { TypeSafeClient, choice } from "@typesafe-ai/sdk";
+
+    const client = new TypeSafeClient({
+      apiKey: process.env.CLASSIFIER_API_KEY ?? "unused",
+      baseURL: "https://classifier.dev",
+      timeout: 60000,
+    });
+    const request = {
+      model: "jev/diffusiongemma",
+      state: "Look at the image.",
+      images: ["data:image/png;base64," + readFileSync("image.png").toString("base64")],
+      questions: { color: choice("What color?", { red: null, blue: null }) },
+    };
+    console.log((await client.systemOne(request)).answers.color.choice);
+
+  Python exposes the extension through extra_body:
+
+    import base64
+    from pathlib import Path
+    from typesafe_sdk import Choice, TypeSafeClient
+
+    image = base64.b64encode(Path("image.png").read_bytes()).decode()
+    with TypeSafeClient(api_key="unused", base_url="https://classifier.dev") as client:
+        result = client.system_one(
+            model="jev/diffusiongemma", state="Look at the image.", timeout=60,
+            extra_body={"images": ["data:image/png;base64," + image]},
+            questions={"color": Choice(instructions="What color?",
+                                      criteria={"red": None, "blue": None})},
+        )
+        print(result.choices["color"].choice)
+
+  Both SDKs return their usual typed answers and token usage. Neither defines
+  image or audio output types. The default Jev model does not read images;
+  select DiffusionGemma explicitly when using an SDK that defaults to Jev.
+  DiffusionGemma is currently a free experimental model for callers; Beam's
+  provider cost is still counted against the service's spending allowances.
+  An unavailable model returns 503 dgemma_unavailable, invalid input returns
+  400 dgemma_input, and saturation returns 429 dgemma_busy with Retry-After.
+  Images under another model return 400 images_unsupported. Image requests
+  never fall back to text-only inference.
+`;
+
 export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
@@ -133,28 +201,7 @@ TYPESAFE SDK COMPATIBILITY
   credentials. GET /v1/models is public and does not spend quota or credits.
   The corresponding HTTP resources are POST /v1/systemone and GET /v1/models.
 
-  Images go through the same route. Set model to "dgemma" and add an images
-  array of data URLs (image/png, image/jpeg, image/webp or image/gif, base64;
-  at most 4 images and 900,000 characters of base64 in total, within the 1 MB
-  body). The questions keep the Choice, Noul and Score shapes and are answered
-  about the images and the state together:
-
-    {"model": "dgemma",
-     "state": {"note": "Look at the attached image."},
-     "images": ["data:image/png;base64,iVBORw0KGgo..."],
-     "questions": {"red": {"type": "noul",
-                           "instructions": "Does the image contain a red square?"}}}
-
-  "dgemma" is DiffusionGemma 26B-A4B in vLLM's structured-read mode: one
-  denoise step over a seeded answer template, read as a calibrated
-  distribution per question, re-read a few times when the first read is
-  uncertain. Text-only bodies may name it too. A choice question offers at
-  most 26 options and a request at most 64 questions. Jev never sees these
-  requests: when the model is down the answer is 503 dgemma_unavailable, not
-  a text-only guess. A body it refuses is 400 dgemma_input with its reason, a
-  saturated model is 429 dgemma_busy with Retry-After, and images sent under
-  another model are 400 images_unsupported.
-
+${IMAGE_CLASSIFICATION}
 
 LAYA AND KEV
 

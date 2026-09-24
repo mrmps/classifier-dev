@@ -62,7 +62,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     }
     // dgemma is a System One door only; there, images select it as surely as its name.
     const systemOne = new URL(request.url).pathname === "/v1/systemone";
-    const dgemma = systemOne && (body.model === "dgemma" || (body.images !== undefined && body.images !== null));
+    const dgemma = systemOne && (body.model === "dgemma" || body.model === "jev/diffusiongemma" || (body.images !== undefined && body.images !== null));
     const trial = body.model === "laya" || body.model === "kev" || body.model === "chunklaya" || dgemma;
     const quotedCharge = contextTokens !== undefined ? longContextCharge(contextTokens)
       : classificationCharge(trial ? 0 : 65536 * decisions, body.tier === "smart" ? decisions : 0);

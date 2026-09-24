@@ -38,14 +38,14 @@ export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets } from "./typesafe-compat";
-import { dgemmaRoute, dgemmaResponse, dgemmaUnconfigured } from "./dgemma";
+import { dgemmaRoute, dgemmaResponse, dgemmaUnconfigured, dgemmaService } from "./dgemma";
 
 export interface Env extends LayaEnv, SpendingEnv {
   QUOTAS?: DurableObjectNamespace;
   QUOTA_COORDINATOR_ENABLED?: string;
   OPENROUTER_API_KEY: string;
   TYPESAFE_API_KEY?: string;
-  /** Beam workspace token; the credential for the Beam-hosted Laya and Kev. */
+  /** Beam workspace token; the credential for Beam-hosted Laya, Kev and DiffusionGemma. */
   BEAM_API_KEY?: string;
   /**
    * chunklaya, our own long-document service: Laya behind a chunk-and-index
@@ -1566,14 +1566,14 @@ const worker = {
       // A body that names model "dgemma" or carries images belongs to the
       // image-capable service, which speaks the same contract; everything
       // else stays TypeSafe's to validate. Neither answers for the other.
-      const door = decisions ? dgemmaRoute(body ?? "") : { kind: "typesafe" as const };
+      const pod = dgemmaService(env);
+      const door = decisions ? dgemmaRoute(body ?? "", pod?.model ? 1 : undefined) : { kind: "typesafe" as const };
       if (door.kind === "refuse") {
         sdkRecord(door.status, door.code, "dgemma");
         return json({ error: door.message, code: door.code }, door.status);
       }
       let response: Response;
       if (door.kind === "dgemma") {
-        const pod = env.DGEMMA_ENABLED === "true" ? jevKeys(env)?.dgemma : undefined;
         response = pod ? await dgemmaResponse(pod, door.body, meter, req.signal) : dgemmaUnconfigured();
         sdkRecord(response.status, response.ok ? "" : `dgemma_${response.status}`, "dgemma");
       } else {
