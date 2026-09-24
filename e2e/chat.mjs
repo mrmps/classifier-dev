@@ -119,7 +119,10 @@ try {
     await browser('click', '[data-chat-close]');
     await browser('open', new URL('/chat', url).href);
     await check('!document.querySelector("#chat").hidden');
+    await browser('click', '[data-chat-close]');
+    await browser('open', url);
     await browser('set', 'viewport', '390', '844');
+    await browser('press', 'Control+i');
     await capture('captures/mobile-chat.png');
     await check('document.querySelector("#chat").getBoundingClientRect().right <= innerWidth');
     await browser('click', '[data-chat-close]');

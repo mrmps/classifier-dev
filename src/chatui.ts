@@ -66,7 +66,7 @@ export const CHAT_CSS = `
   padding:14px 16px 12px;border-bottom:1px solid var(--rule)}
 .chat-title{min-width:0;font-weight:600;color:var(--fg)}
 .chat-sub{display:block;margin-top:2px;font-size:12px;font-weight:500;color:var(--dim);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  text-wrap:pretty}
 .chat-acts{flex:none;gap:0 6px}
 .chat-acts .b[hidden]{display:none}
 .chat-body{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto;
