@@ -91,7 +91,7 @@ try {
   assert.equal(smart.status, 200); const result = await smart.json();
   assert.ok(JSON.stringify(result).includes('gemini'));
   report.results.push({ name: 'free smart escalation', status: smart.status, model: 'google/gemini-3.8-flash' });
-  for (const path of ['/v1/chat', '//v1/chat', '/%76%31/skills', '/skills', '/v1/skills']) {
+  for (const path of ['/%76%31/skills', '/skills', '/v1/skills']) {
     assert.equal((await request('203.0.113.3', {}, path)).status, 404);
   }
   report.results.push({ name: 'private endpoints and encoded aliases', status: 'all 404 without internal credential' });

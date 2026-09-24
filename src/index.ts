@@ -1329,7 +1329,12 @@ const worker = {
   async fetch(req: Request, env: Env, ctx: ExecutionContext, execution?: ClassificationExecution): Promise<Response> {
     const endpoint = new URL(req.url).pathname.replace(/\/+$/, "");
     let internalEndpoint = false;
-    try { internalEndpoint = /^\/(?:v1\/)?(?:chat|skills)(?:\/|\.md$|$)/.test(decodeURIComponent(endpoint).replace(/^\/+/, "/")); } catch { /* Invalid routes are handled below. */ }
+    let chatEndpoint = false;
+    try {
+      const decoded = decodeURIComponent(endpoint).replace(/^\/+/, "/");
+      internalEndpoint = /^\/(?:v1\/)?skills(?:\/|\.md$|$)/.test(decoded);
+      chatEndpoint = decoded === "/chat" || decoded === "/v1/chat";
+    } catch { /* Invalid routes are handled below. */ }
     if (internalEndpoint && !execution?.internal) {
       const credential = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
       if (!env.INTERNAL_API_KEY || !await secretEquals(credential, env.INTERNAL_API_KEY))
@@ -1339,7 +1344,7 @@ const worker = {
       headers.set("cache-control", "private, no-store");
       return new Response(response.body, { status: response.status, headers });
     }
-    if (env.SPENDING_ENABLED === "true" && !execution?.spending) {
+    if (env.SPENDING_ENABLED === "true" && !execution?.spending && !chatEndpoint) {
       try {
         req = await boundedRequest(req);
         const body = req.method === "POST" ? await req.clone().json().catch(() => undefined) as Record<string, unknown> | undefined : undefined;
@@ -1441,11 +1446,12 @@ const worker = {
       if (!env.OPENROUTER_API_KEY) return json({ error: "chat is not configured", code: "chat_unavailable" }, 503);
       let messages;
       try {
-        messages = parseMessages((await readJsonObject(req)).messages);
+        messages = parseMessages((await readJsonObject(await boundedRequest(req))).messages);
       } catch (e) {
+        if (e instanceof SpendingError) return errorResponse(e);
         return json({ error: (e as Error).message, code: "invalid_request" }, 400);
       }
-      const gate = internalEndpoint ? { limited: false, resetIn: undefined } : await limited(env, "smart", ip, CHAT_COST);
+      const gate = await limited(env, "smart", ip, CHAT_COST);
       if (gate.limited) {
         return json({ error: `Chat limit reached; try again in ${gate.resetIn ?? 60}s`, code: "rate_limited" }, 429, {
           "retry-after": String(gate.resetIn ?? 60),
@@ -1898,7 +1904,10 @@ const worker = {
       if (wantsHtml) return html(homeHtml({ signedIn }), 200, link);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
-    if (req.method === "GET" && path === "chat") return notFound(req, origin);
+    if (req.method === "GET" && path === "chat") {
+      if (wantsHtml) return html(homeHtml({ chat: true, signedIn }), 200, { link: LINKS(origin) });
+      return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
+    }
 
     if (req.method === "GET" && (path === "benchmark" || path === "benchmark.md")) {
       if (url.searchParams.get("format") === "json" || (/\bapplication\/json\b/.test(accept) && !wantsHtml)) {

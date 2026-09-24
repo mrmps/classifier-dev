@@ -370,10 +370,10 @@ test("operator alert previews expose exhausted subsidy and unresolved billing wi
   expect(message).not.toContain("203.0.113.1");
 });
 
-test("chat and skill APIs require the internal secret, including for paid and enterprise callers", async () => {
+test("skill APIs require the internal secret, including for paid and enterprise callers", async () => {
   const s = setup({ INTERNAL_API_KEY: "internal-only", ENTERPRISE_API_KEY: "external-enterprise" });
   const calls = providers();
-  for (const path of ["/v1/chat", "/v1/skills", "/v1/skills/example", "//v1/chat", "/%76%31/skills", "/skills", "/skills.md"]) {
+  for (const path of ["/v1/skills", "/v1/skills/example", "/%76%31/skills", "/skills", "/skills.md"]) {
     for (const authorization of ["", "Bearer external-enterprise", "Bearer classifier_agent_unverified"]) {
       expect((await worker.fetch(request(undefined, path, {}, { authorization }), s.env, s.ctx)).status).toBe(404);
     }

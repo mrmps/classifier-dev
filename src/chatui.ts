@@ -57,6 +57,7 @@ export const CHAT_CSS = `
 @media (prefers-reduced-motion:reduce){.chat{transition:none}}
 /* The page gives up the panel's width and re-centres in what is left. */
 @media (min-width:900px){
+  .chat{inset-block-start:72px}
   .page{transition:padding-right .2s linear}
   html[data-chat] .page{padding-right:calc(${CHAT_WIDTH}px + 16px)}
   html[data-chat] .dock{right:calc(${CHAT_WIDTH}px + 16px)}

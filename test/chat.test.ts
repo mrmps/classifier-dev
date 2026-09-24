@@ -25,10 +25,10 @@ const post = (env: Partial<Env>, body: unknown) =>
   worker.fetch(
     new Request("https://classifier.dev/v1/chat", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: "Bearer internal-fixture" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
-    { LIMITER: limiter, INTERNAL_API_KEY: "internal-fixture", ...env } as Env,
+    { LIMITER: limiter, ...env } as Env,
     ctx,
   );
 
@@ -224,14 +224,14 @@ describe("a turn", () => {
     expect(ev[ev.length - 1].t).toBe("error");
   });
 
-  it("internal chat is independent of visitor quotas", async () => {
+  it("chat is refused when the visitor has used their window", async () => {
     const full = {
       idFromName: () => "id",
       get: () => ({ fetch: async () => Response.json({ limited: true, remaining: 0, scope: "minute", resetIn: 12 }) }),
     } as unknown as DurableObjectNamespace;
     const res = await post({ OPENROUTER_API_KEY: "k", LIMITER: full }, { messages: [{ role: "user", content: "hi" }] });
-    expect(res.status).toBe(200);
-    await res.text();
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("12");
   });
 });
 

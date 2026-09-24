@@ -19,7 +19,7 @@ test("public navigation exposes pricing and the WorkOS entry points", () => {
   expect(html).toContain('href="/login">Log in</a>');
   expect(html).toContain('href="/auth/sign-up">Sign up</a>');
   expect(html).toContain('href="/auth/sign-up">Get started</a>');
-  expect(html).not.toContain('href="/chat"');
+  expect(html).toContain('href="/chat"');
   expect(html).toContain('href="/openapi.json"');
   expect(html).toContain('href="/skill.md"');
   expect(html).toContain('href="/llms.txt"');
@@ -51,12 +51,12 @@ test("the public worker renders authenticated navigation as a cookie variant", a
   expect(response.headers.get("Vary")).toContain("cookie");
 });
 
-test("public navigation stays above content and does not expose internal chat", () => {
+test("chat stays above public navigation", () => {
   const headerLayer = Number(/\.site-header\{[^}]*z-index:(\d+)/.exec(HOME_CSS)?.[1]);
   const chatLayer = Number(/\.chat\{[^}]*z-index:(\d+)/.exec(CHAT_CSS)?.[1]);
   expect(headerLayer).toBeGreaterThan(0);
   expect(headerLayer).toBeLessThan(chatLayer);
-  expect(homeHtml({chat: true})).not.toContain('class="chat" id="chat" aria-label="Chat">');
+  expect(homeHtml({chat: true})).toContain('class="chat" id="chat" aria-label="Chat">');
 });
 
 test("the open mobile menu removes the newsletter dock from view and interaction", () => {
