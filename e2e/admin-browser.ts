@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dashboard } from "../src/admin";
 import { adminFixture } from "../test/admin-fixture";
 
@@ -59,10 +59,18 @@ try {
   await check(
     'document.querySelector("#Dimensions").getBoundingClientRect().height > 0',
   );
+  await check(
+    'Array.from(document.querySelectorAll(".section-nav a")).every(a => { const id = decodeURIComponent(a.hash.slice(1)); return !/\\s/.test(id) && document.getElementById(id); })',
+  );
   await browser("screenshot", "captures/desktop-after.png");
   await browser("click", 'a[href="#Chat"]');
   await browser("mouse", "move", "0", "0");
   await browser("screenshot", "captures/chat-desktop.png");
+  await browser("download", "button.control", "captures/admin-export.json");
+  const exported = JSON.parse(await readFile("captures/admin-export.json", "utf8"));
+  assert.equal(exported.range, "24h");
+  assert.deepEqual(exported.chatOutcomes, adminFixture().chatOutcomes);
+  results.push("JSON export downloads the selected range and chat accounting");
   for (const term of [
     "Model economics",
     "Dimension outcomes",
@@ -110,7 +118,7 @@ try {
   results.push(
     "mobile layout has no page overflow; chat and section links remain usable",
   );
-  assert.equal(results.length, 4);
+  assert.equal(results.length, 5);
 } finally {
   await browser("close");
   server.stop(true);

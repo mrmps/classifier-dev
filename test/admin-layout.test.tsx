@@ -10,7 +10,7 @@ test("every analytics section and detail table is rendered together for browser 
   for (const section of [
     "Overview",
     "Reliability",
-    "Cost &amp; models",
+    "Cost-&amp;-models",
     "Adoption",
     "Dimensions",
   ]) {
@@ -26,7 +26,7 @@ test("every analytics section and detail table is rendered together for browser 
   ]) {
     expect(html).toContain(`>${heading}</h2>`);
   }
-  expect(html).toContain('href="#Cost%20%26%20models"');
+  expect(html).toContain('href="#Cost-%26-models"');
   expect(html).toContain('href="#Dimensions"');
   expect(html).toContain("ls_9f3c7a8d");
   expect(html).toContain("gemini-2.5-flash");

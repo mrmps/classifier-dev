@@ -158,6 +158,13 @@ function Trend({
   format?: (n: number) => string;
   unavailable?: boolean;
 }) {
+  const durationInSeconds =
+    format === latency && rows.some((r) => n(r[field]) >= 1000);
+  const displayValue =
+    format === latency
+      ? (v: number) =>
+          durationInSeconds ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`
+      : format;
   const hasData = rows.some((r) => r[field] != null && n(r[field]) !== 0);
   return (
     <Panel title={title} subtitle={subtitle} unavailable={unavailable}>
@@ -184,20 +191,14 @@ function Trend({
         />
         <EvilAreaChart.YAxis
           interval={0}
-          tickFormatter={
-            format === count
-              ? compact
-              : format === latency
-                ? (v) => `${(n(v) / 1000).toFixed(2)}s`
-                : format
-          }
+          tickFormatter={format === count ? compact : displayValue}
           width={62}
           tickLine={false}
         />
         <EvilAreaChart.Tooltip
           formatter={(value) => (
             <span>
-              {label}: {format(n(value))}
+              {label}: {displayValue(n(value))}
             </span>
           )}
         />
@@ -214,7 +215,7 @@ function Trend({
           rows={rows}
           columns={[
             { key: "time", label: "Bucket (UTC)" },
-            { key: field, label, format },
+            { key: field, label, format: displayValue },
           ]}
         />
       </details>
@@ -322,6 +323,7 @@ const numeric: Column[] = [
   { key: "usd", label: "Spend", format: money },
   { key: "avg_ms", label: "Avg latency", format: latency },
 ];
+const sectionId = (name: string) => name.replaceAll(" ", "-");
 const sections = [
   "Overview",
   "Chat",
@@ -340,10 +342,12 @@ export function Dashboard({
 }) {
   // Old section links still land on the same section after the chart island mounts.
   useEffect(() => {
-    const section = sections.find(
-      (name) => encodeURIComponent(name) === location.hash.slice(1),
+    const section = sections.find((name) =>
+      [name, sectionId(name)].some(
+        (id) => encodeURIComponent(id) === location.hash.slice(1),
+      ),
     );
-    if (section) document.getElementById(section)?.scrollIntoView();
+    if (section) document.getElementById(sectionId(section))?.scrollIntoView();
   }, []);
   const [exportStatus, setExportStatus] = useState("");
   const t = d.totals[0] ?? {},
@@ -423,7 +427,7 @@ export function Dashboard({
     a.href = url;
     a.download = `classifier-analytics-${range}-${d.generatedAt.slice(0, 10)}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
     setExportStatus("Snapshot exported");
   }
   const trend = (
@@ -537,7 +541,7 @@ export function Dashboard({
         </div>
         <nav className="section-nav" aria-label="Jump to analytics section">
           {sections.map((name) => (
-            <a key={name} href={`#${encodeURIComponent(name)}`}>
+            <a key={name} href={`#${encodeURIComponent(sectionId(name))}`}>
               {name}
             </a>
           ))}
@@ -557,7 +561,7 @@ export function Dashboard({
             {trend(
               "Accepted-request latency",
               "latency",
-              "Average latency (ms)",
+              "Average latency",
               "performance",
               purple,
               latency,
@@ -694,14 +698,14 @@ export function Dashboard({
               "chatTurns",
               "Turns",
               "chatSeries",
-              purple,
+              blue,
             )}
             {trend(
               "Chat response time",
               "chatLatency",
               "Turn duration",
               "chatSeries",
-              blue,
+              purple,
               latency,
             )}
             <Panel
@@ -844,7 +848,7 @@ export function Dashboard({
             </Panel>
           </div>
         </section>
-        <section className="analytics-section" id="Cost & models">
+        <section className="analytics-section" id="Cost-&-models">
           <h2 className="section-heading">Cost & models</h2>
           <div className="panel-grid">
             {trend(
