@@ -122,6 +122,15 @@ function classifyOrError(status: number, body: Record<string, unknown>): ToolRes
 type Row = { label?: string; labels?: string[]; confidence?: number | null; scores?: Record<string, number> | null };
 
 export function productServer(classify: ClassifyFn): McpServer {
+  const urlProperties = {
+    url: { type: "string", pattern: "^https?://", maxLength: 8192, description: "Scrape one public URL instead of inputs/items. Requires funded workspace access. Context.dev costs $0.0022 per billed attempt plus classification; long articles need Fast. Errors disclose retained charges. No automatic scrape retries." },
+    include: { type: "array", items: { type: "string", enum: ["markdown", "html"] }, description: "With url: return article.markdown and/or article.html at no extra scrape cost. Omit for compact output." },
+  };
+  async function urlResult(args: Record<string, unknown>, ctx: ToolContext, multi = false): Promise<ToolResult | null> {
+    if (!Object.hasOwn(args, "url")) return null;
+    const result = await classify({ ...args, ...(multi ? { multi: true } : {}) }, ctx.req);
+    return { text: JSON.stringify(result.body), structured: result.body, ...(result.status !== 200 ? { isError: true } : {}) };
+  }
   const tools: Tool[] = [
     {
       name: "classify_texts",
@@ -135,10 +144,11 @@ export function productServer(classify: ClassifyFn): McpServer {
         "so act on the sure ones and look at the rest yourself, or pass tier \"smart\" to have the unsure ones re-asked of a reasoning model.",
       inputSchema: {
         type: "object",
-        properties: { inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA,
+        properties: { ...urlProperties, inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA,
           model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "Jev is default. Default/explicit jev inputs over 32,000 characters use paid Fast-only long context: up to 250,000 original cl100k_base context tokens total, 20 documents, 32 decisions and a 1 MB body. Requires paid workspace balance or active paid subscription, not signup credit. $0.084/M original context tokens counted once across inputs, independent of dimensions. Final Jev uses selected evidence; eligible chunks may be omitted, disclosed in usage.long_context. No evidence returns 422 long_context_no_evidence without charge. Explicit 'chunklaya' retains legacy opt-in (4,000,000 characters/input, 20 inputs, subject to body limit). 'laya' (512-token context) and 'kev' (8K context) remain experimental alternatives." },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted; has no effect with explicit Jev. With Laya, omit to select fast for one decision or bulk for batches automatically. Explicit fast accepts one decision. Shared capacity limits can return 429." } },
-        required: ["inputs", "labels"],
+        required: ["labels"],
+        oneOf: [{ required: ["inputs"], not: { required: ["url"] } }, { required: ["url"], not: { required: ["inputs"] } }],
         additionalProperties: false,
       },
       outputSchema: {
@@ -164,8 +174,10 @@ export function productServer(classify: ClassifyFn): McpServer {
         },
         required: ["results"],
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
+        const scraped = await urlResult(a, ctx);
+        if (scraped) return scraped;
         const body = {
           inputs: strings(a.inputs, "inputs", 1, 1000),
           labels: strings(a.labels, "labels", 2, 100),
@@ -187,12 +199,14 @@ export function productServer(classify: ClassifyFn): McpServer {
       title: "Classify several dimensions per text",
       description: "Classify each text by several named dimensions, such as team, urgency and kind, in one request. Returns a label, confidence, scores and model for each field. At most 1,000 item × dimension decisions; every field counts toward the quota. Use per-dimension instructions to define ambiguous categories.",
       inputSchema: {
-        type: "object", required: ["items", "dimensions"], additionalProperties: false,
-        properties: { items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA,
+        type: "object", required: ["dimensions"], oneOf: [{ required: ["items"], not: { required: ["url"] } }, { required: ["url"], not: { required: ["items"] } }], additionalProperties: false,
+        properties: { ...urlProperties, items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA,
           model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"] }, processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted; has no effect with explicit Jev. Omit for automatic fast/bulk selection based on item × dimension decisions." } },
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
+        const scraped = await urlResult(a, ctx);
+        if (scraped) return scraped;
         const r = await classify({ items: strings(a.items, "items", 1, 1000), dimensions: a.dimensions ?? null,
           instructions: str(a.instructions, "instructions", { optional: true, max: 4000 }), tier: tier(a.tier),
           ...(a.model !== undefined ? { model: a.model } : {}), ...(a.processing !== undefined ? { processing: a.processing } : {}) }, ctx.req);
@@ -209,6 +223,7 @@ export function productServer(classify: ClassifyFn): McpServer {
       inputSchema: {
         type: "object",
         properties: {
+          ...urlProperties,
           inputs: INPUTS_SCHEMA,
           labels: LABELS_SCHEMA,
           instructions: INSTRUCTIONS_SCHEMA,
@@ -216,7 +231,8 @@ export function productServer(classify: ClassifyFn): McpServer {
           model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"] },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted; has no effect with explicit Jev. Omit to select fast for up to four labels on one text, or bulk for larger work automatically." },
         },
-        required: ["inputs", "labels"],
+        required: ["labels"],
+        oneOf: [{ required: ["inputs"], not: { required: ["url"] } }, { required: ["url"], not: { required: ["inputs"] } }],
         additionalProperties: false,
       },
       outputSchema: {
@@ -237,8 +253,10 @@ export function productServer(classify: ClassifyFn): McpServer {
         },
         required: ["results"],
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
+        const scraped = await urlResult(a, ctx, true);
+        if (scraped) return scraped;
         const max = number(a.max_labels, "max_labels", 1, 100);
         if (max !== undefined && !Number.isInteger(max)) throw new InvalidParams("max_labels must be a whole number");
         const body: Record<string, unknown> = {

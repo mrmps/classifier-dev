@@ -98,6 +98,13 @@ jobs:
         run: npm run test:e2e:usage
       - name: Verify long-context screening and judgment
         run: npm run test:e2e:long-context
+      - name: Verify URL scraping and billing
+        run: npm run test:e2e:url
+      - name: Save URL classification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: url-classification-e2e
+          path: captures/url-classification.json
       - name: Verify long-context workspace billing
         run: npm run test:e2e:long-context-billing
       - name: Verify complimentary Pro lifecycle

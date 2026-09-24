@@ -1,3 +1,4 @@
+import { scrapeOptions, scrapeArticle, SCRAPE_NANODOLLARS, SCRAPE_PRICE, type Article } from "../scrape";
 import { classificationPricing, withResponsePricing } from "../classification-usage";
 import worker, { type Env } from "../index";
 import { newMeter } from "../cost";
@@ -19,7 +20,10 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     let body: Record<string, unknown>;
     try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
-    const longContext = new URL(request.url).pathname !== "/v1/systemone" && isLongContextRequest(body);
+    const scrape = scrapeOptions(body);
+    if (scrape && new URL(request.url).pathname === "/v1/systemone") throw new SpendingError(400, "invalid_request", "Use /v1/classify for URL classification.");
+    if (scrape && !env.CONTEXT_API_KEY) throw new SpendingError(503, "scrape_unavailable", "URL scraping is temporarily unavailable.");
+    let longContext = new URL(request.url).pathname !== "/v1/systemone" && isLongContextRequest(body);
     if (longContext) {
       if (["inputs", "items", "input"].filter(key => Object.hasOwn(body, key)).length > 1)
         throw new SpendingError(400, "invalid_request", "Use only one of inputs, items or input for long context.");
@@ -62,8 +66,10 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     const trial = body.model === "laya" || body.model === "kev" || body.model === "chunklaya" || dgemma;
     const quotedCharge = contextTokens !== undefined ? longContextCharge(contextTokens)
       : classificationCharge(trial ? 0 : 65536 * decisions, body.tier === "smart" ? decisions : 0);
-    const quote = Number((quotedCharge.nanodollars + 9999n) / 10000n);
-    if (quote > maxCredits) throw new SpendingError(402, "request_spending_limit", "This request exceeds the workspace request allowance. Split the batch.");
+    const classificationBound = scrape && longContextCharge(LONG_CONTEXT_MAX_TOKENS).nanodollars > quotedCharge.nanodollars
+      ? longContextCharge(LONG_CONTEXT_MAX_TOKENS).nanodollars : quotedCharge.nanodollars;
+    const quote = Number((classificationBound + BigInt(scrape ? SCRAPE_NANODOLLARS : 0) + 9999n) / 10000n);
+    if ((scrape && classificationBound + BigInt(SCRAPE_NANODOLLARS) > BigInt(limits.paidRequest)) || quote > maxCredits) throw new SpendingError(402, "request_spending_limit", "This request exceeds the workspace request allowance. Split the batch.");
     const idempotencyHash = idem ? await fingerprint(env, `account-idempotency:${idem}`) : null;
     const result = await env.APP_DB.prepare(`WITH owner AS (
       SELECT a.id,a.balance,a.paid_balance,(a.paid_balance>0 OR (a.billing_plan IN ('pro','max','scale') AND a.reset_at::timestamptz>now())) AS funded,k.id AS agent_id FROM app_accounts a JOIN app_agents k ON k.account_id=a.id
@@ -72,14 +78,14 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
       INSERT INTO app_usage(id,account_id,agent_id,items,credits,status,created_at,paid_credits,usage_type,metering_mode,idempotency_key,classifications)
       SELECT ?,id,agent_id,?,?::bigint,'pending',?,
         GREATEST(0,?::bigint-(balance-paid_balance)),?,'tokens',?,?
-      FROM owner WHERE balance>0 AND (funded OR balance>=?) AND (NOT ?::boolean OR funded) ON CONFLICT DO NOTHING RETURNING *
+      FROM owner WHERE balance>0 AND ((funded AND NOT ?::boolean) OR balance>=?) AND (NOT ?::boolean OR funded) ON CONFLICT DO NOTHING RETURNING *
     ), debited AS (
       UPDATE app_accounts a SET balance=a.balance-h.credits,paid_balance=a.paid_balance-h.paid_credits
       FROM held h WHERE a.id=h.account_id RETURNING a.id
     ), agent AS (
       UPDATE app_agents a SET used=a.used+h.credits FROM held h,debited d WHERE a.id=h.agent_id AND d.id=h.account_id RETURNING a.id
     ) SELECT h.account_id,h.agent_id,h.credits,o.funded FROM held h JOIN owner o ON o.id=h.account_id JOIN agent k ON k.id=h.agent_id`)
-      .bind(keyHash, id, items, quote, now(), quote, `${source} · Classification`, idempotencyHash, decisions, quote, longContext)
+      .bind(keyHash, id, items, quote, now(), quote, `${source} · ${scrape ? "URL classification" : "Classification"}`, idempotencyHash, decisions, !!scrape, quote, longContext || !!scrape)
       .first<{ account_id: string; agent_id: string; credits: number; funded: boolean }>();
     if (!result) {
       const reason = await env.APP_DB.prepare(`SELECT k.status,a.billing_hold,
@@ -90,25 +96,42 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
       if (!reason) throw new SpendingError(401, "invalid_api_key", "This workspace API key is not valid.");
       if (!["pending", "connected"].includes(reason.status)) throw new SpendingError(403, "inactive_api_key", "This workspace API key is paused or revoked.");
       if (reason.request_id) throw new SpendingError(409, "duplicate_request", "This workspace already admitted the idempotency key.", { requestId: reason.request_id });
+      if (scrape && !reason.funded) throw new SpendingError(402, "scrape_payment_required", "URL scraping requires paid credits or an active paid subscription.");
       if (longContext && !reason.funded) throw new SpendingError(402, "long_context_payment_required", "Long context requires a funded workspace: add paid credits or use an active paid subscription. Signup credit alone does not qualify.");
       throw new SpendingError(402, "insufficient_balance", reason.billing_hold ? "Workspace billing is awaiting review; funds remain held." : "The workspace cannot fund a new request. Add funds to clear any debt or cover the free-credit reservation, or wait for in-flight reservations to settle.", { reservationUsd: quote / 100000 });
     }
     const meter = newMeter();
-    const permit = result.funded ? new Permit(limits.paidRequest, Date.now() + 90000) : undefined;
+    const permit = result.funded ? new Permit(limits.paidRequest - (scrape ? SCRAPE_NANODOLLARS : 0), Date.now() + 90000) : undefined;
     if (permit) { meter.permit = permit; meter.beforeCall = async () => {}; }
     const started = Date.now();
     let response: Response;
+    let article: Article | undefined;
+    let scrapeCharged = false;
     try {
+      if (scrape) {
+        article = await scrapeArticle(scrape, env.CONTEXT_API_KEY!, request.signal, charged => { scrapeCharged = charged; });
+        const { url: _url, include: _include, ...classification } = body;
+        body = { ...classification, input: article.markdown };
+        longContext = isLongContextRequest(body);
+        if (longContext) {
+          contextTokens = longContextInputTokens([article.markdown]);
+          if (contextTokens > LONG_CONTEXT_MAX_TOKENS) throw new SpendingError(413, "scrape_too_large", "The article exceeds 250,000 tokens; use the whole-document API for larger documents.");
+        }
+        request = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(body), signal: request.signal });
+      }
       response = await worker.fetch(request, env as Env, ctx, { meter, account: { id: result.account_id, multiplier: result.funded ? 10 : 1 }, funded: result.funded });
       if (permit?.error && !(response.ok && permit.error.code === "request_spending_limit")) response = errorResponse(permit.error);
     } catch (error) {
       response = error instanceof SpendingError ? errorResponse(error) : Response.json({ error: "Classification failed." }, { status: 502 });
     }
     const payload = response.ok ? await response.clone().json().catch(() => null) as { usage?: { escalated?: unknown } } | null : null;
-    const escalations = longContext || new URL(request.url).pathname === "/v1/systemone" ? 0 : payload?.usage?.escalated;
+    const escalations = !response.ok || longContext || new URL(request.url).pathname === "/v1/systemone" ? 0 : payload?.usage?.escalated;
     const inputTokens = contextTokens ?? (trial ? 0 : classificationInputTokens(meter.tokens));
-    const charge = response.ok && inputTokens !== null && typeof escalations === "number" && Number.isSafeInteger(escalations) && escalations >= 0 && escalations <= decisions
+    const inferenceCharge = response.ok && inputTokens !== null && typeof escalations === "number" && Number.isSafeInteger(escalations) && escalations >= 0 && escalations <= decisions
       ? contextTokens !== undefined ? longContextCharge(contextTokens) : classificationCharge(inputTokens, escalations) : null;
+    const charge = scrape
+      ? (response.ok && inferenceCharge === null ? null : { version: "2026-09-24-url-v1", nanodollars: (inferenceCharge?.nanodollars ?? 0n) + BigInt(scrapeCharged ? SCRAPE_NANODOLLARS : 0) })
+      : inferenceCharge;
     const settle = async () => {
       const actual = meter.permit;
       actual?.close();
@@ -118,7 +141,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
         ? tokens.reduce((sum, t) => sum + t.inputTokens!, 0) : null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          if (!response.ok || (!longContext && (!actual || actual.used === 0))) await refundTokenReservation(env.APP_DB, id);
+          if (!scrapeCharged && (!response.ok || (!longContext && (!actual || actual.used === 0)))) await refundTokenReservation(env.APP_DB, id);
           else await settleTokenReservation(env.APP_DB, id, charge, {
             inputTokens: longContext ? upstreamInputTokens : inputTokens,
             outputTokens: tokens.length && tokens.every(t => t.outputTokens !== null) ? tokens.reduce((sum, t) => sum + t.outputTokens!, 0) : null,
@@ -128,8 +151,8 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
             tier: body.tier === "smart" ? "smart" : "fast", status: response.ok ? "success" : "error", items,
             inputTokens: longContext ? upstreamInputTokens : inputTokens, longContext: meter.longContext,
             outputTokens: tokens.every(t => t.outputTokens !== null) ? tokens.reduce((sum, t) => sum + t.outputTokens!, 0) : null,
-            cachedInputTokens: null, model: tokens.map(t => t.model).join(","), providerCostUsd: actual?.unknown ? null : (actual?.used ?? 0) / 1e9,
-            retailCostUsd: !response.ok ? 0 : charge ? Number(charge.nanodollars) / 1e9 : null, latencyMs: Date.now() - started, escalations: typeof escalations === "number" ? escalations : 0 });
+            cachedInputTokens: null, model: tokens.map(t => t.model).join(","), providerCostUsd: actual?.unknown || scrapeCharged ? null : (actual?.used ?? 0) / 1e9,
+            retailCostUsd: charge ? Number(charge.nanodollars) / 1e9 : response.ok ? null : 0, latencyMs: Date.now() - started, escalations: typeof escalations === "number" ? escalations : 0 });
           return;
         } catch { /* Durable pending funds remain unavailable until reconciliation. */ }
       }
@@ -143,6 +166,21 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     }
     headers.set("x-request-id", id); headers.set("x-billing-status", "pending"); headers.set("cache-control", "no-store");
     const resultResponse = new Response(response.body, { status: response.status, headers });
+    if (scrape) {
+      const payload = await resultResponse.json() as Record<string, unknown>;
+      const pricing = classificationPricing(meter, typeof escalations === "number" ? escalations : 0, contextTokens);
+      headers.delete("content-length");
+      return Response.json({ ...payload,
+        ...(article ? { article: { url: article.url, title: article.title,
+          ...(scrape.include.includes("markdown") ? { markdown: article.markdown } : {}),
+          ...(scrape.include.includes("html") ? { html: article.html } : {}) } } : {}),
+        pricing: { ...pricing, rate_version: "2026-09-24-url-v1", scrape_requests: scrapeCharged ? 1 : 0,
+          usd_per_scrape: SCRAPE_PRICE, scrape_usd: scrapeCharged ? SCRAPE_PRICE : 0,
+          classification_usd: response.ok ? inferenceCharge ? Number(inferenceCharge.nanodollars) / 1e9 : null : 0,
+          estimated_usd: charge ? Number(charge.nanodollars) / 1e9 : null,
+          total_usd: charge ? Number(charge.nanodollars) / 1e9 : null, billing_status: "pending" },
+      }, { status: response.status, headers });
+    }
     return response.ok && new URL(request.url).pathname !== "/v1/systemone"
       ? withResponsePricing(resultResponse, {
           ...classificationPricing(meter, typeof escalations === "number" ? escalations : 0, contextTokens),

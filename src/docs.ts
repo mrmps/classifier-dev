@@ -1,3 +1,4 @@
+import { SCRAPE_PRICE } from "./scrape";
 import { vsJevText } from "./vsjev";
 import { roadmapDoc } from "./newsletter";
 import { INPUT_PRICE_PER_MILLION, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
@@ -20,6 +21,49 @@ export const SPENDING_LIMITS = `SPENDING LIMITS
   whole-document UUID keys return the same job. Free keys
   are scoped to the IP and UTC day; workspace keys are scoped to the account.`;
 
+export const URL_CLASSIFICATION = `SCRAPE AND CLASSIFY A URL
+
+  Send one public HTTP(S) URL instead of input, inputs or items. Any public
+  website is supported; inaccessible, blocked or login-only pages may fail.
+  Use a funded workspace key from https://classifier.dev/app/keys.
+
+    curl https://classifier.dev/v1/classify \\
+      -H "Authorization: Bearer $CLASSIFIER_API_KEY" \\
+      -H "Content-Type: application/json" \\
+      -H "Idempotency-Key: article-001" \\
+      -d '{
+        "url": "https://example.com",
+        "labels": ["documentation", "news"],
+        "include": ["markdown", "html"]
+      }'
+
+  Context.dev extracts the article once; Jev classifies the Markdown.
+  Results, confidence, scores and usage keep the normal classification shape.
+  article contains url and title. include opts into article.markdown and/or
+  article.html; omit it for compact output. HTML is untrusted page content:
+  sanitize it before rendering. labels, dimensions, instructions and multi
+  work as with text. Model is Jev; long articles require tier fast.
+
+  Scraping costs $${SCRAPE_PRICE} per provider-billed request ($${(SCRAPE_PRICE * 1000).toFixed(2)}/1,000), plus
+  normal classification. Both formats use the same scrape, at no extra cost.
+  pricing separates scrape_usd, classification_usd and total_usd. Credits are
+  reserved before scraping; a typical URL request temporarily holds $0.0232
+  and releases the unused amount after settlement. The workspace must have
+  paid credits or an active paid plan and enough balance for the whole hold.
+  Scraping counts toward the default $10 request limit.
+
+  A successful scrape remains billable if classification fails. Provider-billed
+  errors (including processed 404s) and uncertain network failures retain the
+  scrape charge; confirmed unbilled failures release it. Read pricing even on
+  errors. No automatic scrape retries. Idempotency-Key rejects repeats with
+  409 before provider spend; use a new key only for intentional new work.
+
+  Limits: one URL per request, 8 MB extracted response, 250,000 article tokens,
+  and existing classification decision limits. No OCR or browser actions.
+  Article text is never silently truncated. Request source and article content
+  are not stored in the usage ledger. MCP accepts url and include on
+  classify_texts, classify_dimensions and classify_multi_label.`;
+
 export const DOCS = `classifier.dev
 
 Zero-shot text classification over plain HTTP. You send text and a list of
@@ -30,6 +74,9 @@ moment you paste it.
 
 Agents: the OpenAPI 3.1 description is at https://classifier.dev/openapi.json
 and a short index at https://classifier.dev/llms.txt
+
+
+${URL_CLASSIFICATION}
 
 
 TYPESAFE SDK COMPATIBILITY

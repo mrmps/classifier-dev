@@ -1,3 +1,4 @@
+import { SCRAPE_PRICE } from "./scrape";
 import { FOOT, HOME_CSS, META, NAV } from "./home";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
 import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
@@ -62,7 +63,9 @@ export function pricingHtml(signedIn = false) {
       <a class="plan-action" href="mailto:contact@classifier.dev">Contact sales</a></article>
   </section>
   <section class="pricing-section" aria-label="Usage prices"><h2>Usage prices</h2>
+    <p>Scrape and classify a public URL with a funded workspace key. Request Markdown and HTML at no extra cost. Provider-billed scrapes remain charged if classification fails; errors disclose the charge. <a href="/developers">See the URL API</a>.</p>
     <div class="pricing-table rate-limits"><table><thead><tr><th scope="col">Usage</th><th scope="col">Price</th></tr></thead><tbody>
+      <tr><th scope="row">URL scraping</th><td>$${(SCRAPE_PRICE * 1000).toFixed(2)} / 1,000 requests + classification</td></tr>
       <tr><th scope="row">Input tokens</th><td>$${INPUT_PRICE_PER_MILLION.toFixed(3)} / million</td></tr>
       <tr><th scope="row">Smart escalation</th><td>+$${ESCALATION_PRICE_PER_THOUSAND.toFixed(2)} / 1,000</td></tr>
       <tr><th scope="row">Jev long context (original context tokens)</th><td>$${(LONG_CONTEXT_PRICING.inputNanodollars / 1000).toFixed(3)} / million</td></tr>

@@ -100,7 +100,10 @@ export const SPENDING_ERROR_CODES = ["operator_daily_budget", "free_daily_budget
 export function errorResponse(error: SpendingError): Response {
   const retryable = (error.status === 429 || error.status === 503) && !["reputation_budget", "spending_configuration", "unpriced_model"].includes(error.code);
   const retryAfter = retryable ? Number(error.details.retryAfter ?? 60) : undefined;
-  const action = error.code === "duplicate_request" ? "Do not repeat this operation with a new key: it may already have run. Use the original response or request ID. Cached responses are not stored."
+  const action = error.code === "scrape_unavailable" ? "Scraping is temporarily unavailable. Retry later or submit article text directly."
+    : error.code === "scrape_payment_required" ? "Add paid credits or choose a paid subscription, then use a workspace API key."
+    : error.code.startsWith("scrape_") ? "Check the public URL and the pricing in this response. Use article text directly when the page cannot be scraped. A new request may incur another scrape charge."
+    : error.code === "duplicate_request" ? "Do not repeat this operation with a new key: it may already have run. Use the original response or request ID. Cached responses are not stored."
     : error.code === "payload_too_large" || error.code === "request_spending_limit" ? "Split the batch, shorten input text, labels or instructions, or use a funded workspace API key. Repeating the same request will not increase its allowance."
     : error.code === "insufficient_balance" ? "Wait for in-flight reservations to settle, add funds at https://classifier.dev/app/billing, or contact support with the request ID if billing is under review."
     : error.code === "caller_identity" ? "Send the request directly to https://classifier.dev, or use a funded workspace key. Caller-supplied forwarding headers cannot establish a free allowance."
