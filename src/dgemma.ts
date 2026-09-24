@@ -1,5 +1,5 @@
 import { providerFetch } from "./spending/permit";
-import { addTokens, type Meter } from "./cost";
+import { addBeamCost, addTokens, type Meter } from "./cost";
 
 /**
  * The image door of POST /v1/systemone.
@@ -13,6 +13,14 @@ import { addTokens, type Meter } from "./cost";
  */
 
 export const DGEMMA_MODEL = "dgemma";
+export const BEAM_DGEMMA_MODEL = "jev/diffusiongemma";
+export type DgemmaService = { url: string; token: string; model?: typeof BEAM_DGEMMA_MODEL };
+
+export function dgemmaService(env: { DGEMMA_ENABLED?: string; BEAM_API_KEY?: string; DGEMMA_URL?: string; DGEMMA_TOKEN?: string }): DgemmaService | undefined {
+  if (env.DGEMMA_ENABLED !== "true") return;
+  if (env.BEAM_API_KEY) return { url: "https://app.beam.cloud", token: env.BEAM_API_KEY, model: BEAM_DGEMMA_MODEL };
+  if (env.DGEMMA_URL && env.DGEMMA_TOKEN) return { url: env.DGEMMA_URL, token: env.DGEMMA_TOKEN };
+}
 export const DGEMMA_MAX_IMAGES = 4;
 /** Base64 characters across all images. The route's body is bounded at 1 MB regardless. */
 export const DGEMMA_MAX_IMAGE_CHARS = 900_000;
@@ -32,7 +40,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const refuse = (code: DgemmaRefusalCode, message: string): DgemmaRoute => ({ kind: "refuse", status: 400, code, message });
 
 /** Which door a System One body goes through. A body that is not clearly ours stays TypeSafe's to validate. */
-export function dgemmaRoute(body: string): DgemmaRoute {
+export function dgemmaRoute(body: string, maxImages = DGEMMA_MAX_IMAGES): DgemmaRoute {
   let parsed: unknown;
   try { parsed = JSON.parse(body); } catch { return { kind: "typesafe" }; }
   if (!isRecord(parsed)) return { kind: "typesafe" };
@@ -40,14 +48,14 @@ export function dgemmaRoute(body: string): DgemmaRoute {
   // Presence selects the door; what the field holds is validated after, so an
   // empty or malformed images field never travels to TypeSafe as an unknown key.
   const hasImages = images !== undefined && images !== null;
-  const named = parsed.model === DGEMMA_MODEL;
+  const named = parsed.model === DGEMMA_MODEL || parsed.model === BEAM_DGEMMA_MODEL;
   if (!hasImages && !named) return { kind: "typesafe" };
   if (hasImages && parsed.model !== undefined && !named) {
     return refuse("images_unsupported", `Jev does not accept images; set model to "${DGEMMA_MODEL}" or remove images`);
   }
   if (hasImages) {
-    if (!Array.isArray(images) || images.length === 0 || images.length > DGEMMA_MAX_IMAGES) {
-      return refuse("dgemma_input", `images must be an array of 1 to ${DGEMMA_MAX_IMAGES} data URLs`);
+    if (!Array.isArray(images) || images.length === 0 || images.length > maxImages) {
+      return refuse("dgemma_input", `images must be an array of 1 to ${maxImages} data URLs`);
     }
     let chars = 0;
     for (const image of images) {
@@ -82,7 +90,7 @@ export const dgemmaUnconfigured = () => unavailable(60);
 
 /** Forward one System One body to the service and answer in the route's shapes. */
 export async function dgemmaResponse(
-  pod: { url: string; token: string },
+  pod: DgemmaService,
   body: string,
   meter?: Meter,
   signal?: AbortSignal,
@@ -94,26 +102,25 @@ export async function dgemmaResponse(
   try { origin = new URL(pod.url); } catch { return unavailable(60); }
   if (origin.protocol !== "https:") return unavailable(60);
   const url = pod.url.replace(/\/+$/, "") + "/v1/systemone";
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  signal?.addEventListener("abort", () => controller.abort());
-  await meter?.beforeCall?.("dgemma", DGEMMA_MODEL, 0);
+  const model = pod.model ?? DGEMMA_MODEL;
+  const provider = pod.model ? "beam" : "dgemma";
+  const sent = JSON.stringify({ ...JSON.parse(body), model });
+  await meter?.beforeCall?.(provider, model, 0);
+  const deadline = AbortSignal.timeout(TIMEOUT_MS);
   let res: Response;
   let payload: unknown = null;
   try {
-    res = await providerFetch(meter, "dgemma", DGEMMA_MODEL, 0, url, {
+    res = await providerFetch(meter, provider, model, 0, url, {
       method: "POST",
       headers: { authorization: `Bearer ${pod.token}`, "content-type": "application/json" },
-      body,
+      body: sent,
       redirect: "manual",
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
     });
     // The deadline covers the body too: headers followed by a stalled body is still a dead pod.
     try { payload = JSON.parse(await res.text()); } catch { /* handled by status below */ }
   } catch {
     return unavailable(10);
-  } finally {
-    clearTimeout(timer);
   }
   if (res.ok) {
     // A 200 is only a 200 when it is the whole contract: this model, an entry
@@ -121,10 +128,12 @@ export async function dgemmaResponse(
     // and a usage count. Anything less is an outage.
     const asked = questionIds(body);
     const usage = isRecord(payload) && isRecord(payload.usage) ? payload.usage : null;
-    if (!isRecord(payload) || payload.model !== DGEMMA_MODEL || !isRecord(payload.answers) || !usage
-        || !Number.isInteger(usage.input_tokens) || !Number.isInteger(usage.output_tokens)
+    if (!isRecord(payload) || payload.model !== model || !isRecord(payload.answers) || !usage
+        || !Number.isSafeInteger(usage.input_tokens) || (usage.input_tokens as number) < 0
+        || !Number.isSafeInteger(usage.output_tokens) || (usage.output_tokens as number) < 0
         || asked.some((id) => !Object.prototype.hasOwnProperty.call(payload.answers, id))) return unavailable(10);
-    if (meter) addTokens(meter, "dgemma", DGEMMA_MODEL, { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens });
+    if (provider === "beam") addBeamCost(meter, usage.input_tokens);
+    addTokens(meter, provider, model, { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, cachedInputTokens: 0 });
     return Response.json(payload, { headers: NO_STORE });
   }
   // The service's validation messages are about the caller's own schema, so they travel; nothing else does.

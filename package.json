@@ -27,6 +27,7 @@
     "test:e2e:long-context-billing": "bun e2e/long-context-billing.ts",
     "test:e2e:long-context-job": "bun e2e/long-context-job.ts --full",
     "test:e2e:whole-document": "node e2e/whole-document.mjs --full",
+    "test:e2e:images": "bun e2e/diffusiongemma.ts",
     "test:e2e:url": "bun e2e/url-classification.ts"
   },
   "keywords": [],

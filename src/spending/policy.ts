@@ -41,6 +41,7 @@ export type Provider = ModelTokenUsage["provider"];
 const models: Record<string, { context: number; input: number; output: number }> = {
   "typesafe:jev-1.13.0": { context: 65536, input: 0.042, output: 0 },
   "beam:jev/laya": { context: 512, input: 0.021, output: 0 },
+  "beam:jev/diffusiongemma": { context: 32768, input: 0.021, output: 0 },
   "beam:jev/kev": { context: 8192, input: 0.021, output: 0 },
   // Our own pod, billed by the hour: no per-token provider price. The context is the service's document ceiling.
   "chunklaya:chunklaya/multilingual": { context: 1048576, input: 0, output: 0 },

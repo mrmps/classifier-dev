@@ -1,0 +1,32 @@
+name: Beam and RunPod latency
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/diffusiongemma-images]
+    paths:
+      - eval/diffusiongemma_latency.mjs
+      - .github/workflows/benchmark-images.yml
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Compare direct inference APIs
+        env:
+          BEAM_API_KEY: ${{ secrets.BEAM_API_KEY }}
+          DGEMMA_URL: ${{ secrets.DGEMMA_URL }}
+          DGEMMA_TOKEN: ${{ secrets.DGEMMA_TOKEN }}
+          BENCH_SAMPLES: "30"
+        run: node eval/diffusiongemma_latency.mjs
+      - name: Save latency measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beam-runpod-latency
+          path: captures/beam-runpod-latency.json

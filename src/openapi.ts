@@ -577,7 +577,7 @@ export const OPENAPI = {
           "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
           "Use any non-empty placeholder API key for anonymous per-IP limits, or a classifier_agent_ workspace key to use workspace quota, credits and usage history. Free workspaces have the public ceilings and Pro workspaces get 10x limits. " +
           "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/. " +
-          "Images: set model to \"dgemma\" and add an images array of data URLs; the same questions are then answered about the images and the state by DiffusionGemma, never by Jev, and a body with images under another model is refused with images_unsupported.",
+          "Images: set model to \"jev/diffusiongemma\" (or \"dgemma\") and add one base64 data URL in images; the same questions are then answered about the images and the state by DiffusionGemma, never by Jev, and a body with images under another model is refused with images_unsupported.",
         tags: ["classify"],
         security: [{ accountKey: [] }, {}],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneRequest" } } } },
@@ -1011,12 +1011,12 @@ export const OPENAPI = {
         required: ["state", "model", "questions"],
         properties: {
           state: TYPESAFE_ENTRY,
-          model: { type: "string", description: "A name or alias returned by GET /v1/models, or \"dgemma\" for the image-capable DiffusionGemma model (required when images are sent)." },
+          model: { type: "string", description: "A name or alias returned by GET /v1/models, or \"jev/diffusiongemma\" (alias \"dgemma\") for the image-capable DiffusionGemma model (required when images are sent)." },
           questions: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_QUESTION },
           images: {
-            type: "array", minItems: 1, maxItems: 4,
+            type: "array", minItems: 1, maxItems: 1,
             items: { type: "string", pattern: "^data:image/(png|jpeg|webp|gif);base64,", maxLength: 900000 },
-            description: "Images the questions are asked about, ahead of the state, as data URLs; at most 4 and 900,000 base64 characters in total. Only model \"dgemma\" reads them.",
+            description: "One inline image as a base64 data URL, at most 900,000 characters within the 1 MB body. Only model \"jev/diffusiongemma\" (alias \"dgemma\") reads it. Outputs are typed decisions, not images.",
           },
         },
         example: {

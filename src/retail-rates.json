@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-24-dgemma-v1",
+  "version": "2026-09-24-beam-dgemma-v1",
   "models": [
     {
       "provider": "typesafe",
@@ -39,6 +39,13 @@
     {
       "provider": "dgemma",
       "model": "dgemma",
+      "inputUsdPerMillion": "0",
+      "outputUsdPerMillion": "0",
+      "cachedInputUsdPerMillion": "0"
+    },
+    {
+      "provider": "beam",
+      "model": "jev/diffusiongemma",
       "inputUsdPerMillion": "0",
       "outputUsdPerMillion": "0",
       "cachedInputUsdPerMillion": "0"
