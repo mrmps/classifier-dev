@@ -248,10 +248,10 @@ body:has(.admin-app) {
   cursor: pointer;
   padding: 4px 0;
   min-height: 24px;
-  list-style: disclosure-closed;
+  list-style: disclosure-closed inside;
 }
 .admin-app details[open] > summary {
-  list-style: disclosure-open;
+  list-style: disclosure-open inside;
 }
 .admin-app .table-scroll {
   overflow: auto;
@@ -431,8 +431,17 @@ body:has(.admin-app) {
   .admin-app .admin-chart {
     height: 180px;
   }
+  .admin-app .actions {
+    width: 100%;
+    font-size: 12px;
+    gap: 6px;
+  }
+  .admin-app .range a {
+    padding: 4px 6px;
+  }
   .admin-app .control {
     font-size: 12px;
+    padding: 7px 8px;
   }
   .admin-app .signals dt {
     max-width: 60%;

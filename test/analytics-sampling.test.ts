@@ -14,8 +14,9 @@ const env = { ADMIN_PASSWORD: "test", ADMIN_SIGNING_KEY: "sampling-test" } as En
 function sampledAnalytics(rows: Record<string, string | number>[]) {
   const db = new Database(":memory:");
   db.exec(`CREATE TABLE classifier_events (timestamp INTEGER DEFAULT 1, _sample_interval REAL DEFAULT 1,
-    index1 TEXT DEFAULT 'caller', ${Array.from({length:9}, (_,i)=>`blob${i+1} TEXT DEFAULT ''`).join(",")},
-    ${Array.from({length:9}, (_,i)=>`double${i+1} REAL DEFAULT 0`).join(",")})`);
+    index1 TEXT DEFAULT 'caller', ${Array.from({length:20}, (_,i)=>`blob${i+1} TEXT DEFAULT ''`).join(",")},
+    ${Array.from({length:20}, (_,i)=>`double${i+1} REAL DEFAULT 0`).join(",")})`);
+  db.exec("CREATE TABLE classifier_chat_events AS SELECT * FROM classifier_events WHERE 0");
   for (const row of rows) db.query(`INSERT INTO classifier_events (${Object.keys(row).join(",")}) VALUES (${Object.keys(row).map(()=>"?").join(",")})`).run(...Object.values(row));
   const emails: {subject: string; text: string}[] = [];
   globalThis.fetch = (async (url, init) => {

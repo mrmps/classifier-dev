@@ -32,7 +32,7 @@ test("every analytics section and detail table is rendered together for browser 
   expect(html).toContain("gemini-2.5-flash");
   // Shared trends are shown once, not duplicated when formerly separate tabs coexist.
   expect(html.match(/>Accepted-request latency<\/h2>/g)).toHaveLength(1);
-  expect(html.match(/>Upstream spend<\/h2>/g)).toHaveLength(1);
+  expect(html.match(/>API upstream spend<\/h2>/g)).toHaveLength(1);
   expect(html).not.toContain("aria-pressed");
 });
 

@@ -16,6 +16,7 @@ import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, TERMS, isHeadi
 import { AGENTS_MD } from "./agents";
 import { VS_JEV } from "./vsjev";
 import { chatStream, parseMessages } from "./chat";
+import { chatStats, recordChat, type ChatOutcome } from "./chat-analytics";
 import {
   AUTH_MD, AI_CATALOG_TYPE, API_CATALOG_TYPE, MCP_REGISTRY_AUTH, SERVER_CARD_TYPE, agentCard, apiCatalog, ardCatalog, docsServerCard,
   oauthProtectedResource, securityTxt, robotsTxt, serverCard, sitemapXml,
@@ -83,6 +84,7 @@ export interface Env extends LayaEnv, SpendingEnv {
   STATS: KVNamespace;
   LIMITER: DurableObjectNamespace;
   AE: AnalyticsEngineDataset;
+  CHAT_AE?: AnalyticsEngineDataset;
   REPORT_KEY: string;
   /** Shared anonymous decision ceilings for one stable label-set fingerprint. */
   FREE_LABEL_RPM?: string;
@@ -1443,19 +1445,23 @@ const worker = {
     // IP like a smart-tier classification is.
     if (path === `${API_VERSION}/chat`) {
       if (req.method !== "POST") return json({ error: "POST a JSON body with messages", code: "method_not_allowed" }, 405, { allow: "POST, OPTIONS" });
-      if (!env.OPENROUTER_API_KEY) return json({ error: "chat is not configured", code: "chat_unavailable" }, 503);
+      const rejected = (outcome: ChatOutcome, response: Response) => {
+        ctx.waitUntil(recordChat(env, ip, outcome, chatStats()));
+        return response;
+      };
+      if (!env.OPENROUTER_API_KEY) return rejected("unavailable", json({ error: "chat is not configured", code: "chat_unavailable" }, 503));
       let messages;
       try {
         messages = parseMessages((await readJsonObject(await boundedRequest(req))).messages);
       } catch (e) {
-        if (e instanceof SpendingError) return errorResponse(e);
-        return json({ error: (e as Error).message, code: "invalid_request" }, 400);
+        if (e instanceof SpendingError) return rejected("invalid_request", errorResponse(e));
+        return rejected("invalid_request", json({ error: (e as Error).message, code: "invalid_request" }, 400));
       }
       const gate = await limited(env, "smart", ip, CHAT_COST);
       if (gate.limited) {
-        return json({ error: `Chat limit reached; try again in ${gate.resetIn ?? 60}s`, code: "rate_limited" }, 429, {
+        return rejected("rate_limited", json({ error: `Chat limit reached; try again in ${gate.resetIn ?? 60}s`, code: "rate_limited" }, 429, {
           "retry-after": String(gate.resetIn ?? 60),
-        });
+        }));
       }
       // The assistant classifies on the service's own key, so a visitor who
       // has spent their public quota can still watch it work; the per-turn
@@ -1465,7 +1471,7 @@ const worker = {
           ? { "user-agent": req.headers.get("user-agent") ?? "", authorization: `Bearer ${env.ENTERPRISE_API_KEY}` }
           : req.headers,
       });
-      return new Response(chatStream({ key: env.OPENROUTER_API_KEY, webKey: env.CONTEXT_API_KEY, server: productServer(mcpClassify), req: asService, messages }), {
+      return new Response(chatStream({ key: env.OPENROUTER_API_KEY, webKey: env.CONTEXT_API_KEY, server: productServer(mcpClassify), req: asService, messages, onFinish: (outcome, stats) => recordChat(env, ip, outcome, stats), waitUntil: (promise) => ctx.waitUntil(promise) }), {
         headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", ...CORS, ...SECURITY },
       });
     }

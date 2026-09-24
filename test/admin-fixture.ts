@@ -22,6 +22,14 @@ export function adminFixture(): AdminData {
   const totals = [{ requests, classifications, usd, avg_ms: 142 }];
   return {
     generatedAt,
+    chatOutcomes: [
+      { outcome: "completed", turns: 428, ms: 3424000, modelCalls: 720, inputTokens: 504000, outputTokens: 129600, usd: 1.42, unknownTokenCalls: 3, unknownCostCalls: 3, toolCalls: 292, classifyCalls: 211, webSearches: 42, pageReads: 21, clockCalls: 18, toolErrors: 7, starts: 186 },
+      { outcome: "failed", turns: 8, ms: 120000, modelCalls: 8, unknownTokenCalls: 8, unknownCostCalls: 8, toolCalls: 0, starts: 5 },
+      { outcome: "stopped", turns: 12, ms: 24000, modelCalls: 12, unknownTokenCalls: 12, unknownCostCalls: 12, toolCalls: 0, starts: 3 },
+      { outcome: "rate_limited", turns: 17, modelCalls: 0 },
+    ],
+    chatSeries: series.map((row, i) => ({ t: row.t, turns: 4 + i, usd: (4 + i) * 0.003, avg_ms: 6000 + i * 100 })),
+    chatCallers: 86,
     totals,
     series,
     previous: [

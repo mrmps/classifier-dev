@@ -17,7 +17,12 @@ import {
 import { reasonText } from "./reasons";
 
 type Row = Record<string, unknown>;
-type Column = { key: string; label: string; format?: (n: number) => string };
+type Column = {
+  key: string;
+  label: string;
+  format?: (n: number) => string;
+  numeric?: boolean;
+};
 const blue = "#8caaff",
   green = "#77d8b0",
   amber = "#edc27b",
@@ -52,6 +57,7 @@ function Table({ rows, columns }: { rows: Row[]; columns: Column[] }) {
             {columns.map((c) => (
               <th
                 key={c.key}
+                style={{ textAlign: c.format || c.numeric ? "right" : "left" }}
                 aria-sort={
                   sort?.key === c.key
                     ? sort.desc
@@ -79,7 +85,12 @@ function Table({ rows, columns }: { rows: Row[]; columns: Column[] }) {
           {sorted.map((r, i) => (
             <tr key={i}>
               {columns.map((c) => (
-                <td key={c.key}>
+                <td
+                  key={c.key}
+                  style={{
+                    textAlign: c.format || c.numeric ? "right" : "left",
+                  }}
+                >
                   {r[c.key] == null
                     ? "—"
                     : c.format
@@ -172,7 +183,14 @@ function Trend({
           tickLine={false}
         />
         <EvilAreaChart.YAxis
-          tickFormatter={format === count ? compact : format}
+          interval={0}
+          tickFormatter={
+            format === count
+              ? compact
+              : format === latency
+                ? (v) => `${(n(v) / 1000).toFixed(2)}s`
+                : format
+          }
           width={62}
           tickLine={false}
         />
@@ -306,6 +324,7 @@ const numeric: Column[] = [
 ];
 const sections = [
   "Overview",
+  "Chat",
   "Reliability",
   "Cost & models",
   "Adoption",
@@ -347,6 +366,19 @@ export function Dashboard({
     "requests",
   );
   const series = timeline(d, range);
+  const chatAccepted = d.chatOutcomes.filter((row) =>
+    ["completed", "failed", "stopped"].includes(String(row.outcome)),
+  );
+  const chatTurns = sum(chatAccepted, "turns");
+  const modelCalls = sum(chatAccepted, "modelCalls");
+  const costCalls = modelCalls - sum(chatAccepted, "unknownCostCalls");
+  const tokenCalls = modelCalls - sum(chatAccepted, "unknownTokenCalls");
+  const chatToolRows = [
+    ["Classification", "classifyCalls"],
+    ["Web search", "webSearches"],
+    ["Page reads", "pageReads"],
+    ["Clock", "clockCalls"],
+  ].map(([tool, key]) => ({ tool, calls: sum(chatAccepted, key) }));
   const comparison = (key: string) =>
     missing("totals", "previous")
       ? "Comparison unavailable"
@@ -419,9 +451,10 @@ export function Dashboard({
       <main>
         <div className="page-heading">
           <div>
-            <h1>API analytics</h1>
+            <h1>Service analytics</h1>
             <p>
-              Last {period} <span className="dot-separator">·</span> Updated{" "}
+              classifier.dev · Last {period}{" "}
+              <span className="dot-separator">·</span> Updated{" "}
               {new Date(d.generatedAt).toISOString().slice(11, 16)} UTC
             </p>
           </div>
@@ -440,12 +473,12 @@ export function Dashboard({
             <a className="control" href={`/admin?range=${range}`}>
               ↻ Refresh
             </a>
+            <button className="control" onClick={download}>
+              Export ↓
+            </button>
             <a className="signout" href="/admin?logout=1">
               Sign out ↗
             </a>
-            <button className="control" onClick={download}>
-              Export data ↓
-            </button>
           </div>
         </div>
         <span className="sr-only" role="status">
@@ -463,7 +496,7 @@ export function Dashboard({
         )}
         <div className="metrics">
           <Metric
-            label="Requests"
+            label="API requests"
             value={missing("totals") ? "—" : count(requests)}
             note={comparison("requests")}
           />
@@ -483,7 +516,7 @@ export function Dashboard({
             color={green}
           />
           <Metric
-            label="Upstream spend"
+            label="API upstream spend"
             value={missing("totals") ? "—" : money(spend)}
             note={comparison("usd")}
           />
@@ -494,12 +527,12 @@ export function Dashboard({
                 ? "—"
                 : money((spend / decisions) * 1000)
             }
-            note="Recorded provider cost"
+            note="Recorded upstream cost, not revenue"
           />
           <Metric
             label="Observed caller-days"
             value={missing("visitors") ? "—" : count(d.visitors)}
-            note="IDs reset daily (UTC)"
+            note="Identifiers rotate at midnight UTC"
           />
         </div>
         <nav className="section-nav" aria-label="Jump to analytics section">
@@ -531,7 +564,7 @@ export function Dashboard({
               `${bucket} weighted averages · successful requests and 5xx only`,
             )}
             {trend(
-              "Upstream spend",
+              "API upstream spend",
               "spend",
               "Spend (USD)",
               "series",
@@ -575,6 +608,167 @@ export function Dashboard({
               <p className="description">
                 Use Reliability to investigate rejected or failed requests. Low
                 all-traffic latency can reflect fast quota rejections.
+              </p>
+            </Panel>
+          </div>
+        </section>
+        <section className="analytics-section" id="Chat">
+          <h2 className="section-heading">Chat usage</h2>
+          <p className="description">
+            Completed, failed, and stopped turns. Tracking starts with this
+            release; earlier chat activity is unavailable. Conversations are not
+            stored.
+          </p>
+          <div className="metrics">
+            <Metric
+              label="Chat turns"
+              value={missing("chatOutcomes") ? "—" : count(chatTurns)}
+              note={
+                missing("chatOutcomes")
+                  ? "Data unavailable"
+                  : `${count(sum(chatAccepted, "starts"))} starts · ${count(chatTurns - sum(chatAccepted, "starts"))} follow-ups`
+              }
+            />
+            <Metric
+              label="Completed turns"
+              value={
+                missing("chatOutcomes")
+                  ? "—"
+                  : percent(
+                      sum(
+                        d.chatOutcomes.filter(
+                          (row) => row.outcome === "completed",
+                        ),
+                        "turns",
+                      ),
+                      chatTurns,
+                    )
+              }
+              note="Excludes rejected requests"
+              color={green}
+            />
+            <Metric
+              label="Average turn"
+              value={
+                missing("chatOutcomes") || !chatTurns
+                  ? "—"
+                  : latency(sum(chatAccepted, "ms") / chatTurns)
+              }
+              note="Includes tool execution"
+            />
+            <Metric
+              label="Model spend reported"
+              value={
+                missing("chatOutcomes") || !costCalls
+                  ? "—"
+                  : money(sum(chatAccepted, "usd"))
+              }
+              note={
+                missing("chatOutcomes")
+                  ? "Data unavailable"
+                  : `${count(costCalls)} / ${count(modelCalls)} calls returned cost`
+              }
+            />
+            <Metric
+              label="Tool calls"
+              value={
+                missing("chatOutcomes")
+                  ? "—"
+                  : count(sum(chatAccepted, "toolCalls"))
+              }
+              note={
+                missing("chatOutcomes")
+                  ? "Data unavailable"
+                  : `${count(sum(chatAccepted, "toolErrors"))} tool errors`
+              }
+            />
+            <Metric
+              label="Chat caller-days"
+              value={missing("chatCallers") ? "—" : count(d.chatCallers)}
+              note="Daily fingerprints, not unique people"
+            />
+          </div>
+          <div className="panel-grid">
+            {trend(
+              "Chat turns over time",
+              "chatTurns",
+              "Turns",
+              "chatSeries",
+              purple,
+            )}
+            {trend(
+              "Chat response time",
+              "chatLatency",
+              "Turn duration",
+              "chatSeries",
+              blue,
+              latency,
+            )}
+            <Panel
+              title="Chat outcomes"
+              subtitle="Rejected attempts are listed separately from accepted turns"
+              unavailable={missing("chatOutcomes")}
+            >
+              <Table
+                rows={d.chatOutcomes}
+                columns={[
+                  { key: "outcome", label: "Outcome" },
+                  { key: "turns", label: "Turns", format: count },
+                  { key: "modelCalls", label: "Model calls", format: count },
+                ]}
+              />
+            </Panel>
+            <Panel
+              title="Chat tools"
+              subtitle="Counts of attempted tool calls"
+              unavailable={missing("chatOutcomes")}
+            >
+              <Table
+                rows={chatToolRows}
+                columns={[
+                  { key: "tool", label: "Tool" },
+                  { key: "calls", label: "Calls", format: count },
+                ]}
+              />
+            </Panel>
+            <Panel
+              title="Chat model accounting"
+              subtitle="Reported model usage only. Classification spend is in API totals; web-tool charges are excluded."
+              className="span-two"
+              unavailable={missing("chatOutcomes")}
+            >
+              <Table
+                rows={[
+                  {
+                    input: tokenCalls ? sum(chatAccepted, "inputTokens") : null,
+                    output: tokenCalls
+                      ? sum(chatAccepted, "outputTokens")
+                      : null,
+                    usd: costCalls ? sum(chatAccepted, "usd") : null,
+                    tokenCoverage: `${count(tokenCalls)} / ${count(modelCalls)}`,
+                    costCoverage: `${count(costCalls)} / ${count(modelCalls)}`,
+                  },
+                ]}
+                columns={[
+                  { key: "input", label: "Input tokens", format: count },
+                  { key: "output", label: "Output tokens", format: count },
+                  { key: "usd", label: "Reported spend", format: money },
+                  {
+                    key: "tokenCoverage",
+                    label: "Calls with tokens",
+                    numeric: true,
+                  },
+                  {
+                    key: "costCoverage",
+                    label: "Calls with cost",
+                    numeric: true,
+                  },
+                ]}
+              />
+              <p className="description">
+                Missing usage stays unknown. Totals include only calls that
+                returned accounting; they are lower bounds when coverage is
+                incomplete.
               </p>
             </Panel>
           </div>
@@ -635,14 +829,14 @@ export function Dashboard({
             </Panel>
             <Panel
               title="Classifiers with failures"
-              subtitle="Top 12 fingerprints and failure causes; original labels are never stored"
+              subtitle="Top 12 fingerprints and failure causes · label names expire after 90 days"
               unavailable={missing("failLabels")}
             >
               <Table
                 rows={d.failLabels}
                 columns={[
                   { key: "label_names", label: "Labels" },
-                    { key: "labels", label: "Classifier fingerprint" },
+                  { key: "labels", label: "Classifier fingerprint" },
                   { key: "reason", label: "Cause" },
                   { key: "requests", label: "Requests", format: count },
                 ]}
@@ -753,16 +947,18 @@ export function Dashboard({
             )}
             <Panel
               title="Busiest classifiers"
-              subtitle="Top 12 label-set fingerprints · names and source text are never recorded"
+              subtitle="Aggregate label names · caller identity and source text are not retained here"
               className="span-two"
               unavailable={missing("topLabels")}
             >
-              <a className="control" href="/admin?view=labels">Browse all collected labels →</a>
+              <a className="control" href="/admin?view=labels">
+                Browse all collected labels →
+              </a>
               <Table
                 rows={d.topLabels}
                 columns={[
                   { key: "label_names", label: "Labels" },
-                    { key: "labels", label: "Classifier fingerprint" },
+                  { key: "labels", label: "Classifier fingerprint" },
                   ...numeric.slice(0, 3),
                 ]}
               />
@@ -856,8 +1052,8 @@ export function Dashboard({
           </p>
           <p>
             All times are UTC. Older events may lack spend or failure reasons.
-            This dashboard reports API telemetry; it does not measure revenue or
-            registered account growth.
+            This dashboard reports API and chat telemetry; it does not measure
+            revenue or registered account growth.
           </p>
         </footer>
       </main>
