@@ -191,11 +191,15 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
   const spend = recent.reduce((a, r) => a + num(r.usd), 0);
   const escFail = recent.reduce((a, r) => a + num(r.escfail), 0);
 
-  // "Answered" means a 200 that names the model that served it.
-  const answered = recent.filter((r) => String(r.status) === "200" && String(r.model || ""));
+  // Only automatic text classification belongs in the Jev/fallback share.
+  // The historical TypeSafe route label is not a model, and explicit lanes
+  // never ask Jev, even when their names start with "jev/".
+  const explicitOrUnknown = new Set(["typesafe", "dgemma", "jev/laya", "jev/kev", "chunklaya/multilingual"]);
+  const answered = recent.filter((r) => String(r.status) === "200" && String(r.model || "") && !explicitOrUnknown.has(String(r.model)));
   const answeredTotal = answered.reduce((a, r) => a + num(r.requests), 0);
+  const isJev = (model: unknown) => String(model).split(",").some(name => /^jev($|[-@])/.test(name));
   const byJev = answered
-    .filter((r) => String(r.model).toLowerCase().includes("jev"))
+    .filter((r) => isJev(r.model))
     .reduce((a, r) => a + num(r.requests), 0);
 
   const dayRequests = num(baseline[0]?.requests);
@@ -209,7 +213,7 @@ export async function evaluate(env: Env): Promise<{ alerts: Alert[]; checked: bo
   // and the fallback chain answers quietly at much worse accuracy.
   if (answeredTotal >= 5 && byJev / answeredTotal < T.jevShare) {
     const models = answered
-      .filter((r) => !String(r.model).toLowerCase().includes("jev"))
+      .filter((r) => !isJev(r.model))
       .map((r) => `${r.model} (${num(r.requests)})`)
       .join(", ");
     alerts.push({
