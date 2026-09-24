@@ -387,7 +387,7 @@ export function chatStream(o: { key: string; webKey?: string; server: McpServer;
             for (const c of calls) {
               abort.signal.throwIfAborted();
               stats.toolCalls++;
-              if (c.name === "classify_texts" || c.name === "classify_dimensions") stats.classifyCalls++;
+              if (["classify_texts", "classify_dimensions", "classify_multi_label", "count_labels", "review_uncertain"].includes(c.name)) stats.classifyCalls++;
               else if (c.name === "web_search") stats.webSearches++;
               else if (c.name === "read_page") stats.pageReads++;
               else if (c.name === TIME_TOOL.function.name) stats.clockCalls++;

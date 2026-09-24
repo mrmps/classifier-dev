@@ -12,7 +12,8 @@ const ctx = {
 } as ExecutionContext;
 let mode = "success",
   limited = false,
-  calls = 0;
+  calls = 0,
+  toolName = "current_time";
 const db = new Database(":memory:");
 for (const name of ["classifier_events", "classifier_chat_events"])
   db.exec(
@@ -38,7 +39,7 @@ const provider = Bun.serve({
               index: 0,
               id: "clock",
               function: {
-                name: "current_time",
+                name: toolName,
                 arguments:
                   mode === "tool-error" ? '{"timezone":"invalid-zone"}' : "{}",
               },
@@ -246,6 +247,27 @@ try {
   assert.equal(points.at(-1)!.doubles[7], 0);
   report.scenarios.push(
     "tool errors counted even when the assistant completes; measured zero cost is known",
+  );
+  mode = "success";
+  for (const name of [
+    "classify_texts",
+    "classify_dimensions",
+    "classify_multi_label",
+    "count_labels",
+    "review_uncertain",
+  ]) {
+    toolName = name;
+    await (await send(message)).text();
+    await drain();
+    assert.equal(
+      points.at(-1)!.doubles[9],
+      1,
+      `${name} is a classification tool attempt`,
+    );
+  }
+  toolName = "current_time";
+  report.scenarios.push(
+    "all five classification tool variants included in classification counts",
   );
   const original = env.CHAT_AE;
   env.CHAT_AE = {
