@@ -882,7 +882,7 @@ export function Dashboard({
                   {key:"batch", label:"Decisions / success", format:v => v.toFixed(1)},
                   {key:"image_requests", label:"Recorded image requests", format:count},
                 ]}/>
-                <p className="description">Historical blank models are Unattributed; older SDK traffic remains “typesafe.” Image and provider details start with this release. Before an answer exists, failed requests use the selected route name.</p>
+                <p className="description">Jev is a model; TypeSafe is its provider. “Unknown model (TypeSafe route)” covers older SDK records and requests without a returned model, such as failures. It is not a separate model. Historical blank models are Unattributed; image and provider details start with this release.</p>
               </Panel>
               <div className="span-two"><Trend title={selectedModel ? `${selectedModel} requests` : "Model traffic over time"}
                 subtitle={`${bucket} request counts · UTC · includes rejections`}

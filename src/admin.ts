@@ -18,7 +18,7 @@
  * fingerprints to aggregate label names; it contains no caller or source text.
  */
 
-import { modelUsage, modelUsageQuery } from "./model-analytics";
+import { modelName, modelUsage, modelUsageQuery } from "./model-analytics";
 import type { Env } from "./index";
 import { CHAT_DATASET, CHAT_FIELDS } from "./chat-analytics";
 import { sql } from "./report";
@@ -278,14 +278,14 @@ async function load(env: Env, range: RangeKey) {
       `SELECT toStartOfInterval(timestamp, INTERVAL '${r.interval}) AS t, blob6 AS model,
         sum(_sample_interval) AS requests, sum(double1 * _sample_interval) AS classifications
         FROM ${DATASET} WHERE timestamp > ${since} GROUP BY t, model ORDER BY t`,
-      [] as Row[], (x) => x,
+      [] as Row[], (x) => x.map(row => ({...row, model: modelName(row.model)})),
     ),
     q(
       "modelFailures",
       `SELECT blob6 AS model, blob7 AS reason, blob4 AS status, sum(_sample_interval) AS requests
         FROM ${DATASET} WHERE timestamp > ${since} AND blob4 != '200'
         GROUP BY model, reason, status ORDER BY requests DESC LIMIT 50`,
-      [] as Row[], (x) => x,
+      [] as Row[], (x) => x.map(row => ({...row, model: modelName(row.model)})),
     ),
     q(
       "byCountry",

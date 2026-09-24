@@ -66,8 +66,8 @@ export const URL_CLASSIFICATION = `SCRAPE AND CLASSIFY A URL
 
 export const DOCS = `classifier.dev
 
-Zero-shot text classification over plain HTTP. You send text and a list of
-labels, you get back the label that fits and how sure the model is. There is no
+Zero-shot classification over plain HTTP. Send text and labels for a label,
+or images and questions for structured answers. There is no
 API key or account required for free use, so the example below works the
 moment you paste it.
 
@@ -133,10 +133,12 @@ TYPESAFE SDK COMPATIBILITY
   credentials. GET /v1/models is public and does not spend quota or credits.
   The corresponding HTTP resources are POST /v1/systemone and GET /v1/models.
 
-  Images go through the same route. Set model to "dgemma" and add an images
-  array of data URLs (image/png, image/jpeg, image/webp or image/gif, base64;
-  at most 4 images and 900,000 characters of base64 in total, within the 1 MB
-  body). The questions keep the Choice, Noul and Score shapes and are answered
+  Images go through the same route. A runnable Node.js example is at
+  https://classifier.dev/developers (IMAGE CLASSIFICATION). Set model to
+  "dgemma" and add an images array of data URLs (image/png, image/jpeg,
+  image/webp or image/gif, base64). At most 4 images and 900,000 data URL
+  characters total must fit in the 1 MB body. The questions keep the Choice,
+  Noul and Score shapes and are answered
   about the images and the state together:
 
     {"model": "dgemma",
@@ -154,6 +156,9 @@ TYPESAFE SDK COMPATIBILITY
   a text-only guess. A body it refuses is 400 dgemma_input with its reason, a
   saturated model is 429 dgemma_busy with Retry-After, and images sent under
   another model are 400 images_unsupported.
+  The output is structured answers, not generated image data. The TypeSafe
+  JavaScript SDK 0.6.0 forwards images at runtime but its TypeScript request
+  type omits that field; direct HTTP exposes the documented JSON contract.
 
 
 LAYA AND KEV

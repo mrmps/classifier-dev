@@ -207,18 +207,50 @@ QUICKSTART
     });
 
 
+IMAGE CLASSIFICATION
+
+  POST /v1/systemone accepts image data URLs with model "dgemma". Its Choice,
+  Noul and Score questions return structured answers about the image and the
+  state together. For example, in Node.js with a local PNG:
+
+    import { readFile } from "node:fs/promises";
+    const image = (await readFile("photo.png")).toString("base64");
+    const response = await fetch("https://classifier.dev/v1/systemone", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "dgemma",
+        state: "Describe this photo.",
+        images: ["data:image/png;base64," + image],
+        questions: {
+          has_text: { type: "noul", instructions: "Does the image contain text?" },
+        },
+      }),
+    });
+    console.log(await response.json()); // {model, answers, usage}
+
+  Use a workspace key in Authorization for workspace quota and billing, or
+  omit it for anonymous limits. PNG, JPEG, WebP and GIF are accepted; at most
+  4 images and 900,000 data URL characters total must fit in the 1 MB request.
+  Jev cannot see images. A different named model returns images_unsupported;
+  an unavailable image service returns dgemma_unavailable, without a text-only
+  fallback. See https://classifier.dev for the full image contract.
+
+  The official TypeSafe JavaScript SDK forwards extra request fields, but its
+  0.6.0 TypeScript request type does not declare images. Use direct HTTP for
+  image inputs until the SDK adds that field. The output here is
+  structured answers, not a generated image.
+
+
 COMING SOON
 
-  Two things are being built on the same call shape:
+  Private inference is being built on the same call shape:
 
-    Image classification   Labels in, one calibrated answer out, for images
-                           instead of text.
     Private inference      Zero-knowledge, end-to-end encrypted classification:
                            the input is unreadable in transit and unreadable to
                            the service that classifies it.
 
-  If either is on your roadmap, say so now and it gets built against your
-  case.
+  If this is on your roadmap, say so now and it gets built against your case.
 
     Book a call   ${SITE.author.cal}
     Email         ${SITE.email}

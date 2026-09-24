@@ -1016,7 +1016,7 @@ export const OPENAPI = {
           images: {
             type: "array", minItems: 1, maxItems: 4,
             items: { type: "string", pattern: "^data:image/(png|jpeg|webp|gif);base64,", maxLength: 900000 },
-            description: "Images the questions are asked about, ahead of the state, as data URLs; at most 4 and 900,000 base64 characters in total. Only model \"dgemma\" reads them.",
+            description: "Images the questions are asked about, ahead of the state, as data URLs; at most 4 and 900,000 data URL characters in total. Only model \"dgemma\" reads them.",
           },
         },
         example: {

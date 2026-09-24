@@ -1,4 +1,5 @@
 import { jevAttemptsQuery } from "./jev-observability";
+import { modelName } from "./model-analytics";
 import type { Env } from "./index";
 import { recordedClassifierLabels } from "./privacy";
 
@@ -241,8 +242,9 @@ export async function dailyReport(
     const primaries = opts.primaries ?? [];
     lines.push("BY MODEL");
     for (const r of byModel) {
-      const model = String(r.model ?? "?");
-      const servedModels = model.split(",").filter(Boolean);
+      const recorded = String(r.model ?? "");
+      const model = modelName(recorded);
+      const servedModels = recorded === "typesafe" ? [] : recorded.split(",").filter(Boolean);
       const fallback = primaries.length && servedModels.some(
         (servedModel) => !primaries.some(
           (primary) => servedModel === primary || servedModel.startsWith(primary),

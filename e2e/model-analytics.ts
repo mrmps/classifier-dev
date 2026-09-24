@@ -5,7 +5,8 @@ import worker, { type Env } from "../src/index";
 
 // Failure cases: SDK aliases hide model versions; quota failures disappear;
 // sampled rows skew shares; old/missing tokens look like zero; 4xx dilute latency;
-// hourly GPUs look free; unavailable queries look empty; private inputs leak.
+// hourly GPUs look free; unavailable queries look empty; private inputs leak;
+// unknown TypeSafe and explicit non-Jev successes skew the Jev fallback alert.
 const baseline = process.argv.includes("--baseline");
 const serve = process.argv.includes("--serve");
 const db = new Database(":memory:");
@@ -19,7 +20,7 @@ const pending: Promise<unknown>[] = [];
 const store = new Map<string, string>();
 const env = {
   TYPESAFE_API_KEY: "fixture", DGEMMA_ENABLED: "true", DGEMMA_URL: "https://pod.example", DGEMMA_TOKEN: "fixture",
-  ADMIN_PASSWORD: "analytics-fixture", ADMIN_SIGNING_KEY: "fixture", PRIVACY_SALT: "fixture",
+  ADMIN_PASSWORD: "analytics-fixture", ADMIN_SIGNING_KEY: "fixture", REPORT_KEY: "report-fixture", PRIVACY_SALT: "fixture",
   STATS: { get: async (k: string) => store.get(k) ?? null, put: async (k: string, v: string) => { store.set(k, v); } },
   LIMITER: { idFromName: (s: string) => s, get: () => ({ fetch: async () => Response.json({ limited: quota, remaining: 99, resetIn: 60 }) }) },
   AE: { writeDataPoint(event: {blobs: string[]; doubles: number[]; indexes: string[]}) {
@@ -34,10 +35,12 @@ globalThis.fetch = (async (url, init) => {
     if (failQuery && String(init?.body).includes("blob11")) return new Response("fixture outage", {status: 503});
     const sql = String(init?.body)
       .replace(/toStartOfInterval\(timestamp, INTERVAL '(\d+)' (HOUR|DAY)\)/g, (_, n, unit) => `datetime((timestamp / ${Number(n)*(unit === 'DAY' ? 86400 : 3600)}) * ${Number(n)*(unit === 'DAY' ? 86400 : 3600)}, 'unixepoch')`)
-      .replace(/toDateTime\(now\(\)\) - INTERVAL '(\d+)' HOUR/g, (_, n) => `(unixepoch() - ${Number(n)*3600})`);
+      .replace(/toDateTime\(now\(\)\) - INTERVAL '(\d+)' HOUR/g, (_, n) => `(unixepoch() - ${Number(n)*3600})`)
+      .replace(/toDateTime\(now\(\)\) - INTERVAL '(\d+)' MINUTE/g, (_, n) => `(unixepoch() - ${Number(n)*60})`);
     return Response.json({data: db.query(sql).all()});
   }
   if (String(url).startsWith("http://127.0.0.1")) return originalFetch(url, init);
+  if (String(url).endsWith("/v1/models")) return Response.json({models:[]});
   if (down) return Response.json({error: "fixture outage"}, {status: 503});
   const body = JSON.parse(String(init?.body));
   if (!body.questions) return Response.json({error: "invalid"}, {status: 400});
@@ -66,11 +69,12 @@ try {
   assert.equal((await originalFetch(`${origin}/admin`)).status, 401);
   assert.equal((await post({state:"PRIVATE INPUT", questions})).status, 200);
   const image = "data:image/png;base64,aGVsbG8=";
-  assert.equal((await post({state:"PRIVATE INPUT", images:[image], questions})).status, 200);
+  assert.equal((await post({model:"dgemma", state:"PRIVATE INPUT", images:[image], questions})).status, 200);
   noTokens = true;
   assert.equal((await post({questions})).status, 200);
   noTokens = false;
   down = true;
+  assert.equal((await post({questions})).status, 503);
   assert.equal((await post({model:"dgemma", questions})).status, 503);
   down = false;
   quota = true;
@@ -83,17 +87,29 @@ try {
   assert.equal(login.status, 302);
   const cookie = login.headers.get("set-cookie")!.split(";")[0];
   const {html, data} = await admin(cookie);
+  const developers = await (await originalFetch(`${origin}/developers`)).text();
+  const docs = await (await originalFetch(origin)).text();
   await mkdir("captures", {recursive:true});
   await writeFile(`captures/models-${baseline ? "before" : "after"}.html`, html);
   if (!baseline) {
     assert.deepEqual(data.unavailable, []);
-    assert.equal(events.length, 6);
+    assert.equal(events.length, 7);
+    assert.match(developers, /IMAGE CLASSIFICATION/);
+    assert.match(developers, /data:image\/png;base64/);
+    assert.doesNotMatch(developers, /Image classification\s+Labels in.*coming soon/i);
+    assert.match(docs, /data:image\/png;base64/);
     assert.equal(data.dimensionTraffic.length, 0);
     assert.doesNotMatch(JSON.stringify(events), /PRIVATE|203\.0\.113\.123|aGVsbG8/);
     const jev = data.byModel.find((r: any) => r.model === "jev-1.13.0");
     assert.equal(jev.requests, 2);
     assert.equal(jev.input_tokens, 42);
     assert.equal(jev.token_requests, 1);
+    const unknown = data.byModel.find((r: any) => r.model === "Unknown model (TypeSafe route)");
+    assert.equal(unknown.requests, 2);
+    assert.equal(unknown.provider, "Not recorded");
+    assert.ok(data.modelSeries.some((r: any) => r.model === unknown.model));
+    assert.ok(data.modelFailures.some((r: any) => r.model === unknown.model && r.reason === "typesafe_503"));
+    assert.ok(!data.byModel.some((r: any) => r.model === "typesafe"));
     const pod = data.byModel.find((r: any) => r.model === "dgemma");
     assert.equal(pod.requests, 3);
     assert.equal(pod.failures, 1);
@@ -109,7 +125,7 @@ try {
     assert.equal(legacy.input_tokens, null);
     assert.equal(legacy.image_requests, null);
     assert.equal(legacy.calls, null);
-    assert.equal(data.modelSeries.reduce((s: number, r: any) => s + Number(r.requests), 0), 16);
+    assert.equal(data.modelSeries.reduce((s: number, r: any) => s + Number(r.requests), 0), 17);
     assert.ok(data.modelFailures.some((r: any) => r.model === "dgemma" && r.reason === "rate_limit"));
     for (const range of ["7d", "30d"]) {
       const longer = (await admin(cookie, range)).data;
@@ -121,6 +137,17 @@ try {
     assert.ok(failed.unavailable.includes("byModel"));
     failQuery = false;
     await writeFile("captures/model-analytics-e2e.json", JSON.stringify({runtime:"Bun HTTP server running Worker handlers; SQLite executes aggregate SQL; deterministic provider fixtures", passed:true, events:events.length, data}, null, 2));
+    db.exec("DELETE FROM classifier_events WHERE blob6 = 'legacy-model'");
+    db.exec("INSERT INTO classifier_events(timestamp,index1,blob4,blob6,double1,double2,_sample_interval) VALUES(unixepoch(),'old-sdk','200','typesafe',1,100,10)");
+    db.exec("INSERT INTO classifier_events(timestamp,index1,blob4,blob6,double1,double2,_sample_interval) VALUES(unixepoch(),'image','200','dgemma',1,100,10)");
+    db.exec("INSERT INTO classifier_events(timestamp,index1,blob4,blob6,double1,double2,_sample_interval) VALUES(unixepoch(),'laya','200','jev/laya',1,100,10)");
+    const alertPreview = await originalFetch(`${origin}/alerts`, {headers:{authorization:"Bearer report-fixture"}});
+    assert.equal(alertPreview.status, 200);
+    assert.doesNotMatch(await alertPreview.text(), /Jev is not answering/);
+    db.exec("INSERT INTO classifier_events(timestamp,index1,blob4,blob6,double1,double2,_sample_interval) VALUES(unixepoch(),'backup','200','google/gemini-3.8-flash',1,100,10)");
+    const fallbackPreview = await originalFetch(`${origin}/alerts`, {headers:{authorization:"Bearer report-fixture"}});
+    assert.equal(fallbackPreview.status, 200);
+    assert.match(await fallbackPreview.text(), /Jev is not answering/);
     console.log("PASS: HTTP classification → analytics write → authenticated dashboard; sampling, partial tokens, privacy, errors, image usage, query outage.");
   }
   if (serve) console.log(`Preview: ${origin}/preview#Cost%20%26%20models`);
