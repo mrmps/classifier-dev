@@ -46,7 +46,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   } else {
     try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
-    if (isLongContextRequest(body)) return spendingClassification(
+    if (Object.hasOwn(body, "url") || isLongContextRequest(body)) return spendingClassification(
       new Request(request.url, { method: "POST", headers: request.headers, body: text }), env, source, ctx);
     const rawInputs = body.inputs ?? body.items ?? body.input;
     const inputs = typeof rawInputs === "string" ? [rawInputs] : rawInputs;

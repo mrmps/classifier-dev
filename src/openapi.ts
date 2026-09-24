@@ -13,6 +13,7 @@ import { MAX_DESIRED_LATENCY_MS, MIN_DESIRED_LATENCY_MS, ROADMAP, ROADMAP_KEYS }
  */
 export const ERROR_CODES = [
   ...SPENDING_ERROR_CODES,
+  "scrape_unavailable", "scrape_payment_required", "scrape_failed", "scrape_empty", "scrape_too_large",
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   "chunklaya_input", "chunklaya_busy", "chunklaya_unavailable",
   "dgemma_input", "dgemma_busy", "dgemma_unavailable", "images_unsupported",
@@ -1058,12 +1059,17 @@ export const OPENAPI = {
           { required: ["labels"], not: { required: ["dimensions"] } },
           { required: ["dimensions"], not: { anyOf: [{ required: ["labels"] }, { required: ["multi"] }, { required: ["max_labels"] }] } },
         ],
+        dependentRequired: { include: ["url"] },
+        allOf: [{ if: { required: ["url"] }, then: { not: { anyOf: [{ required: ["input"] }, { required: ["inputs"] }, { required: ["items"] }] } } }],
         examples: [
+          { url: "https://example.com", labels: ["documentation", "news"], include: ["markdown", "html"] },
           { items: ["Checkout charges me twice"], dimensions: { team: ["billing", "identity", "platform"], kind: ["bug", "request", "question"] } },
           { inputs: ["the checkout button does nothing", "love the new dark mode"], labels: ["bug", "praise", "feature"] },
           { inputs: ["postgres index tuning for ML feature stores"], labels: ["databases", "ml", "frontend"], multi: true, max_labels: 2 },
         ],
         properties: {
+          url: { type: "string", format: "uri", maxLength: 8192, description: "One public HTTP(S) URL instead of input/inputs/items. Requires a funded workspace key and sufficient balance. Context.dev scrapes once for $0.0022 per provider-billed attempt plus classification. Only Jev; long articles use Fast tier. No OCR. Up to 8 MB response and 250,000 tokens, never silently truncated. Successful scrapes and uncertain dispatched attempts remain charged even if classification fails; inspect pricing on errors." },
+          include: { type: "array", items: { type: "string", enum: ["markdown", "html"] }, description: "With url only: opt into article.markdown and/or article.html. Both formats share one scrape; no extra fee. Omit for compact classification results. Treat HTML as untrusted." },
           model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "Defaults to Jev unless processing implies Laya. Default/explicit jev inputs over 32,000 characters use paid Fast-only Jev long context: 600-token Chonkie chunks, parallel evidence screening and final Jev over whole eligible chunks in source order, bounded by 20,000 cl100k_base tokens and a conservative provider estimate. Eligible evidence may be omitted; usage.long_context discloses selection. Requires paid workspace balance or active paid subscription, not signup credit. Synchronous limits: 250,000 original cl100k_base tokens, 20 documents, 32 decisions, 1 MB body. One whole document on POST / or /v1/classify supports 10M tokens and 100 MB as a background job. Price: $0.084/M original context tokens summed once across inputs, independent of dimensions and actual inference usage. Explicit chunklaya retains the legacy opt-in (4,000,000 characters/input, 20 inputs, subject to 1 MB body; chunklaya/multilingual results; no Smart). Laya and Kev are experimental Beam models with 512-token and 8,192-token contexts respectively, 2–16 short labels, text ≤2,000 characters and instructions ≤400 characters. Results use jev/laya or jev/kev; Jev calibration claims do not apply." },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Implies Laya when model is omitted. Accepted but has no effect with explicit model jev, which handles batching automatically. When omitted for Laya, automatically selects fast for one decision with up to 4 yes/no questions, otherwise bulk. Explicit Laya lanes are honored. Fast allows 60 questions/min and 2,000/day per caller. Bulk chunks batches up to 1,000 questions per call, 1,000/min and 20,000/day. These caps also apply to paid/operator keys. Same model weights in both lanes. Overload returns 429; a cold bulk worker returns 503 with Retry-After. Smart review is independent." },
           dimensions: DIMENSIONS_SCHEMA,
@@ -1132,6 +1138,10 @@ export const OPENAPI = {
         type: "object",
         description: "USD customer pricing, separate from upstream provider spend. total_usd is zero for unbilled requests, null when unknown, and before credit rounding. Pending settlement is not a receipt. Ordinary pricing.input_tokens includes billable primary calls; Jev long context uses original cl100k_base context tokens summed once across inputs at $0.084/M, independent of dimensions and actual screening/final usage. Plain-text responses and TypeSafe-compatible responses retain their existing shapes.",
         properties: {
+          scrape_requests: { type: "integer", minimum: 0, maximum: 1 },
+          usd_per_scrape: { type: "number", const: 0.0022 },
+          scrape_usd: { type: "number", description: "Retained scrape charge, including on errors after a billed or uncertain provider attempt." },
+          classification_usd: { type: ["number", "null"] },
           currency: { const: "USD" }, rate_version: { type: "string" },
           basis: { type: "string", const: "original_context_tokens", description: "Present for Jev long context." },
           tokenizer: { type: "string", const: "cl100k_base", description: "Present for Jev long-context billing." },
@@ -1151,6 +1161,7 @@ export const OPENAPI = {
         properties: {
           usage: { $ref: "#/components/schemas/TokenUsage" },
           pricing: { $ref: "#/components/schemas/ClassificationPricing" },
+          article: { type: "object", properties: { url: { type: "string" }, title: { type: "string" }, markdown: { type: "string" }, html: { type: "string" } } },
           label: { type: "string" },
           confidence: {
             type: ["number", "null"],
@@ -1195,6 +1206,7 @@ export const OPENAPI = {
         type: "object",
         properties: {
           pricing: { $ref: "#/components/schemas/ClassificationPricing" },
+          article: { type: "object", properties: { url: { type: "string" }, title: { type: "string" }, markdown: { type: "string" }, html: { type: "string" } } },
           tier: { type: "string" },
           model: {
             type: "string",
@@ -1343,6 +1355,7 @@ export const OPENAPI = {
         type: "object",
         required: ["error", "code"],
         properties: {
+          pricing: { $ref: "#/components/schemas/ClassificationPricing", description: "On admitted URL requests, reports any retained scrape charge even when classification fails." },
           error: { type: "string", description: "Human-readable message saying what to change." },
           code: {
             type: "string",
@@ -1389,6 +1402,8 @@ export const OPENAPI = {
 } as const;
 
 export const LLMS_TXT = `# classifier.dev
+
+URL classification: POST /v1/classify with url, labels (or dimensions), and optional include: ["markdown","html"]. Funded workspace key required. Context.dev scraping: $2.20/1,000 requests plus normal classification. MCP: classify_texts, classify_dimensions, classify_multi_label accept url and include. Read pricing even on errors.
 
 > Zero-shot text classification over plain HTTP, with no API key and no account.
 > Send text and a list of labels, get back the label that fits and a calibrated

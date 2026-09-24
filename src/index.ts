@@ -71,7 +71,7 @@ export interface Env extends LayaEnv, SpendingEnv {
   JEV_AE?: AnalyticsEngineDataset;
   LONG_CONTEXT_AE?: AnalyticsEngineDataset;
   LONG_CONTEXT_JOBS?: DurableObjectNamespace;
-  /** context.dev, for the chat's web search and page reads only. Never served. */
+  /** Context.dev for page scraping and chat web tools. Never served. */
   CONTEXT_API_KEY?: string;
   ENTERPRISE_API_KEY?: string;
   /** Dedicated operator credential for bulk agent work; independent of enterprise callers. */
@@ -306,6 +306,7 @@ const agentView = (origin: string) => ({
   authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; Pro workspaces get 10x limits. Partner keys have separately arranged limits.", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
+    classify_url: { method: "POST", url: `${origin}/v1/classify`, body: { url: "https://example.com", labels: ["documentation", "news"], include: ["markdown", "html"] }, scrape_usd: 0.0022, authentication: "Funded workspace API key" },
     classify_dimensions: { method: "POST", url: `${origin}/v1/classify`, body: { items: ["..."], dimensions: { team: ["billing", "platform"], kind: ["bug", "request"] } } },
     classify_one: { method: "GET", url: `${origin}/{labels}/{text}`, query_form: `${origin}/?labels={a,b}&text={text}` },
     typesafe_system_one: { method: "POST", url: `${origin}/v1/systemone`, compatibility: "TypeSafe System One wire contract; use the official SDK with a placeholder for anonymous use or a classifier_agent_ workspace key for workspace quota and billing" },
@@ -2099,6 +2100,7 @@ const worker = {
         return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
       }
       const b = body as Record<string, unknown>;
+      if (Object.hasOwn(b, "url")) return fail("URL classification requires a funded workspace key. Use POST /v1/classify with Authorization: Bearer classifier_agent_...", 401, "invalid_api_key");
       if (b.model !== undefined && b.model !== "jev" && b.model !== "laya" && b.model !== "kev" && b.model !== "chunklaya")
         return fail('model must be "jev", "laya", "kev" or "chunklaya"', 400, "bad_model");
       // `processing` without a model still means Laya: it is the lane selector

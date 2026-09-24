@@ -1,3 +1,4 @@
+import { SCRAPE_PRICE } from "./scrape";
 /**
  * The pages that are not the API reference: who runs this, how to reach them,
  * what is logged, what it costs, where developers and agents start, and how to
@@ -8,7 +9,7 @@
  * canonical document and nothing can drift between the three.
  */
 
-import { SPENDING_LIMITS } from "./docs";
+import { SPENDING_LIMITS, URL_CLASSIFICATION } from "./docs";
 import { SITE, SITE_UPDATED } from "./wellknown";
 import { codeLang } from "./ui";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
@@ -170,6 +171,8 @@ export const DEVELOPERS = `classifier.dev developers
 
 From reading this to a first classification, with no account, key or sign-up
 in between. The API is free within per-IP limits; production is the sandbox.
+
+${URL_CLASSIFICATION}
 
 
 QUICKSTART
@@ -468,6 +471,12 @@ export const PRICING = `classifier.dev pricing
 Try classifier.dev without an API key, account or card. Create a workspace when
 you want usage credits, named API keys, shared billing and usage by connection.
 Every plan includes fast and smart classification, REST, MCP and the CLI.
+
+URL scraping costs $${(SCRAPE_PRICE * 1000).toFixed(2)}/1,000 provider-billed requests plus normal
+classification. Markdown and HTML are included on request at no extra cost.
+Requires funded access and enough balance for the up-front reservation.
+Successful scrapes remain billable if classification fails; errors disclose
+any retained scrape charge. See https://classifier.dev/developers.
 
 
 FREE
