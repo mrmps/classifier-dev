@@ -105,6 +105,8 @@ try {
     assert.equal(legacy.requests, 10);
     assert.equal(legacy.classifications, 20);
     assert.equal(legacy.input_tokens, null);
+    assert.equal(legacy.image_requests, null);
+    assert.equal(legacy.calls, null);
     assert.equal(data.modelSeries.reduce((s: number, r: any) => s + Number(r.requests), 0), 16);
     assert.ok(data.modelFailures.some((r: any) => r.model === "dgemma" && r.reason === "rate_limit"));
     for (const range of ["7d", "30d"]) {
