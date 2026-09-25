@@ -119,3 +119,69 @@ profile, not on a 0.004 difference in F1.
 In rough order of value: add cases from a real taxonomy with labels assigned
 before any model output is seen; split into tune and report halves; raise n past
 about thirty so confidence intervals mean something.
+
+## Zero-shot TF-IDF and compression on JevBench
+
+`jevbench_hybrid.py` measures arbitrary typed decisions using only the current
+state, instructions, labels, and option descriptions. There is no labeled
+training, support set, learned combination weight, or probability calibration.
+TF-IDF vocabulary and IDF are computed from the current request alone; compressor
+dictionaries are seeded with that request’s text at inference.
+
+```sh
+git clone https://github.com/fstandhartinger/jevbench.git /tmp/compression-jevbench
+git -C /tmp/compression-jevbench checkout 2fa63fa3226cb369795525ed011800f57dcbd894
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 uv run --python 3.12 eval/jevbench_hybrid.py \
+  --jevbench /tmp/compression-jevbench --out eval/data/jevbench-zero-shot-reproduction
+```
+
+Run from the repository root. The output directory must be new. Dependencies
+are pinned in the script; no API keys, model downloads, or paid calls are needed.
+The benchmark repository supplies the 231 public questions and published Jev
+outcomes for comparison. Private, sealed, and imported questions are absent.
+
+The fixed sweep contains 54 methods: five TF-IDF scores (word, window, character,
+label-only, and a window/character combination), three compression scores
+(gzip normalized compression distance, DEFLATE conditional gain, and Zstd
+conditional gain), all 45 pairwise blends at 25/50/75% TF-IDF weight, and one
+equal four-way blend. Scores are standardized within each question before
+combining them. Negligible numerical variation is collapsed and final scores
+rounded before ties are resolved by label name, matching JevBench’s scorer.
+
+### Public results
+
+Generated measurements are in [jevbench-zero-shot-results.json](jevbench-zero-shot-results.json).
+No training examples were used for any row. Jev is a published reference on
+the exact same item IDs, not a fresh API run.
+
+| Method | Overall (231) | Easy (48) | Original (72) | Hard (111) |
+|---|---:|---:|---:|---:|
+| Gzip | 42.0% | 52.1% | 34.7% | 42.3% |
+| Character TF-IDF | 49.4% | 79.2% | 38.9% | 43.2% |
+| Window + character TF-IDF | 48.9% | 79.2% | 40.3% | 41.4% |
+| 75% TF-IDF + 25% Zstd (best observed blend) | 50.6% | 81.2% | 41.7% | 43.2% |
+| Jev 1.13.0, published | 86.6% | 100.0% | 98.6% | 73.0% |
+
+The best blend is the high end of an exploratory sweep, not an independently
+selected winner. It adds only three correct answers over character TF-IDF
+(+1.30 percentage points; paired scenario-bootstrap 95% interval −3.07 to +5.73
+points). This is not convincing evidence of an improvement. Uniform random
+choice averages 31.8% on these variable-sized label sets.
+
+The methods are fast but miss many reasoning decisions: the highlighted blend
+gets 5/19 long-policy questions and 5/18 multi-hop questions correct. Running
+all 54 scoring rules together took a median 1.53 ms per request on an Apple M5
+Max, including per-request TF-IDF fitting and feature extraction. This excludes
+loading, verification, and network/serving overhead. It is not an API latency.
+
+Every prediction function receives only inference fields. The harness scores
+answers afterward and checks every prediction again with reversed option order.
+All 12,474 predictions were independently checked with the upstream label scorer.
+No probabilities are invented from similarity scores; these are label accuracies,
+not official composite scores or a leaderboard submission.
+
+Each run writes per-item predictions and scores, the full per-family sweep,
+source/script hashes, software versions, timing, and paired bootstrap intervals
+to `eval/data/`. The checked-in summary retains the full accuracy sweep and
+selected family breakdowns; raw predictions stay in the ignored output folder.
+The Worker and deployed service are unchanged.
