@@ -1524,9 +1524,10 @@ short \`reporter.agent_description\` describing what kind of agent they are.
 
 ## Limits
 
-Free provider spending is capped at $0.01/request, $0.50/IP/UTC day and
-$100/day across all free traffic, with four concurrent requests per IP.
-IPv6 addresses share a /64. Smart requests must fit the request allowance.
+Free provider spending is capped at $0.01/Fast request, $0.10/Smart request,
+$0.50/IP/UTC day and $100/day across all free traffic, with four concurrent
+requests per IP. IPv6 addresses share a /64. Smart reviews that reach the
+request cap retain fast answers and appear in usage.escalation_failed.
 Funded workspace keys use their balance and bypass the shared subsidy and
 proxy check; the default maximum request allowance is $10. Request bodies
 are limited to 1 MB for synchronous classification. One whole Jev document can

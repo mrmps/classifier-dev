@@ -6,11 +6,12 @@ import { LONG_CONTEXT_JOB_MAX_TOKENS } from "./long-context";
 
 export const SPENDING_LIMITS = `SPENDING LIMITS
 
-  Free inference has a $0.01 maximum provider allowance per request, $0.50
-  per IP per UTC day, and a $100 shared daily ceiling. IPv6 addresses share
-  a /64 allowance. At most four free requests run concurrently per IP.
-  Smart mode is available for requests that fit this allowance. Longer
-  prompts or expensive batches need a funded workspace API key.
+  Free inference allows up to $0.01 of provider cost per Fast request or $0.10
+  per Smart request, $0.50 per IP per UTC day, and $100 across everyone per
+  UTC day. IPv6 addresses share a /64 allowance. At most four free requests
+  run concurrently per IP. If Smart reviews reach the request ceiling, the
+  fast answers remain and usage.escalation_failed counts missed reviews.
+  Longer prompts or expensive batches need a funded workspace API key.
   Reservations include in-flight work, retries and fallback models.
   Anonymous proxy traffic requires a funded key. Unfunded workspace keys
   share the free limits. Funded work uses its workspace balance, outside

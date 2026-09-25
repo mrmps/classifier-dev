@@ -2,7 +2,7 @@ import { requestTokens } from "./model-analytics";
 import { classificationUsage, classificationPricing } from "./classification-usage";
 import { classifyLongContext, LongContextError, longContextInputTokens, LONG_CONTEXT_THRESHOLD, LONG_CONTEXT_MAX_TOKENS, LONG_CONTEXT_MAX_INPUTS, LONG_CONTEXT_MAX_DECISIONS } from "./long-context";
 import { recordLongContext } from "./long-context-analytics";
-import { withFreeSpending, boundedRequest, freePreflight, type SpendingEnv } from "./spending";
+import { withFreeSpending, boundedRequest, type SpendingEnv } from "./spending";
 import { SpendingError, errorResponse } from "./spending/policy";
 import { providerFetch } from "./spending/permit";
 export { FreeBudget } from "./spending";
@@ -1354,13 +1354,12 @@ const worker = {
       try {
         req = await boundedRequest(req);
         const body = req.method === "POST" ? await req.clone().json().catch(() => undefined) as Record<string, unknown> | undefined : undefined;
-        const querySmart = new URL(req.url).searchParams.get("tier") === "smart";
-        if (!execution?.funded) freePreflight(req, env, querySmart ? { tier: "smart" } : body);
+        const tier = readTier(req.method === "POST" ? body?.tier : new URL(req.url).searchParams.get("tier")) ?? "fast";
         const meter = execution?.meter ?? newMeter();
         const next = () => worker.fetch(req, env, ctx, { ...execution, meter, spending: true });
         const credential = req.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
         const operator = !!env.AGENT_API_KEY && !!credential && await secretEquals(credential, env.AGENT_API_KEY);
-        return execution?.funded ? await next() : await withFreeSpending(req, env, ctx, meter, next, operator);
+        return execution?.funded ? await next() : await withFreeSpending(req, env, ctx, meter, next, { tier, operator });
       } catch (error) {
         if (error instanceof SpendingError) return errorResponse(error);
         throw error;
@@ -2378,7 +2377,7 @@ const worker = {
         escalationFailed = r.escalationFailed;
         fallbackDecisions = r.fallbackDecisions;
       } else ({ results, escalationFailed } = await classifyMany(env, inputs, labels, tier, instructions, multi, meter, layaPlan, layaTiming, layaRun, backend, longContext));
-      if (meter.permit?.error && !(execution?.funded && meter.permit.error.code === "request_spending_limit")) throw meter.permit.error;
+      if (meter.permit?.error && !((execution?.funded || (tier === "smart" && escalationFailed > 0)) && meter.permit.error.code === "request_spending_limit")) throw meter.permit.error;
     } catch (e) {
       const spending = e instanceof SpendingError ? e : meter.permit?.error;
       if (spending) {
@@ -2457,7 +2456,7 @@ const worker = {
       return text(body + "\n", 200, headers);
     }
     if (req.method === "GET") {
-      return json({ ...results[0], tier, usage: tokenUsage, pricing }, 200, headers);
+      return json({ ...results[0], tier, usage: { ...tokenUsage, ...(escalationFailed ? { escalation_failed: escalationFailed } : {}) }, pricing }, 200, headers);
     }
     return json(
       {

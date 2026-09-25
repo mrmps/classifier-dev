@@ -143,8 +143,8 @@ test("global subsidy holds reject other IPs before provider work and settlement 
   await s.flush();
 });
 
-test("missing trusted identity, unpriced models, oversized payloads and expensive free work cannot reach a provider", async () => {
-  const s = setup(); const calls = providers();
+test("missing trusted identity, unpriced models, oversized payloads and underfunded free work cannot reach a provider", async () => {
+  const s = setup({ FREE_SMART_REQUEST_USD: "0.000001" }); const calls = providers();
   const cases = [
     new Request("https://classifier.dev/v1/classify", { method: "POST", body: JSON.stringify({ inputs: ["hi"], labels: ["a", "b"] }) }),
     request("203.0.113.1", "/v1/systemone", { model: "future-expensive-model", state: [], questions: {} }),
@@ -288,7 +288,9 @@ test("uncertain attempts consume allowance, retries cannot exceed a penny, and f
   expect((await worker.fetch(request(), s.env, s.ctx)).status).toBeGreaterThanOrEqual(400); await s.flush();
   expect(calls).toBeLessThanOrEqual(12);
   expect(calls).toBeGreaterThan(0);
-  expect((await worker.fetch(request(), s.env, s.ctx)).status).toBe(429);
+  const before = calls;
+  expect((await worker.fetch(request(), s.env, s.ctx)).status).toBe(402);
+  expect(calls).toBe(before);
 });
 
 test("funded HTTP classification skips Spur/free budget and bills the published input-token price", async () => {
@@ -384,6 +386,10 @@ test("skill APIs require the internal secret, including for paid and enterprise 
 
 test("budget errors teach agents when to retry and when to change the request", async () => {
   const s = setup({ FREE_DAILY_USD: '0.005' }); providers();
+  const stub = s.env.FREE_BUDGET.get(s.env.FREE_BUDGET.idFromName('free-spending'));
+  const reserved = await stub.fetch('https://budget/reserve', { method: 'POST', body: JSON.stringify({ ip: '203.0.113.2' }) });
+  const hold = await reserved.json() as { id: string; amount: number };
+  await stub.fetch('https://budget/settle', { method: 'POST', body: JSON.stringify({ id: hold.id, used: hold.amount }) });
   const response = await worker.fetch(request(), s.env, s.ctx);
   const error = await response.json() as Record<string, unknown>;
   expect(response.status).toBe(429);
@@ -406,14 +412,15 @@ test("a current paid subscription uses its paid allowance without a purchased to
 });
 
 test("funded requests accept work above the free request ceiling and concurrent keys share one balance", async () => {
-  const s = setup();
+  const s = setup({ FREE_SMART_REQUEST_USD: "0.000001" });
   const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
   await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
   await env.APP_DB.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
   const key = await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
   providers();
   const body = { inputs: ["invoice ".repeat(2000)], labels: ["billing", "support"], tier: "smart" };
-  expect((await worker.fetch(request(undefined, undefined, body), env, s.ctx)).status).toBe(402);
+  expect((await worker.fetch(request(undefined, undefined, body), env, s.ctx)).status).toBe(402); await s.flush();
+  const freeState = structuredClone([...s.stored]);
   const large = await accountClassification(request(undefined, undefined, body, { authorization: `Bearer ${key.secret}` }), env, "API", s.ctx);
   expect(large?.status).toBe(200); await s.flush();
   await env.APP_DB.prepare("UPDATE app_accounts SET balance=276,paid_balance=276,fractional_spend_nano=0 WHERE id='local-demo'").run();
@@ -430,7 +437,7 @@ test("funded requests accept work above the free request ceiling and concurrent 
   await s.flush();
   const balance = await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='local-demo'").first<{ balance: number }>();
   expect(Number(balance!.balance)).toBe(275);
-  expect(s.stored.size).toBe(0);
+  expect([...s.stored]).toEqual(freeState);
 });
 
 test.skipIf(process.env.LIVE_TOKEN_BILLING !== "true")("live TypeSafe inference settles the new funded HTTP path", async () => {
@@ -509,6 +516,10 @@ test("free admission denials are recorded as quota responses, never provider fai
   const points: { doubles: number[]; blobs: string[] }[] = [];
   const s = setup({ FREE_DAILY_USD: "0.005", AE: { writeDataPoint(point: { doubles: number[]; blobs: string[] }) { points.push(point); } } });
   providers();
+  const stub = s.env.FREE_BUDGET.get(s.env.FREE_BUDGET.idFromName('free-spending'));
+  const reserved = await stub.fetch('https://budget/reserve', { method: 'POST', body: JSON.stringify({ ip: '203.0.113.2' }) });
+  const hold = await reserved.json() as { id: string; amount: number };
+  await stub.fetch('https://budget/settle', { method: 'POST', body: JSON.stringify({ id: hold.id, used: hold.amount }) });
   const response = await worker.fetch(request(undefined, undefined, { inputs: Array(119).fill("Invoice"), labels: ["billing", "support"] }), s.env, s.ctx);
   expect(response.status).toBe(429);
   await s.flush();
@@ -533,9 +544,9 @@ test("a protected 119-item batch can recover from a Jev outage within its spendi
   await s.flush();
 });
 
-test("a Smart request that exhausts its permit records the final 402, not a successful classification", async () => {
+test("a Smart request that exhausts its review allowance returns and records its fast answer", async () => {
   const points: { blobs: string[] }[] = [];
-  const s = setup({ AE: { writeDataPoint(point: { blobs: string[] }) { points.push(point); } } });
+  const s = setup({ FREE_SMART_REQUEST_USD: "0.01", AE: { writeDataPoint(point: { blobs: string[] }) { points.push(point); } } });
   providers(); const primary = globalThis.fetch;
   globalThis.fetch = (async (url, init) => {
     const response = await primary(url, init);
@@ -546,10 +557,12 @@ test("a Smart request that exhausts its permit records the final 402, not a succ
     return Response.json(body);
   }) as typeof fetch;
   const response = await worker.fetch(request(undefined, undefined, { input: "Invoice", labels: ["billing", "support"], tier: "smart" }), s.env, s.ctx);
-  expect(response.status).toBe(402);
+  expect(response.status).toBe(200);
+  const body = await response.json() as { usage: { escalation_failed: number } };
+  expect(body.usage.escalation_failed).toBe(1);
   await s.flush();
-  expect(points.filter(p => p.blobs[3] === "200")).toHaveLength(0);
-  expect(points.some(p => p.blobs[3] === "402" && p.blobs.includes("request_spending_limit"))).toBe(true);
+  expect(points.some(p => p.blobs[3] === "200")).toBe(true);
+  expect(points.some(p => p.blobs[3] === "402" && p.blobs.includes("request_spending_limit"))).toBe(false);
 });
 
 test("paid requests can overdraw once, settle delivered results, and resume only after funding", async () => {
