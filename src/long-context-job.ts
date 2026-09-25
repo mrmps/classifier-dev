@@ -251,7 +251,7 @@ export class LongContextJob implements DurableObject {
       let eligible = 0;
       for (let i = 0; i < chunks.length; i++) {
         const result = screening[i];
-        if (result.label === "irrelevant" && result.confidence >= IRRELEVANT_CONFIDENCE &&
+        if (result.label === "irrelevant" && result.confidence !== null && result.confidence >= IRRELEVANT_CONFIDENCE &&
           result.scores.irrelevant >= IRRELEVANT_CONFIDENCE) continue;
         eligible++;
         candidates.push({ index: job.chunkIndexes[document as number] + i, text: chunks[i],

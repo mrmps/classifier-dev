@@ -159,7 +159,7 @@ export async function runLaya(env: LayaEnv, keys: JevKeys, plan: LayaPlan, meter
   for (const { value: index, model, answers } of answered) {
     const task = plan.tasks[index];
     const id = `i${index}`;
-    let scores: Record<string, number>, label: string, confidence: number;
+    let scores: Record<string, number>, label: string, confidence: number | null;
     if (task.multi) {
       scores = {};
       task.labels.forEach((name, i) => {
@@ -170,7 +170,8 @@ export async function runLaya(env: LayaEnv, keys: JevKeys, plan: LayaPlan, meter
         Object.defineProperty(scores, name, { value: Number(value.toFixed(4)), enumerable: true, writable: true, configurable: true });
       });
       label = task.labels.reduce((a, b) => (scores[a] >= scores[b] ? a : b));
-      confidence = scores[label];
+      // Per-label nouls have no comparable choice confidence; see JevResult.
+      confidence = null;
     } else {
       const answer = answers[id];
       const ok = answer && task.labels.includes(answer.choice ?? "") &&

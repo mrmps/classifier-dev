@@ -197,7 +197,7 @@ export async function classifyLongContext(
   let missingEvidence = false;
   for (const document of documents) {
     const eligible = document.map((text, index) => ({ text, index, result: screened[offset + index] }))
-      .filter(({ result }) => !(result.label === "irrelevant" && result.confidence >= IRRELEVANT_CONFIDENCE && result.scores.irrelevant >= IRRELEVANT_CONFIDENCE))
+      .filter(({ result }) => !(result.label === "irrelevant" && result.confidence !== null && result.confidence >= IRRELEVANT_CONFIDENCE && result.scores.irrelevant >= IRRELEVANT_CONFIDENCE))
       .sort((a, b) => b.result.scores.relevant - a.result.scores.relevant || a.index - b.index);
     offset += document.length;
     stats.eligibleChunks += eligible.length;

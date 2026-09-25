@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { record } from "../src/index";
+import { countUncertain, record } from "../src/index";
 import type { Env } from "../src/index";
 
 const IP = "203.0.113.47";
@@ -56,5 +56,22 @@ describe("what a request leaves behind", () => {
     expect(s.points[0].blobs[2]).toBe("US");
     expect(s.points[0].blobs[3]).toBe("200");
     expect(s.points[0].blobs[5]).toBe("jev-1.13.0");
+  });
+});
+
+/**
+ * The digest's "uncertain" column mixes scales unless it stays on the one
+ * scale ESCALATE_BELOW was tuned for: choice confidence. A null confidence
+ * means "no comparable estimate" — a multi-label answer whose nouls are all
+ * near zero is a confident "none apply", not an uncertain answer.
+ */
+describe("the uncertain counter", () => {
+  test("counts low choice confidence and escalations, never the absence of an estimate", () => {
+    expect(countUncertain([
+      { confidence: 0.95 },                      // confident choice
+      { confidence: 0.4 },                       // uncertain choice
+      { confidence: null, escalated: true },     // was uncertain, re-asked
+      { confidence: null },                      // multi-label or unscored fallback: no comparable estimate
+    ])).toBe(2);
   });
 });
