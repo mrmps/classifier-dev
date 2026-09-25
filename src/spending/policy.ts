@@ -8,6 +8,7 @@ export interface SpendingEnv extends PrivacyEnv {
   OPERATOR_DAILY_USD?: string;
   FREE_IP_DAILY_USD?: string;
   FREE_REQUEST_USD?: string;
+  FREE_SMART_REQUEST_USD?: string;
   FREE_IP_CONCURRENCY?: string;
   FREE_CONCURRENCY?: string;
   PAID_REQUEST_USD?: string;
@@ -26,7 +27,8 @@ export function setting(value: string | undefined, fallback: number): number {
 export const nano = (usd: number) => Math.ceil(usd * 1e9);
 export function policy(env: SpendingEnv) {
   return {
-    request: nano(setting(env.FREE_REQUEST_USD, 0.01)),
+    fastRequest: nano(setting(env.FREE_REQUEST_USD, 0.01)),
+    smartRequest: nano(setting(env.FREE_SMART_REQUEST_USD, 0.10)),
     ipDaily: nano(setting(env.FREE_IP_DAILY_USD, 0.5)),
     daily: nano(setting(env.FREE_DAILY_USD, 100)),
     operatorDaily: nano(setting(env.OPERATOR_DAILY_USD, 2)),

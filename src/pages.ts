@@ -523,10 +523,12 @@ FREE
   request are 1,000 classifications. Multi-label counts once per text, not per
   label.
 
-  Free provider spending is capped at $0.01 per request, $0.50 per IP network
-  per UTC day and $100 across everyone per UTC day. Up to four free requests
-  may run at once per IP; IPv6 addresses share a /64 allowance. Smart requests
-  must fit the same allowance. Large inputs or batches need a funded key.
+  Free provider spending is capped at $0.01 per Fast request, $0.10 per Smart
+  request, $0.50 per IP network per UTC day and $100 across everyone per UTC
+  day. Up to four free requests may run at once per IP; IPv6 addresses share
+  a /64 allowance. If Smart reviews reach the request cap, fast answers
+  remain and usage.escalation_failed counts missed reviews. Large inputs or
+  batches need a funded key.
   Free access pauses when the shared pool or verification capacity is spent;
   anonymous proxy networks require a funded key. Signup credit uses these
   same free limits. Synchronous request bodies are limited to 1 MB;

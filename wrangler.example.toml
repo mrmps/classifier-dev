@@ -71,6 +71,7 @@ FREE_DAILY_USD = "100"
 FREE_IP_DAILY_USD = "0.50"
 OPERATOR_DAILY_USD = "2"
 FREE_REQUEST_USD = "0.01"
+FREE_SMART_REQUEST_USD = "0.10"
 FREE_IP_CONCURRENCY = "4"
 FREE_CONCURRENCY = "128"
 # One shared budget follows an anonymous label set across rotating callers.

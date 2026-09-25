@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const report = { runtime: 'workerd + SQLite Durable Objects', upstream: 'deterministic HTTP provider fixtures; no live inference', results: [] };
 await mkdir('captures', { recursive: true });
 
-let calls = 0, lookups = 0, release, jevUnavailable = false;
+let calls = 0, lookups = 0, release, jevUnavailable = false, expensiveSmart = false;
 let barrier = Promise.resolve();
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => /\.(js|wasm)$/.test(p)).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: p.endsWith('.wasm') ? 'CompiledWasm' : 'ESModule', path: `dist/server/${p}` }));
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending", modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
@@ -16,7 +16,7 @@ const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: "spending
     calls++; await barrier;
     const body = await request.json();
     if (jevUnavailable && request.url.includes('typesafe.ai')) return WorkerResponse.json({ detail: { error_type: 'insufficient_credits' } }, { status: 402 });
-    if (request.url.includes('openrouter.ai')) return WorkerResponse.json({ model: body.model, usage: { cost: jevUnavailable ? 0.000001812 : 0.0007125, prompt_tokens: jevUnavailable ? 100 : 200, completion_tokens: jevUnavailable ? 1 : 150, prompt_tokens_details: { cached_tokens: 0 } }, choices: [{ message: { content: 'A' } }] });
+    if (request.url.includes('openrouter.ai')) return WorkerResponse.json({ model: body.model, usage: { cost: expensiveSmart ? 0.0072 : jevUnavailable ? 0.000001812 : 0.0007125, prompt_tokens: jevUnavailable ? 100 : 200, completion_tokens: expensiveSmart ? 1900 : jevUnavailable ? 1 : 150, prompt_tokens_details: { cached_tokens: 0 } }, choices: [{ message: { content: 'A' } }] });
     const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => { const keys = Object.keys(q.criteria); return [id, { choice: keys[0], confidence: 0.51, probabilities: Object.fromEntries(keys.map((k, i) => [k, i ? 0.49 : 0.51])) }]; }));
     return WorkerResponse.json({ model: 'jev-1.13.0', usage: { input_tokens: 100, output_tokens: 0 }, answers });
   },
@@ -91,6 +91,32 @@ try {
   assert.equal(smart.status, 200); const result = await smart.json();
   assert.ok(JSON.stringify(result).includes('gemini'));
   report.results.push({ name: 'free smart escalation', status: smart.status, model: 'google/gemini-3.8-flash' });
+  const longSmartBody = { inputs: ['Invoice question '.repeat(380)], labels: ['billing', 'support'], tier: 'smart' };
+  const longSmart = await request('203.0.113.6', longSmartBody);
+  assert.equal(longSmart.status, 200, await longSmart.text());
+  report.results.push({ name: 'free smart request beyond former JSON cutoff', bodyBytes: Buffer.byteLength(JSON.stringify(longSmartBody)), status: longSmart.status });
+  const smartGetUrl = new URL('https://classifier.dev/');
+  smartGetUrl.searchParams.set('labels', 'billing,support');
+  smartGetUrl.searchParams.set('text', longSmartBody.inputs[0]);
+  smartGetUrl.searchParams.set('tier', 'SMART');
+  const smartGet = await mf.dispatchFetch(smartGetUrl, { headers: { 'cf-connecting-ip': '203.0.113.8', accept: 'application/json' } });
+  assert.equal(smartGet.status, 200, await smartGet.clone().text());
+  const smartGetBody = await smartGet.json();
+  assert.equal(smartGetBody.tier, 'smart');
+  assert.equal(smartGetBody.escalated, true);
+  report.results.push({ name: 'free smart GET uses the same provider ceiling', status: smartGet.status });
+  expensiveSmart = true;
+  const partial = await request('203.0.113.7', { inputs: Array(20).fill('Invoice question'), labels: ['billing', 'support'], tier: 'smart' });
+  const partialBody = await partial.json();
+  assert.equal(partial.status, 200, JSON.stringify(partialBody));
+  assert.equal(partialBody.results.length, 20);
+  assert.ok(partialBody.usage.escalated > 0);
+  assert.ok(partialBody.usage.escalation_failed > 0);
+  assert.equal(partialBody.usage.escalated + partialBody.usage.escalation_failed, 20);
+  assert.equal(partialBody.results.filter(result => result.confidence !== null).length, partialBody.usage.escalation_failed);
+  expensiveSmart = false;
+  report.results.push({ name: 'smart reviews stop at provider ceiling and retain fast answers', status: partial.status,
+    escalated: partialBody.usage.escalated, escalationFailed: partialBody.usage.escalation_failed });
   for (const path of ['/%76%31/skills', '/skills', '/v1/skills']) {
     assert.equal((await request('203.0.113.3', {}, path)).status, 404);
   }
@@ -137,6 +163,25 @@ try {
     decisionsAccepted: 200, providerCalls: afterLabels - beforeLabels, dimensionStatus: dimensionDenied.status, sdkStatus: sdkDenied.status, registry: storedLabels });
   const budgets = await mf.getDurableObjectNamespace('FREE_BUDGET', 'spending');
   const publicBudget = budgets.get(budgets.idFromName('free-spending'));
+  for (const [tier, amount, ip] of [['fast', 10_000_000, '203.0.113.90'], ['smart', 100_000_000, '203.0.113.91']]) {
+    const reservation = await publicBudget.fetch('https://budget/reserve', { method: 'POST', body: JSON.stringify({ ip, tier }) });
+    assert.equal(reservation.status, 200);
+    const hold = await reservation.json();
+    assert.equal(hold.amount, amount);
+    assert.equal((await publicBudget.fetch('https://budget/settle', { method: 'POST', body: JSON.stringify({ id: hold.id, used: 0 }) })).status, 200);
+  }
+  report.results.push({ name: 'free request provider ceilings', fastUsd: 0.01, smartUsd: 0.10 });
+  for (const [tier, count] of [['smart', 4], ['fast', 5]]) {
+    for (let i = 0; i < count; i++) {
+      const reservation = await publicBudget.fetch('https://budget/reserve', { method: 'POST', body: JSON.stringify({ ip: '203.0.113.88', tier }) });
+      assert.equal(reservation.status, 200);
+      const hold = await reservation.json();
+      assert.equal((await publicBudget.fetch('https://budget/settle', { method: 'POST', body: JSON.stringify({ id: hold.id, used: hold.amount }) })).status, 200);
+    }
+  }
+  const remainingSmart = await request('203.0.113.88', longSmartBody);
+  assert.equal(remainingSmart.status, 200, await remainingSmart.text());
+  report.results.push({ name: 'remaining daily allowance funds a smaller smart reservation', spentBeforeUsd: 0.45, status: remainingSmart.status });
   for (let i = 0; i < 50; i++) {
     const reserved = await publicBudget.fetch('https://budget/reserve', { method: 'POST', body: JSON.stringify({ ip: '203.0.113.99' }) });
     assert.equal(reserved.status, 200);
@@ -150,6 +195,11 @@ try {
   assert.equal(operator.status, 200, 'operator has its own allowance after anonymous exhaustion');
   await operator.arrayBuffer();
   await new Promise(r => setTimeout(r, 100));
+  const operatorBudget = budgets.get(budgets.idFromName('operator-spending'));
+  const operatorRemainder = await operatorBudget.fetch('https://budget/reserve', { method: 'POST', body: JSON.stringify({ ip: '203.0.113.99', operator: true }) });
+  assert.equal(operatorRemainder.status, 200);
+  const operatorHold = await operatorRemainder.json();
+  assert.equal((await operatorBudget.fetch('https://budget/settle', { method: 'POST', body: JSON.stringify({ id: operatorHold.id, used: operatorHold.amount }) })).status, 200);
   const operatorExhausted = await request('203.0.113.100', undefined, undefined, { authorization: 'Bearer operator-fixture' });
   assert.equal(operatorExhausted.status, 429);
   assert.equal((await operatorExhausted.json()).code, 'operator_daily_budget');

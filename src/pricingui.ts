@@ -3,9 +3,11 @@ import { FOOT, HOME_CSS, META, NAV } from "./home";
 import { BILLING_PLANS, formatCreditsUsd } from "./lib/billing";
 import { INPUT_PRICE_PER_MILLION, ESCALATION_PRICE_PER_THOUSAND, LONG_CONTEXT_PRICING } from "./lib/classification-pricing";
 import { LONG_CONTEXT_JOB_MAX_TOKENS } from "./long-context";
+import { policy } from "./spending/policy";
 import { esc, page } from "./ui";
 
 const feature = (text: string) => `<li>${esc(text)}</li>`;
+const freeLimits = policy({});
 
 export function pricingHtml(signedIn = false) {
   const pro = BILLING_PLANS.pro;
@@ -87,7 +89,7 @@ export function pricingHtml(signedIn = false) {
       <tr><th scope="row">Pro</th><td>30,000/min · 200,000/day</td><td>2,000/min · 20,000/day</td></tr>
     </tbody></table></div>
     <p class="pricing-note">Limits count classifications and are shared across workspace keys and agents. Public access is limited per IP. Laya trial limits apply to every plan.</p>
-    <p>Free access shares daily capacity and allows four requests at once per IP. A funded workspace has its own allowance and supports larger Smart requests. Signup credit alone uses the free limits.</p>
+    <p>Free access allows up to $${(freeLimits.fastRequest / 1e9).toFixed(2)} of provider cost per Fast request or $${(freeLimits.smartRequest / 1e9).toFixed(2)} per Smart request, with $${(freeLimits.ipDaily / 1e9).toFixed(2)} per IP per UTC day and four requests at once. Smart reviews beyond the request cap retain their Fast answers. A funded workspace has its own allowance and supports larger Smart requests. Signup credit alone uses the free limits.</p>
     <p class="pricing-note">See <a href="/developers">request limits and retry guidance</a>. Usage is reserved before a request and unused funds are released afterward. Anonymous proxy networks require a funded key.</p>
   </section>
   ${FOOT}
