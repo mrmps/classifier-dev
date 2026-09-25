@@ -19,6 +19,31 @@ export async function accountMcp(
   )
     return null;
   await requireApiAccount(request, env);
+  const { accountMarket } = await import("./market");
+  const marketFn = async (body: Record<string, unknown>, original: Request) => {
+    try {
+      const response = await accountMarket(
+        new Request(new URL("/v1/market/compare", request.url), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: original.headers.get("authorization") || "",
+            "cf-connecting-ip": request.headers.get("cf-connecting-ip") || "",
+          },
+          body: JSON.stringify(body),
+        }),
+        env,
+        ctx ?? ({ waitUntil() {} } as unknown as ExecutionContext),
+      );
+      if (!response) return { status: 401, body: { error: "Missing credential." } };
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+    } catch (error) {
+      return {
+        status: error instanceof AppError ? error.status : 500,
+        body: { error: error instanceof AppError ? error.message : "Unable to complete this request." },
+      };
+    }
+  };
   return handleMcp(
     request,
     productServer(async (body, original) => {
@@ -55,6 +80,6 @@ export async function accountMcp(
           },
         };
       }
-    }),
+    }, marketFn),
   );
 }
