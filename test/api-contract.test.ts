@@ -13,6 +13,7 @@ import worker from "../src/index";
 import type { Env } from "../src/index";
 import { ERROR_CODES, OPENAPI, UPSTREAM_CODE_PATTERN } from "../src/openapi";
 import { accountReadRoutes } from "../src/http/account";
+import { accountMarket } from "../src/http/market";
 import type { AppEnv } from "../src/server/db";
 
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
@@ -302,6 +303,15 @@ describe("openapi.json", () => {
           continue;
         }
         if (route.startsWith("/v1/long-context/jobs/")) {
+          expect((methods[method] as { security: unknown }).security).toEqual([{ accountKey: [] }]);
+          continue;
+        }
+        // Market is claimed by the account layer and fails closed without its
+        // corpus database configured.
+        if (route === "/v1/market/compare") {
+          await expect(accountMarket(new Request(`https://classifier.dev${route}`, {
+            method: "POST", headers: { authorization: "Bearer classifier_agent_x" },
+          }), {} as never, ctx)).rejects.toMatchObject({ status: 503 });
           expect((methods[method] as { security: unknown }).security).toEqual([{ accountKey: [] }]);
           continue;
         }

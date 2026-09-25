@@ -328,6 +328,45 @@ TEN-MILLION-TOKEN JOBS
   available until expiry. Signup credit alone does not enable this feature.
 
 
+MARKET
+
+  POST /v1/market/compare polls a simulated audience on which of 2-4 short
+  options it prefers: taglines, headlines, product descriptions, pricing
+  framings, feature choices. Requires an account API key; billed per token
+  like classification.
+
+    {"audience": "US public school teachers",
+     "options": [{"id": "summer", "content": "..."},
+                 {"id": "raise", "content": "..."}],
+     "decision": "Which employment offer would you choose?",
+     "population": 150}
+
+  The audience is plain English. It resolves against a 285,000-persona corpus
+  derived from Nemotron-Personas-USA (CC BY 4.0, NVIDIA; census-grounded US
+  adults): hybrid keyword and vector retrieval shortlists candidates, one Jev
+  Score per candidate grades how squarely the person fits the audience, and a
+  seeded weighted sample fixes the panel. The same audience string and
+  population always poll the same simulated people, so repeated calls are
+  comparable experiments. The first call for an audience pays the membership
+  scoring (about $0.015 and 15 seconds at the default population); later
+  calls reuse the panel and answer in about a second.
+
+  Each panelist answers one Choice question with the options in shared
+  context. Answers are aggregated by probability mass — a panelist who would
+  pick A 70% of the time contributes 0.7 to A, not 1 — under the panelist's
+  membership weight. Option order is counterbalanced across the panel and the
+  share moved by order is reported as position_bias: treat a gap smaller than
+  the position bias as a tie. mean_certainty says how torn individual
+  panelists were, interval is a 95% band under the Kish effective sample
+  size, and segments splits the answer by age, sex, education, region and
+  marital status wherever at least 25 panelists share a value.
+
+  Market estimates relative preference between the options you supply. It
+  does not estimate conversion, purchase rates or market size, and the corpus
+  is the adult population of the United States, so audiences outside it are
+  refused rather than approximated.
+
+
 LEGACY CHUNKLAYA
 
   Explicit model: "chunklaya" keeps the legacy opt-in service, Laya behind a

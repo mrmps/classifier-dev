@@ -121,7 +121,7 @@ function classifyOrError(status: number, body: Record<string, unknown>): ToolRes
 
 type Row = { label?: string; labels?: string[]; confidence?: number | null; scores?: Record<string, number> | null };
 
-export function productServer(classify: ClassifyFn): McpServer {
+export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpServer {
   const urlProperties = {
     url: { type: "string", pattern: "^https?://", maxLength: 8192, description: "Scrape one public URL instead of inputs/items. Requires funded workspace access. Context.dev costs $0.0022 per billed attempt plus classification; long articles need Fast. Errors disclose retained charges. No automatic scrape retries." },
     include: { type: "array", items: { type: "string", enum: ["markdown", "html"] }, description: "With url: return article.markdown and/or article.html at no extra scrape cost. Omit for compact output." },
@@ -394,6 +394,57 @@ export function productServer(classify: ClassifyFn): McpServer {
       },
     },
   ];
+  if (market) tools.push({
+    name: "compare_market_preference",
+    title: "Ask a simulated audience which option it prefers",
+    description:
+      "Poll a panel of simulated US people (drawn from a 285k-persona census-grounded corpus) on which of 2-4 short options they prefer: " +
+      "taglines, headlines, product descriptions, pricing framings, feature choices, email subjects. " +
+      "Describe the audience in plain English; the same audience string always polls the same panel, so repeated calls are comparable A/B/n tests. " +
+      "Returns weighted preference shares with confidence intervals, per-segment splits (age, sex, education, region, marital), " +
+      "a position_bias diagnostic (how much option order moved answers; treat close results with high bias as ties), and mean_certainty " +
+      "(how torn individual panelists were). This estimates relative preference between options, not absolute conversion or purchase rates. " +
+      "A new audience costs ~$0.015 and ~15s to resolve; a cached audience answers in ~1s for ~$0.001-0.01 depending on population.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        audience: { type: "string", maxLength: 400, description: "Who should judge, in plain English: \"US public school teachers\", \"software developers who buy their own tools\", \"parents of young children in the suburbs\"." },
+        options: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", properties: { id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,32}$" }, content: { type: "string", maxLength: 2000 } }, required: ["content"], additionalProperties: false }, description: "The alternatives to compare, each at most 2,000 characters." },
+        decision: { type: "string", maxLength: 500, description: "The question each panelist answers. Defaults to which option they find more appealing." },
+        population: { type: "integer", minimum: 50, maximum: 2000, default: 500, description: "Panel size. 150-500 suits iteration; use more for final calls." },
+      },
+      required: ["audience", "options"],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        preference: { type: "object", additionalProperties: { type: "number" }, description: "Weighted share per option id; sums to 1." },
+        interval: { type: "object", additionalProperties: { type: "array", items: { type: "number" } }, description: "95% interval per option under the Kish effective sample size." },
+        position_bias: { type: ["number", "null"], description: "Share moved by option order. A gap smaller than this is a tie." },
+        mean_certainty: { type: "number", description: "0.5 = individual panelists torn, 1 = individually certain." },
+        segments: { type: "array", items: { type: "object", properties: { attribute: { type: "string" }, value: { type: "string" }, n: { type: "integer" }, preference: { type: "object", additionalProperties: { type: "number" } } } }, description: "Largest demographic splits, at least 25 panelists each." },
+        answered: { type: "integer" },
+        candidates: { type: "integer", description: "Corpus personas that resembled the audience before membership scoring." },
+        pricing: { type: "object" },
+      },
+      required: ["preference"],
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    async run(a, ctx) {
+      const r = await market(a, ctx.req);
+      if (r.status !== 200) return { text: JSON.stringify(r.body), structured: r.body, isError: true };
+      const d = r.body as { preference?: Record<string, number>; position_bias?: number | null; mean_certainty?: number; segments?: { attribute: string; value: string; n: number; preference: Record<string, number> }[] };
+      const shares = Object.entries(d.preference ?? {}).sort((p, q) => q[1] - p[1]);
+      const lines = shares.map(([id, share]) => `${(share * 100).toFixed(1)}%\t${id}`);
+      lines.push(`position bias ${d.position_bias == null ? "n/a" : (d.position_bias * 100).toFixed(1) + "%"}, mean certainty ${((d.mean_certainty ?? 0) * 100).toFixed(0)}%`);
+      for (const seg of (d.segments ?? []).slice(0, 4)) {
+        const top = Object.entries(seg.preference).sort((p, q) => q[1] - p[1])[0];
+        lines.push(`${seg.attribute}=${seg.value} (n=${seg.n}): ${top[0]} ${(top[1] * 100).toFixed(0)}%`);
+      }
+      return { text: lines.join("\n"), structured: r.body };
+    },
+  });
 
   return {
     name: "classifier.dev",
