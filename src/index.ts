@@ -875,6 +875,17 @@ type Result = {
   escalated?: true;
 };
 
+/**
+ * Uncertainty is only measurable on the choice-confidence scale: an escalated
+ * answer was below ESCALATE_BELOW before it was re-asked, and a null
+ * confidence means "no comparable estimate" (multi-label, unscored fallback),
+ * not "uncertain" — a multi-label answer with every noul near zero is a
+ * confident "none apply".
+ */
+export function countUncertain(results: readonly Pick<Result, "confidence" | "escalated">[]) {
+  return results.filter((r) => r.escalated || (r.confidence !== null && r.confidence < ESCALATE_BELOW)).length;
+}
+
 export function summarizeModels(results: readonly { model: string }[]) {
   const modelsUsed = [...new Set(results.map((result) => result.model).filter(Boolean))];
   return {
@@ -2410,7 +2421,7 @@ const worker = {
       model: modelSummary.modelsUsed.join(","), meter, usd: meter.usd,
       reason: "", agent, attempted: inputs.length, escalationFailed, mode,
       dimensions: dimensions?.length ?? 1,
-      uncertain: results.filter((r) => r.confidence === null || r.confidence < ESCALATE_BELOW).length,
+      uncertain: countUncertain(results),
       fallbackDecisions,
     });
 

@@ -112,6 +112,8 @@ describe("a batch Jev refuses as too large", () => {
     const out = await jevClassify({ typesafe: "key" }, ["a", "b", "c", "d"], labels, undefined, true);
     expect(out).toHaveLength(4);
     out.forEach((r) => expect(r.scores).toEqual({ bug: 0.9, feature: 0.9, praise: 0.9 }));
+    // Per-label nouls have no comparable choice confidence, so none is published.
+    out.forEach((r) => expect(r.confidence).toBeNull());
   });
 
   test("recognizes TypeSafe's live nested error and splits instead of failing the batch", async () => {
@@ -233,6 +235,96 @@ describe("a batch Jev refuses as too large", () => {
 });
 
 /**
+ * Score is Jev's third primitive: ordered levels, a fractional position and a
+ * probability per level. Nothing in classification asks one yet, but jevAsk
+ * callers can, and the protocol layer must match TypeSafe's API 1-1 so a
+ * validated answer means the same thing whichever door answered.
+ */
+describe("score questions", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    resetGatewayPause();
+  });
+
+  const severity: Record<string, Question> = {
+    severity: {
+      type: "score",
+      instructions: "How severe is the issue in `s1`?",
+      criteria: ["cosmetic", "degraded but has a workaround", "blocking"],
+    },
+  };
+  const state = [{ id: "s1", text: "The export button crashes the settings page in Safari." }];
+
+  test("rides to TypeSafe unchanged and the validated answer comes back raw", async () => {
+    const calls: RequestInit[] = [];
+    globalThis.fetch = (async (_url, init) => {
+      calls.push(init!);
+      return Response.json({
+        model: "jev-1.13.0",
+        answers: { severity: { type: "score", score: 1.43, confidence: 0.35, legend: { "0": "cosmetic", "1": "degraded but has a workaround", "2": "blocking" }, probabilities: { "0": 0, "1": 0.57, "2": 0.43 } } },
+        usage: { input_tokens: 120 },
+      });
+    }) as typeof fetch;
+    const { model, answers } = await jevAsk({ typesafe: "key" }, state, severity);
+    const body = JSON.parse(String(calls[0].body)) as { questions: Record<string, Question> };
+    expect(body.questions.severity).toEqual(severity.severity);
+    expect(model).toBe("jev-1.13.0");
+    expect(answers.severity).toMatchObject({ score: 1.43, confidence: 0.35, probabilities: { "0": 0, "1": 0.57, "2": 0.43 }, legend: { "0": "cosmetic", "1": "degraded but has a workaround", "2": "blocking" } });
+  });
+
+  test("an answer missing a level's probability is malformed", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json({ model: "jev-test", answers: { severity: { type: "score", score: 1.4, confidence: 0.4, probabilities: { "0": 0.6, "1": 0.4 } } } });
+    }) as typeof fetch;
+    await expect(jevAsk({ typesafe: "key" }, state, severity)).rejects.toThrow(/malformed response/);
+    expect(calls).toBe(3);
+  });
+
+  test("a score outside the levels is malformed", async () => {
+    globalThis.fetch = (async () => Response.json({
+      model: "jev-test",
+      answers: { severity: { type: "score", score: 3.2, confidence: 0.4, probabilities: { "0": 0, "1": 0, "2": 1 } } },
+    })) as typeof fetch;
+    await expect(jevAsk({ typesafe: "key" }, state, severity)).rejects.toThrow(/malformed response/);
+  });
+
+  test("is a score at the gateway too, and the metadata confidence rides back", async () => {
+    const calls: { door: string; init: RequestInit }[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ door: String(url).includes("ai-gateway.vercel.sh") ? "gateway" : "typesafe", init: init! });
+      return Response.json({
+        answers: { severity: { type: "score", score: 1.43, probabilities: { "0": 0, "1": 0.57, "2": 0.43 } } },
+        usage: { inputTokens: 90 },
+        providerMetadata: { typesafe: { confidence: { severity: 0.35 } }, gateway: { cost: "0" } },
+      });
+    }) as typeof fetch;
+    const { model, answers } = await jevAsk({ typesafe: "ts", gateway: "vck" }, state, severity);
+    expect(calls.map((c) => c.door)).toEqual(["gateway"]);
+    const body = JSON.parse(String(calls[0].init.body)) as { questions: Record<string, { type: string; criteria: unknown }> };
+    // The evaluation-model spec names it score and takes the same ordered array.
+    expect(body.questions.severity.type).toBe("score");
+    expect(body.questions.severity.criteria).toEqual(["cosmetic", "degraded but has a workaround", "blocking"]);
+    expect(model).toBe("jev@vercel");
+    expect(answers.severity).toEqual({ score: 1.43, confidence: 0.35, probabilities: { "0": 0, "1": 0.57, "2": 0.43 } });
+  });
+
+  test("a gateway score without a metadata confidence falls back to the top level's probability", async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      if (!String(url).includes("ai-gateway.vercel.sh")) throw new Error("unexpected door");
+      return Response.json({
+        answers: { severity: { type: "score", score: 1.43, probabilities: { "0": 0, "1": 0.57, "2": 0.43 } } },
+        usage: { inputTokens: 90 },
+      });
+    }) as typeof fetch;
+    const { answers } = await jevAsk({ gateway: "vck" }, state, severity);
+    expect(answers.severity!.confidence).toBe(0.57);
+  });
+});
+
+/**
  * Vercel's AI Gateway serves Jev on a free credit, with the free tier's rate
  * limits on top. It goes first when its key is set; whatever it drops goes to
  * TypeSafe in the same request, and after a refusal it is left alone for a
@@ -309,6 +401,7 @@ describe("Jev through the AI Gateway", () => {
     expect(Object.values(body.questions).some((q) => q.instructions.includes("meaningfully touches"))).toBe(false);
     expect(r.scores).toEqual({ bug: 0.91, feature: 0.2, praise: 0.05 });
     expect(r.label).toBe("bug");
+    expect(r.confidence).toBeNull();
     // No charge reported: metered at Jev's own rate rather than as free.
     expect(meter.usd).toBeCloseTo((50 * 0.042) / 1e6, 12);
   });

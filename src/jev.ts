@@ -216,7 +216,13 @@ export const MULTI_THRESHOLD = 0.7;
 
 export type JevResult = {
   label: string;
-  confidence: number;
+  /**
+   * The choice confidence, or null when no comparable estimate exists: the
+   * per-label nouls behind a multi-label answer are absolute yes/no
+   * probabilities, not distribution concentration, so their maximum must not
+   * be published under this name (see Confidence in CONTEXT.md).
+   */
+  confidence: number | null;
   /** Probability per label; sums to 1 for single-label, independent per label for multi. */
   scores: Record<string, number>;
   model: string;
@@ -224,7 +230,9 @@ export type JevResult = {
 
 export type Question =
   | { type: "choice"; instructions: string; criteria: Record<string, null> }
-  | { type: "noul"; instructions: string };
+  | { type: "noul"; instructions: string }
+  /** Ordered level descriptions, lowest first; the answer is a fractional position across them. The API takes 2 to 10 levels. */
+  | { type: "score"; instructions: string; criteria: string[] };
 
 type JevState = { id: string; text: string; rubric?: string };
 type JevBody = { state: JevState[]; model: string; questions: Record<string, Question> };
@@ -245,6 +253,15 @@ function safeErrorType(value: unknown) {
 function validAnswer(answer: unknown, question: Question): boolean {
   if (!isRecord(answer)) return false;
   if (question.type === "noul") return isProbability(answer.noul);
+  if (question.type === "score") {
+    if (typeof answer.score !== "number" || !Number.isFinite(answer.score)) return false;
+    if (answer.score < 0 || answer.score > question.criteria.length - 1) return false;
+    if (!isProbability(answer.confidence) || !isRecord(answer.probabilities)) return false;
+    const probabilities = answer.probabilities;
+    return question.criteria.every(
+      (_, level) => Object.prototype.hasOwnProperty.call(probabilities, String(level)) && isProbability(probabilities[String(level)]),
+    );
+  }
   if (typeof answer.choice !== "string" || !isProbability(answer.confidence) || !isRecord(answer.probabilities)) return false;
   const probabilities = answer.probabilities;
   if (!Object.prototype.hasOwnProperty.call(question.criteria, answer.choice)) return false;
@@ -253,7 +270,8 @@ function validAnswer(answer: unknown, question: Question): boolean {
   );
 }
 
-export type JevAnswer = { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number };
+/** `legend` arrives from TypeSafe only; the gateway's score answers carry none, and callers know the levels they asked with. */
+export type JevAnswer = { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number; score?: number; legend?: Record<string, string> };
 type JevPayload = { model: string; answers: Record<string, JevAnswer>; usage?: { input_tokens?: unknown; output_tokens?: unknown } };
 
 function validPayload(payload: unknown, body: JevBody): payload is JevPayload {
@@ -300,7 +318,9 @@ function stateCost(state: JevQuestionGroup<unknown>["state"]) {
 }
 
 function questionCost(question: Question) {
-  return est(JSON.stringify(question)) + 16 * (question.type === "choice" ? Object.keys(question.criteria).length : 0) + 40;
+  // The answer echoes a probability per option or per level; a noul is one number.
+  const options = question.type === "choice" ? Object.keys(question.criteria).length : question.type === "score" ? question.criteria.length : 0;
+  return est(JSON.stringify(question)) + 16 * options + 40;
 }
 
 function batchFrom<T>(groups: JevQuestionGroup<T>[]): JevBatch<T> {
@@ -365,11 +385,14 @@ export function prepareJevBatches<T>(groups: JevQuestionGroup<T>[], options: { r
   return batches;
 }
 
-/** Jev's questions in the gateway's vocabulary: a yes/no is a `boolean` there, and a choice is a choice. */
+/**
+ * Jev's questions in the gateway's vocabulary: a yes/no is a `boolean` there;
+ * choice and score keep their names and shapes (evaluation-model spec v4 —
+ * `EvaluationModelV4Question` in vercel/ai — takes score criteria as the same
+ * ordered array, and the gateway's Jev declares all three types supported).
+ */
 function gatewayQuestion(q: Question) {
-  return q.type === "noul"
-    ? { type: "boolean", instructions: q.instructions }
-    : { type: "choice", instructions: q.instructions, criteria: q.criteria };
+  return q.type === "noul" ? { type: "boolean", instructions: q.instructions } : q;
 }
 
 /**
@@ -394,6 +417,12 @@ function fromGateway(payload: unknown): (JevPayload & { cost?: unknown }) | null
       const probabilities = isRecord(a.probabilities) ? (a.probabilities as Record<string, number>) : undefined;
       const own = typeof a.choice === "string" ? probabilities?.[a.choice] : undefined;
       answers[id] = { choice: a.choice as string, confidence: isProbability(confidence[id]) ? confidence[id] : (own as number), probabilities };
+    } else if (a.type === "score") {
+      // No legend on the gateway's score answers; the stand-in confidence is
+      // the top level's probability, the analogue of a choice's winning option.
+      const probabilities = isRecord(a.probabilities) ? (a.probabilities as Record<string, number>) : undefined;
+      const own = probabilities ? Math.max(...Object.values(probabilities)) : undefined;
+      answers[id] = { score: a.score as number, confidence: isProbability(confidence[id]) ? confidence[id] : (own as number), probabilities };
     }
   }
   return { model: GATEWAY_MODEL_LABEL, answers, usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }, cost: gateway.cost };
@@ -726,7 +755,7 @@ export async function jevClassify(
         label, Number((answers[`${id}_${labelIndex}`]?.noul ?? 0).toFixed(4)),
       ]));
       const best = labels.reduce((a, label) => (scores[label] > scores[a] ? label : a), labels[0]);
-      return { label: best, confidence: scores[best], scores, model };
+      return { label: best, confidence: null, scores, model };
     }
     const answer = answers[id];
     const scores = Object.fromEntries(labels.map((label) => [
