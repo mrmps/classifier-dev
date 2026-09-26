@@ -93,5 +93,5 @@ test("hosted dashboard never scans the usage ledger and renders loading rather t
   expect(plans).toContain("$0.042");
   expect(plans).toContain("+$2.00 / 1,000");
   expect(plans).not.toContain("Upgrade to Max");
-  expect(plans).not.toContain("Upgrade to Scale");
+  expect(plans).toContain("Upgrade to Scale");
 });

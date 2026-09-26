@@ -626,3 +626,17 @@ test("paid Smart preserves and bills completed base results when no more reviews
   expect(calls).toHaveLength(1);
   expect(await env.APP_DB.prepare("SELECT balance::integer AS balance FROM app_accounts WHERE id='local-demo'").first()).toEqual({ balance: -251 });
 });
+
+test("plan rate limits scale with the plan: Pro answers with 10x limits and Scale with 100x", async () => {
+  for (const [plan, limit] of [["pro", "30000"], ["scale", "300000"]] as const) {
+    const s = setup();
+    const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: 'true', API_KEY_ENCRYPTION_KEY: 'test-only-key-encryption-secret-32-characters' } as Env & AppEnv;
+    await provisionTestAccount(new Request('http://localhost/auth/demo', { headers: { origin: 'http://localhost' } }), env);
+    await env.APP_DB.prepare("UPDATE app_accounts SET billing_plan=?,reset_at=?,paid_balance=0 WHERE id='local-demo'").bind(plan, new Date(Date.now()+86400000).toISOString()).run();
+    const key = await performAction('local-demo', { type: 'enroll', client: 'Codex' }, env);
+    providers();
+    const response = await accountClassification(request(undefined, undefined, undefined, { authorization: `Bearer ${key.secret}` }), env, 'API', s.ctx);
+    expect(response?.status).toBe(200); await s.flush();
+    expect(response?.headers.get("ratelimit-limit")).toBe(limit);
+  }
+});

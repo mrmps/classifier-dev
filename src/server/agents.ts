@@ -92,7 +92,7 @@ export function validateAppAction(value: unknown): AppAction {
     case "billing-auto-top-up":
       throw new AppError(
         403,
-        "Only subscriptions are available. Top-ups and automatic purchases are disabled.",
+        "Top-ups and auto recharge are managed from the billing page, not this endpoint.",
       );
     case "refresh":
       break;

@@ -11,6 +11,7 @@ const freeLimits = policy({});
 
 export function pricingHtml(signedIn = false) {
   const pro = BILLING_PLANS.pro;
+  const scale = BILLING_PLANS.scale;
   const description =
     "Simple plans with upfront usage for classifier.dev workspaces.";
   return page({
@@ -22,7 +23,7 @@ export function pricingHtml(signedIn = false) {
 .pricing-intro{padding-block:22px 34px;border-block-end:1px solid var(--rule)}
 .pricing-intro h1{font-size:30px;line-height:1.15;letter-spacing:-.025em;text-transform:lowercase}
 .pricing-intro p{margin-top:8px;color:var(--muted);font-size:15px}
-.plan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line)}
+.plan-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line)}
 .plan{display:flex;min-width:0;min-height:430px;flex-direction:column;padding:28px 26px}
 .plan+.plan{border-inline-start:1px solid var(--line)}
 .plan h2{font-size:19px;color:var(--bright);text-transform:lowercase}
@@ -47,6 +48,7 @@ export function pricingHtml(signedIn = false) {
 .rate-limits table{min-width:0;width:100%}.rate-limits th,.rate-limits td{padding:12px 10px;white-space:normal}
 .pricing-note{font-size:12px;color:var(--dim)}
 @media(hover:hover){.plan-action:hover{color:var(--bright)}}
+@media(max-width:980px){.plan-grid{grid-template-columns:1fr}.plan{min-height:0}.plan+.plan{border-inline-start:0;border-block-start:1px solid var(--line)}.plan-kicker{min-height:0}}
 @media(max-width:760px){.pricing>*+*{margin-top:44px}.plan-grid{grid-template-columns:1fr}.plan{min-height:0;padding:24px 20px}.plan+.plan{border-inline-start:0;border-block-start:1px solid var(--line)}.plan-kicker{min-height:0}.plan-price{margin-top:24px}.plan-action{margin-top:8px}}
 @media(max-width:480px){.pricing-intro{padding-block-start:8px}}
 `,
@@ -60,9 +62,16 @@ export function pricingHtml(signedIn = false) {
       <p class="plan-price">$${pro.priceCents / 100} <small>/ month</small></p>
       <ul>${feature(`${formatCreditsUsd(pro.includedCredits)} of usage each month`)}${feature(`${pro.seatLimit} workspace seats`)}${feature("10× rate limits")}${feature("Usage by connection and agent")}</ul>
       <a class="plan-action" href="/auth/sign-up?returnTo=/app/plans">Choose Pro</a></article>
+    <article class="plan"><h2>${esc(scale.name)}</h2><p class="plan-kicker">for teams running classification in production</p>
+      <p class="plan-price">$${scale.priceCents / 100} <small>/ month</small></p>
+      <ul>${feature(`${formatCreditsUsd(scale.includedCredits)} of usage each month`)}${feature("Unlimited workspace seats")}${feature("100× rate limits")}${feature("Usage by connection and agent")}</ul>
+      <a class="plan-action" href="/auth/sign-up?returnTo=/app/plans">Choose Scale</a></article>
     <article class="plan"><h2>Enterprise</h2><p class="plan-kicker">for teams that need capacity, infrastructure or a contract</p><p class="plan-price">Custom</p>
       <ul>${feature("Volume-based capacity")}${feature("Dedicated deployment")}${feature("Private inference options")}${feature("Measured accuracy on your data")}</ul>
       <a class="plan-action" href="mailto:contact@classifier.dev">Contact sales</a></article>
+  </section>
+  <section class="pricing-section" aria-label="Pay as you go"><h2>Pay as you go</h2>
+    <p>Top up any workspace with $5&ndash;$1,000 of usage. Purchased funds never expire and are spent after any included plan allowance. Owners can enable auto recharge: when the balance falls below a chosen threshold, the saved payment method is charged a fixed amount, with an optional calendar-month maximum. Manage both from <a href="/app/credits">the billing page</a>.</p>
   </section>
   <section class="pricing-section" aria-label="Usage prices"><h2>Usage prices</h2>
     <p>Scrape and classify a public URL with a funded workspace key. Request Markdown and HTML at no extra cost. Provider-billed scrapes remain charged if classification fails; errors disclose the charge. <a href="/developers">See the URL API</a>.</p>
@@ -74,7 +83,7 @@ export function pricingHtml(signedIn = false) {
     </tbody></table></div>
     <p>Smart starts with Fast and reviews uncertain answers. You pay the extra charge only for answers that are successfully reviewed. No escalation means no extra charge.</p>
     <p>For example, 1 million input tokens with 50 Smart escalations cost <strong>$0.142</strong>.</p>
-    <p class="pricing-note">Output tokens are free. Input usage includes the text, labels and instructions processed by the base classifier. Retries, fallback routing and Smart model tokens add no separate charges. Paid requests already admitted can finish and leave a negative balance. New requests require a positive available balance. No automatic top-ups.</p>
+    <p class="pricing-note">Output tokens are free. Input usage includes the text, labels and instructions processed by the base classifier. Retries, fallback routing and Smart model tokens add no separate charges. Paid requests already admitted can finish and leave a negative balance. New requests require a positive available balance. Pay-as-you-go top-ups and optional auto recharge are available from the workspace billing page.</p>
     <p>Jev long context starts automatically above 32,000 characters with the default model or explicit Jev. It costs 2 × Jev's $${INPUT_PRICE_PER_MILLION.toFixed(3)} rate: <strong>$${(LONG_CONTEXT_PRICING.inputNanodollars / 1000).toFixed(3)} per million original context tokens</strong>, counted with cl100k_base once across inputs. Dimensions and actual screening or final-call usage do not multiply this price. 250,000 context tokens cost $${(250000 * LONG_CONTEXT_PRICING.inputNanodollars / 1e9).toFixed(3)}.</p>
     <p>Requires paid workspace balance or an active paid subscription; anonymous access and free signup credit do not qualify. Fast only. Synchronous requests allow up to 250,000 original context tokens, 20 documents and 32 decisions within 1 MB. Each document × dimension or multi-label category counts as a decision.</p>
     <p>Upload one whole document of up to <strong>${(LONG_CONTEXT_JOB_MAX_TOKENS / 1e6).toFixed(0)} million original tokens</strong> (100 MB) at the same rate. Splitting and screening happen automatically. A full job costs $${(LONG_CONTEXT_JOB_MAX_TOKENS * LONG_CONTEXT_PRICING.inputNanodollars / 1e9).toFixed(2)}. The workspace reserves the actual uploaded document's token price, then settles once when final judgment succeeds. Jobs expire after 24 hours; failed or canceled jobs are refunded.</p>
@@ -87,6 +96,7 @@ export function pricingHtml(signedIn = false) {
     <div class="pricing-table rate-limits"><table><thead><tr><th scope="col">Plan</th><th scope="col">Fast</th><th scope="col">Smart</th></tr></thead><tbody>
       <tr><th scope="row">Free</th><td>3,000/min · 20,000/day</td><td>200/min · 2,000/day</td></tr>
       <tr><th scope="row">Pro</th><td>30,000/min · 200,000/day</td><td>2,000/min · 20,000/day</td></tr>
+      <tr><th scope="row">Scale</th><td>300,000/min · 2,000,000/day</td><td>20,000/min · 200,000/day</td></tr>
     </tbody></table></div>
     <p class="pricing-note">Limits count classifications and are shared across workspace keys and agents. Public access is limited per IP. Laya trial limits apply to every plan.</p>
     <p>Free access allows up to $${(freeLimits.fastRequest / 1e9).toFixed(2)} of provider cost per Fast request or $${(freeLimits.smartRequest / 1e9).toFixed(2)} per Smart request, with $${(freeLimits.ipDaily / 1e9).toFixed(2)} per IP per UTC day and four requests at once. Smart reviews beyond the request cap retain their Fast answers. A funded workspace has its own allowance and supports larger Smart requests. Signup credit alone uses the free limits.</p>

@@ -168,7 +168,7 @@ export const OPENAPI = {
   info: {
     title: "classifier.dev",
     version: "1.0.0",
-    summary: "Zero-shot text classification with calibrated confidence. Free without a key; Pro for 10x limits.",
+    summary: "Zero-shot text classification with calibrated confidence. Free without a key; paid plans raise rate limits 10-100x.",
     description:
       "Send text and a list of labels, receive the label that fits, a calibrated confidence " +
       "and a score per label. Up to 1,000 texts per request, ~1s. Tiers: fast (default) and " +
@@ -575,7 +575,7 @@ export const OPENAPI = {
         summary: "Run the TypeSafe System One contract through classifier.dev.",
         description:
           "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
-          "Use any non-empty placeholder API key for anonymous per-IP limits, or a classifier_agent_ workspace key to use workspace quota, credits and usage history. Free workspaces have the public ceilings and Pro workspaces get 10x limits. " +
+          "Use any non-empty placeholder API key for anonymous per-IP limits, or a classifier_agent_ workspace key to use workspace quota, credits and usage history. Free workspaces have the public ceilings; Pro raises them 10x and Scale 100x. " +
           "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/. " +
           "Images: set model to \"dgemma\" and add an images array of data URLs; the same questions are then answered about the images and the state by DiffusionGemma, never by Jev, and a body with images under another model is refused with images_unsupported.",
         tags: ["classify"],
@@ -1395,7 +1395,7 @@ export const OPENAPI = {
       partnerKey: {
         type: "http",
         scheme: "bearer",
-        description: "Optional for classification. Workspace keys (classifier_agent_...) use the workspace balance and quotas; Pro workspaces get 10x limits. Partner keys have separately arranged access. See https://classifier.dev/auth.md.",
+        description: "Optional for classification. Workspace keys (classifier_agent_...) use the workspace balance and quotas; Pro raises rate limits 10x and Scale 100x. Partner keys have separately arranged access. See https://classifier.dev/auth.md.",
       },
     },
   },

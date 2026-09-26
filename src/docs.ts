@@ -127,7 +127,7 @@ TYPESAFE SDK COMPATIBILITY
     classifier_agent_...
       A workspace key from https://classifier.dev/app/keys. Requests use the
       workspace's shared quota and credit balance. Free workspaces keep the
-      same ceilings; Pro workspaces get 10x limits. Charges use TypeSafe's
+      same ceilings; Pro workspaces get 10x limits and Scale 100x. Charges use TypeSafe's
       returned token usage and appear in workspace usage history.
 
   Do not put a real TypeSafe API key here: classifier.dev never forwards caller

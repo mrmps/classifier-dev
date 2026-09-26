@@ -306,7 +306,7 @@ const agentView = (origin: string) => ({
   name: "classifier.dev",
   description: "Zero-shot text classification over plain HTTP. No API key, no account.",
   version: API_VERSION,
-  authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; Pro workspaces get 10x limits. Partner keys have separately arranged limits.", docs: `${origin}/auth.md` },
+  authentication: { required: false, optional_bearer: "Workspace keys use the workspace balance; Pro raises rate limits 10x and Scale 100x. Partner keys have separately arranged limits.", docs: `${origin}/auth.md` },
   api: {
     classify: { method: "POST", url: `${origin}/v1/classify`, alias: `${origin}/`, body: { inputs: ["..."], labels: ["a", "b"], tier: "fast|smart", multi: false } },
     classify_url: { method: "POST", url: `${origin}/v1/classify`, body: { url: "https://example.com", labels: ["documentation", "news"], include: ["markdown", "html"] }, scrape_usd: 0.0022, authentication: "Funded workspace API key" },
