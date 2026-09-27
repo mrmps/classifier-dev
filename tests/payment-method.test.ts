@@ -83,7 +83,7 @@ test("the billing page shows the card on file and gates auto recharge until one 
   const withoutCard = credits({ type: "none" });
   expect(withoutCard).toContain("No payment method on file");
   expect(withoutCard).toContain("Add payment method");
-  expect(withoutCard).toContain("Add a payment method first");
+  expect(withoutCard).toContain("Set up");
   // Unknown state (never reconciled) neither blocks nor claims a card exists.
   const unknown = credits(null);
   expect(unknown).not.toContain("Add payment method");

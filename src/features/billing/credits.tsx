@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ArrowRight, CreditCard } from "@/components/ui/icons";
 import {
   BILLING_PLANS,
@@ -52,14 +53,6 @@ const brandName = (brand: string) =>
   CARD_BRANDS[brand] ??
   brand.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 
-function failureMessage(reason: string) {
-  if (reason === "payment_method_required")
-    return "Your last automatic recharge needs a saved payment method.";
-  if (reason === "payment_failed" || reason === "3ds_required")
-    return "Your last automatic recharge could not charge the saved payment method.";
-  return "Your last automatic recharge did not complete.";
-}
-
 export function Credits({
   snapshot,
   navigate,
@@ -76,23 +69,17 @@ export function Credits({
   const [topUpAmount, setTopUpAmount] = useState("25");
   const [topUpBusy, setTopUpBusy] = useState(false);
   const [topUpError, setTopUpError] = useState("");
+  const [autoOpen, setAutoOpen] = useState(false);
   const [autoEnabled, setAutoEnabled] = useState(billing.autoTopUp.enabled);
-  const [autoAmount, setAutoAmount] = useState(
-    String(billing.autoTopUp.amountCents / 100),
-  );
-  const [autoThreshold, setAutoThreshold] = useState(
-    String(billing.autoTopUp.thresholdCents / 100),
-  );
-  const [autoCap, setAutoCap] = useState(
-    billing.autoTopUp.capCents > 0 ? String(billing.autoTopUp.capCents / 100) : "",
-  );
+  const [autoAmount, setAutoAmount] = useState("10");
+  const [autoThreshold, setAutoThreshold] = useState("5");
+  const [autoCap, setAutoCap] = useState("");
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoError, setAutoError] = useState("");
-  const [autoSaved, setAutoSaved] = useState(false);
   const refreshed = useRef(false);
   useEffect(() => {
-    // Returning from a top-up checkout: verify the paid invoice right away
-    // instead of waiting for a webhook, then reload the snapshot once.
+    // Returning from a checkout or payment setup: verify with the provider
+    // right away instead of waiting for a webhook, then reload the snapshot.
     if (refreshed.current || !act) return;
     if (!new URLSearchParams(window.location.search).has("billing")) return;
     refreshed.current = true;
@@ -144,6 +131,18 @@ export function Credits({
       setTopUpBusy(false);
     }
   }
+  function openAutoRecharge() {
+    setAutoEnabled(billing.autoTopUp.enabled);
+    setAutoAmount(String(billing.autoTopUp.amountCents / 100));
+    setAutoThreshold(String(billing.autoTopUp.thresholdCents / 100));
+    setAutoCap(
+      billing.autoTopUp.capCents > 0
+        ? String(billing.autoTopUp.capCents / 100)
+        : "",
+    );
+    setAutoError("");
+    setAutoOpen(true);
+  }
   async function saveAutoTopUp() {
     const amount = dollarsToCents(autoAmount);
     const threshold = dollarsToCents(autoThreshold);
@@ -164,7 +163,6 @@ export function Credits({
     }
     setAutoBusy(true);
     setAutoError("");
-    setAutoSaved(false);
     try {
       const { updateAutoTopUp } = await import("./billing.functions");
       await updateAutoTopUp({
@@ -175,8 +173,8 @@ export function Credits({
           capCents: cap,
         },
       });
-      setAutoSaved(true);
       await act?.({ type: "refresh" }).catch(() => {});
+      setAutoOpen(false);
     } catch (cause) {
       setAutoError(
         cause instanceof Error
@@ -196,6 +194,7 @@ export function Credits({
   const paymentMethod = billing.paymentMethod;
   // null means the card on file has not been observed yet; never block on it.
   const missingCard = paymentMethod?.type === "none";
+  const autoRecharge = billing.autoTopUp;
   const free = billing.plan === "free";
   const allowance = snapshot.credits.included;
   const allowanceDescription = free
@@ -310,152 +309,6 @@ export function Credits({
         </CardContent>
       </Card>
 
-      {payAsYouGo && (
-        <section aria-labelledby="auto-recharge" className="flex flex-col gap-4">
-          <h2 id="auto-recharge" className="text-base font-semibold">
-            Auto recharge
-          </h2>
-          <Card className="gap-0 py-0">
-            <CardContent className="flex flex-col gap-5 p-5 sm:p-6">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="flex max-w-xl flex-col gap-1">
-                  <Label
-                    htmlFor="auto-recharge-enabled"
-                    className="text-sm font-medium"
-                  >
-                    Enable auto recharge
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    Once your balance falls below the threshold, the saved
-                    payment method is charged the recharge amount. Purchased
-                    funds never expire.
-                  </p>
-                </div>
-                <input
-                  id="auto-recharge-enabled"
-                  type="checkbox"
-                  className="size-5 accent-foreground"
-                  checked={autoEnabled}
-                  disabled={!canManage || missingCard}
-                  onChange={(event) => setAutoEnabled(event.target.checked)}
-                />
-              </div>
-              {missingCard && (
-                <Alert>
-                  <AlertTitle>Add a payment method first</AlertTitle>
-                  <AlertDescription>
-                    <p>
-                      Automatic recharges charge your saved payment method, so
-                      one must be on file before auto recharge can be enabled.
-                    </p>
-                    {canManage && (
-                      <Button
-                        size="sm"
-                        className="mt-2 w-fit"
-                        disabled={openingPortal}
-                        onClick={() => void openPortal("setup-payment")}
-                      >
-                        {openingPortal ? "Opening…" : "Add payment method"}
-                      </Button>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-              {billing.autoTopUp.lastFailure && !missingCard && (
-                <Alert>
-                  <AlertTitle>Automatic recharge needs attention</AlertTitle>
-                  <AlertDescription>
-                    <p>
-                      {failureMessage(billing.autoTopUp.lastFailure.reason)}{" "}
-                      Retries pause for an hour after a failed charge.
-                    </p>
-                    {canManage && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-2 w-fit"
-                        disabled={openingPortal}
-                        onClick={() => void openPortal("setup-payment")}
-                      >
-                        Add or update payment method
-                      </Button>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="auto-recharge-amount">
-                    Recharge amount ($)
-                  </Label>
-                  <Input
-                    id="auto-recharge-amount"
-                    inputMode="numeric"
-                    value={autoAmount}
-                    disabled={!canManage}
-                    onChange={(event) => setAutoAmount(event.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="auto-recharge-threshold">
-                    When balance falls below ($)
-                  </Label>
-                  <Input
-                    id="auto-recharge-threshold"
-                    inputMode="numeric"
-                    value={autoThreshold}
-                    disabled={!canManage}
-                    onChange={(event) => setAutoThreshold(event.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="auto-recharge-cap">
-                    Monthly maximum ($, blank for none)
-                  </Label>
-                  <Input
-                    id="auto-recharge-cap"
-                    inputMode="numeric"
-                    value={autoCap}
-                    disabled={!canManage}
-                    onChange={(event) => setAutoCap(event.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <p className="text-sm text-muted-foreground tabular-nums">
-                  {formatCents(billing.autoTopUp.monthUsedCents)} recharged
-                  automatically this month
-                  {billing.autoTopUp.capCents > 0
-                    ? ` of the ${formatCents(billing.autoTopUp.capCents)} maximum.`
-                    : "."}
-                </p>
-                <div className="flex items-center gap-3">
-                  {autoSaved && !autoError && (
-                    <p className="text-sm text-muted-foreground">Saved.</p>
-                  )}
-                  <Button
-                    disabled={!canManage || autoBusy}
-                    onClick={() => void saveAutoTopUp()}
-                  >
-                    {autoBusy ? "Saving…" : "Save settings"}
-                  </Button>
-                </div>
-              </div>
-              {autoError && (
-                <p role="alert" className="text-sm text-destructive">
-                  {autoError}
-                </p>
-              )}
-              {!canManage && (
-                <p className="text-sm text-muted-foreground">
-                  Your workspace owner manages top-ups and auto recharge.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      )}
-
       <section
         aria-labelledby="billing-details"
         className="flex flex-col gap-4"
@@ -472,6 +325,46 @@ export function Credits({
               {snapshot.organizations?.identity.email ?? snapshot.account.email}
             </dd>
           </div>
+          {payAsYouGo && (
+            <div className="flex flex-col gap-1 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+              <dt className="shrink-0 text-sm text-muted-foreground">
+                Auto recharge
+              </dt>
+              <dd className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:justify-end">
+                <span className="text-muted-foreground">
+                  {autoRecharge.enabled ? (
+                    <>
+                      Adds{" "}
+                      <span className="font-medium text-foreground tabular-nums">
+                        {formatCents(autoRecharge.amountCents)}
+                      </span>{" "}
+                      when the balance falls below{" "}
+                      <span className="tabular-nums">
+                        {formatCents(autoRecharge.thresholdCents)}
+                      </span>
+                      {autoRecharge.capCents > 0 && (
+                        <>
+                          {" · "}
+                          <span className="tabular-nums">
+                            {formatCents(autoRecharge.monthUsedCents)} of{" "}
+                            {formatCents(autoRecharge.capCents)}
+                          </span>{" "}
+                          used this month
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    "Off"
+                  )}
+                </span>
+                {canManage && (
+                  <Button variant="outline" onClick={openAutoRecharge}>
+                    {autoRecharge.enabled ? "Edit" : "Set up"}
+                  </Button>
+                )}
+              </dd>
+            </div>
+          )}
           <div className="flex flex-col gap-1 py-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <dt className="shrink-0 text-sm text-muted-foreground">
               Payment method
@@ -535,6 +428,28 @@ export function Credits({
             </dd>
           </div>
         </dl>
+        {payAsYouGo && autoRecharge.enabled && autoRecharge.lastFailure && (
+          <Alert>
+            <AlertTitle>Automatic recharge needs attention</AlertTitle>
+            <AlertDescription>
+              <p>
+                The last automatic recharge could not be completed. Retries
+                pause for an hour after a failed charge.
+              </p>
+              {canManage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-fit"
+                  disabled={openingPortal}
+                  onClick={() => void openPortal("setup-payment")}
+                >
+                  Add or update payment method
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
       </section>
 
       <Dialog
@@ -596,6 +511,118 @@ export function Credits({
               {topUpBusy ? "Opening…" : "Continue to checkout"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={autoOpen}
+        onOpenChange={(open) => {
+          if (!autoBusy) setAutoOpen(open);
+        }}
+      >
+        <DialogContent showCloseButton={!autoBusy}>
+          <DialogHeader>
+            <DialogTitle>Auto recharge</DialogTitle>
+            <DialogDescription>
+              When your balance falls below the threshold, the saved payment
+              method is charged the recharge amount. Purchased funds never
+              expire.
+            </DialogDescription>
+          </DialogHeader>
+          {missingCard ? (
+            <Alert>
+              <AlertTitle>Add a payment method first</AlertTitle>
+              <AlertDescription>
+                <p>
+                  Automatic recharges charge your saved payment method, so one
+                  must be on file before auto recharge can be enabled.
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-2 w-fit"
+                  disabled={openingPortal}
+                  onClick={() => void openPortal("setup-payment")}
+                >
+                  {openingPortal ? "Opening…" : "Add payment method"}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="auto-recharge-enabled">
+                  Enable auto recharge
+                </Label>
+                <Switch
+                  id="auto-recharge-enabled"
+                  checked={autoEnabled}
+                  onCheckedChange={setAutoEnabled}
+                />
+              </div>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="auto-recharge-amount">
+                    Recharge amount ($)
+                  </Label>
+                  <Input
+                    id="auto-recharge-amount"
+                    inputMode="numeric"
+                    disabled={!autoEnabled}
+                    value={autoAmount}
+                    onChange={(event) => setAutoAmount(event.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="auto-recharge-threshold">
+                    When balance falls below ($)
+                  </Label>
+                  <Input
+                    id="auto-recharge-threshold"
+                    inputMode="numeric"
+                    disabled={!autoEnabled}
+                    value={autoThreshold}
+                    onChange={(event) => setAutoThreshold(event.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="auto-recharge-cap">
+                    Monthly maximum ($, blank for none)
+                  </Label>
+                  <Input
+                    id="auto-recharge-cap"
+                    inputMode="numeric"
+                    disabled={!autoEnabled}
+                    value={autoCap}
+                    onChange={(event) => setAutoCap(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {formatCents(autoRecharge.monthUsedCents)} recharged
+                    automatically this month.
+                  </p>
+                </div>
+              </div>
+              {autoError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {autoError}
+                </p>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  disabled={autoBusy}
+                  onClick={() => setAutoOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={autoBusy}
+                  onClick={() => void saveAutoTopUp()}
+                >
+                  {autoBusy ? "Saving…" : "Save settings"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
