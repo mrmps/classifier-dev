@@ -29,6 +29,7 @@ export {
   IconDarkLightOutline18 as Sun,
   IconHalfDottedCirclePlayOutline18 as Play,
   IconPlusOutline18 as Plus,
+  IconRefresh2Outline18 as Refresh,
   IconGear2Outline18 as Settings,
   IconComputerOutline18 as Terminal,
   IconChartBarTrendUpOutline18 as TrendingUp,

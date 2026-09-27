@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { ArrowRight, CreditCard } from "@/components/ui/icons";
+import { ArrowRight, CreditCard, Refresh } from "@/components/ui/icons";
 import {
   BILLING_PLANS,
   TOP_UP_MAX_CENTS,
@@ -131,8 +131,8 @@ export function Credits({
       setTopUpBusy(false);
     }
   }
-  function openAutoRecharge() {
-    setAutoEnabled(billing.autoTopUp.enabled);
+  function openAutoRecharge(enable = billing.autoTopUp.enabled) {
+    setAutoEnabled(enable);
     setAutoAmount(String(billing.autoTopUp.amountCents / 100));
     setAutoThreshold(String(billing.autoTopUp.thresholdCents / 100));
     setAutoCap(
@@ -268,6 +268,84 @@ export function Credits({
                 </p>
               </div>
             </div>
+            {payAsYouGo && (
+              <div
+                className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-lg border p-4 ${
+                  autoRecharge.enabled && autoRecharge.lastFailure
+                    ? "border-destructive/50"
+                    : "border-border"
+                }`}
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <Refresh className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="flex flex-col gap-1 text-sm">
+                    <p className="font-medium">
+                      {autoRecharge.enabled
+                        ? "Auto recharge is on"
+                        : "Auto recharge is off"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {autoRecharge.enabled ? (
+                        autoRecharge.lastFailure ? (
+                          "The last automatic recharge failed. Update your payment method; retries pause for an hour."
+                        ) : (
+                          <>
+                            Adds{" "}
+                            <span className="font-medium text-foreground tabular-nums">
+                              {formatCents(autoRecharge.amountCents)}
+                            </span>{" "}
+                            when your balance falls below{" "}
+                            <span className="tabular-nums">
+                              {formatCents(autoRecharge.thresholdCents)}
+                            </span>
+                            {autoRecharge.capCents > 0 && (
+                              <>
+                                {" · "}
+                                <span className="tabular-nums">
+                                  {formatCents(autoRecharge.monthUsedCents)} of{" "}
+                                  {formatCents(autoRecharge.capCents)}
+                                </span>{" "}
+                                used this month
+                              </>
+                            )}
+                          </>
+                        )
+                      ) : (
+                        "When your balance runs out, new requests stop. Enable auto recharge to top up automatically."
+                      )}
+                    </p>
+                  </div>
+                </div>
+                {canManage &&
+                  (autoRecharge.enabled && autoRecharge.lastFailure ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        disabled={openingPortal}
+                        onClick={() => void openPortal("setup-payment")}
+                      >
+                        Update payment method
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => openAutoRecharge()}
+                      >
+                        Edit
+                      </Button>
+                    </div>
+                  ) : autoRecharge.enabled ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => openAutoRecharge()}
+                    >
+                      Edit
+                    </Button>
+                  ) : (
+                    <Button onClick={() => openAutoRecharge(true)}>
+                      Enable auto recharge
+                    </Button>
+                  ))}
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm">
               <p className="text-muted-foreground">
                 Exact balance, after funds reserved for in-flight requests.
@@ -325,46 +403,6 @@ export function Credits({
               {snapshot.organizations?.identity.email ?? snapshot.account.email}
             </dd>
           </div>
-          {payAsYouGo && (
-            <div className="flex flex-col gap-1 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-              <dt className="shrink-0 text-sm text-muted-foreground">
-                Auto recharge
-              </dt>
-              <dd className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:justify-end">
-                <span className="text-muted-foreground">
-                  {autoRecharge.enabled ? (
-                    <>
-                      Adds{" "}
-                      <span className="font-medium text-foreground tabular-nums">
-                        {formatCents(autoRecharge.amountCents)}
-                      </span>{" "}
-                      when the balance falls below{" "}
-                      <span className="tabular-nums">
-                        {formatCents(autoRecharge.thresholdCents)}
-                      </span>
-                      {autoRecharge.capCents > 0 && (
-                        <>
-                          {" · "}
-                          <span className="tabular-nums">
-                            {formatCents(autoRecharge.monthUsedCents)} of{" "}
-                            {formatCents(autoRecharge.capCents)}
-                          </span>{" "}
-                          used this month
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    "Off"
-                  )}
-                </span>
-                {canManage && (
-                  <Button variant="outline" onClick={openAutoRecharge}>
-                    {autoRecharge.enabled ? "Edit" : "Set up"}
-                  </Button>
-                )}
-              </dd>
-            </div>
-          )}
           <div className="flex flex-col gap-1 py-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <dt className="shrink-0 text-sm text-muted-foreground">
               Payment method
@@ -428,28 +466,6 @@ export function Credits({
             </dd>
           </div>
         </dl>
-        {payAsYouGo && autoRecharge.enabled && autoRecharge.lastFailure && (
-          <Alert>
-            <AlertTitle>Automatic recharge needs attention</AlertTitle>
-            <AlertDescription>
-              <p>
-                The last automatic recharge could not be completed. Retries
-                pause for an hour after a failed charge.
-              </p>
-              {canManage && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 w-fit"
-                  disabled={openingPortal}
-                  onClick={() => void openPortal("setup-payment")}
-                >
-                  Add or update payment method
-                </Button>
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
       </section>
 
       <Dialog
