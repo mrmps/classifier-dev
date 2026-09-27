@@ -157,7 +157,7 @@ export function DashboardView({
         ) : pathname === "/app/usage" ? (
           <Usage snapshot={snapshot} />
         ) : pathname === "/app/credits" ? (
-          <Credits snapshot={snapshot} navigate={navigate} />
+          <Credits snapshot={snapshot} navigate={navigate} act={act} />
         ) : pathname === "/app/plans" ? (
           <Plans snapshot={snapshot} navigate={navigate} />
         ) : pathname === "/app/team" && snapshot.organizations ? (

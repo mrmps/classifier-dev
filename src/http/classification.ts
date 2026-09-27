@@ -11,6 +11,7 @@ import { extendTokenReservation, providerCallBound } from "../server/token-reser
 import { refundTokenReservation, settleTokenReservation } from "../server/token-ledger";
 import { writeAccountAnalytics } from "../server/analytics/write";
 import { typeSafeDecisionCount } from "../typesafe-compat";
+import { rateLimitMultiplier } from "../lib/billing";
 import { isLongContextRequest } from "../long-context";
 import { documentRequest } from "./document";
 
@@ -93,7 +94,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   let response: Response;
   try {
     response = await worker.fetch(new Request(request.url, { method: "POST", headers: request.headers, body: text }), env as Env, ctx,
-      { account: { id: accountId, multiplier: reservation.billingPlan === "free" ? 1 : 10 }, meter });
+      { account: { id: accountId, multiplier: rateLimitMultiplier(reservation.billingPlan, reservation.billingPlan !== "free") }, meter });
     await reservationQueue;
     if (admissionError) throw admissionError;
   } catch (error) {

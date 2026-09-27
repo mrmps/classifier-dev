@@ -1,3 +1,4 @@
+import { BILLING_PLANS, centsToCredits, isValidTopUpCents } from "../lib/billing";
 import { AppError, type AppEnv } from "./db";
 import { hasActiveComplimentaryPro } from "./complimentary-pro";
 
@@ -5,8 +6,30 @@ export type AutumnEnv = AppEnv & {
   AUTUMN_SECRET_KEY?: string;
   AUTUMN_WEBHOOK_SECRET?: string;
   AUTUMN_PRO_PLAN_ID?: string;
+  AUTUMN_SCALE_PLAN_ID?: string;
+  AUTUMN_TOPUP_PLAN_ID?: string;
   APP_ORIGIN?: string;
 };
+export type SubscriptionPlan = {
+  id: "pro" | "scale";
+  planId: string;
+  amountUsd: number;
+  cents: number;
+  credits: number;
+};
+/** Provider plan ids come from configuration; prices and allowances from the
+ * catalogue. A plan without its configured provider id simply does not exist. */
+export function subscriptionPlans(env: AutumnEnv): SubscriptionPlan[] {
+  const plans: SubscriptionPlan[] = [];
+  for (const id of ["pro", "scale"] as const) {
+    const planId = id === "pro" ? env.AUTUMN_PRO_PLAN_ID : env.AUTUMN_SCALE_PLAN_ID;
+    if (planId) plans.push({
+      id, planId, amountUsd: BILLING_PLANS[id].priceCents / 100,
+      cents: BILLING_PLANS[id].priceCents, credits: BILLING_PLANS[id].includedCredits,
+    });
+  }
+  return plans;
+}
 export function billingReturnUrl(env: AutumnEnv) {
   const url = new URL(env.APP_ORIGIN || "https://classifier.dev");
   if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash)
@@ -77,25 +100,74 @@ function billingUrl(value: unknown) {
 
 /** Call only after verifying workspace owner and same-origin mutation. Return URL
  * must be supplied by server configuration, never copied from request JSON. */
-export async function createAutumnCheckout(env: AutumnEnv, accountId: string, returnUrl: string) {
-  if (!env.AUTUMN_PRO_PLAN_ID) throw unavailable();
+export async function createAutumnCheckout(env: AutumnEnv, accountId: string, returnUrl: string, plan: "pro" | "scale" = "pro") {
+  const target = subscriptionPlans(env).find((candidate) => candidate.id === plan);
+  if (!target) throw unavailable();
   if (await hasActiveComplimentaryPro(env, accountId))
     throw new AppError(409, "Your complimentary Pro plan is active until its displayed end date.");
   const customerId = await customerForWorkspace(env, accountId);
   const customer = await getAutumnCustomer(env, customerId);
-  if (customer.subscriptions.some((subscription) => subscription.plan_id === env.AUTUMN_PRO_PLAN_ID &&
+  const subscriptionPlanIds = subscriptionPlans(env).map((candidate) => candidate.planId);
+  if (customer.subscriptions.some((subscription) => subscriptionPlanIds.includes(subscription.plan_id) &&
     !["expired", "canceled"].includes(subscription.status))) {
-    // Includes scheduled, past-due and cancel-at-period-end subscriptions.
-    // Terminal history permits a new purchase; all other states stay in the
-    // existing portal, including unknown states, rather than risk a duplicate.
+    // Includes scheduled, past-due and cancel-at-period-end subscriptions on
+    // any paid plan. Terminal history permits a new purchase; all other states
+    // stay in the existing portal, including unknown states, rather than risk
+    // a duplicate or an unreviewed plan switch.
     return createAutumnPortal(env, accountId, returnUrl);
   }
   const result = await autumnRequest(env, "billing.attach", {
-    customer_id: customerId, plan_id: env.AUTUMN_PRO_PLAN_ID,
+    customer_id: customerId, plan_id: target.planId,
     redirect_mode: "always", success_url: returnUrl, enable_plan_immediately: false,
   });
   if (result.customer_id !== customerId) throw unavailable();
   return { url: billingUrl(result.payment_url) };
+}
+
+/** Pay-as-you-go purchase through hosted checkout. The wallet is credited only
+ * after reconciliation verifies the paid invoice, never on return. */
+export async function createAutumnTopUpCheckout(env: AutumnEnv, accountId: string, returnUrl: string, amountCents: number) {
+  if (!env.AUTUMN_TOPUP_PLAN_ID) throw unavailable();
+  if (!isValidTopUpCents(amountCents)) throw new AppError(400, "Top-ups are whole dollar amounts between $5 and $1,000.");
+  const customerId = await customerForWorkspace(env, accountId);
+  const result = await autumnRequest(env, "billing.attach", {
+    customer_id: customerId, plan_id: env.AUTUMN_TOPUP_PLAN_ID,
+    redirect_mode: "always", success_url: returnUrl,
+    feature_quantities: [{ feature_id: "credits", quantity: centsToCredits(amountCents) }],
+  });
+  if (result.customer_id !== customerId) throw unavailable();
+  return { url: billingUrl(result.payment_url) };
+}
+
+/** Save or replace a payment method without purchasing anything. Automatic
+ * top-ups charge the saved method, so this is their prerequisite. */
+export async function createAutumnPaymentSetup(env: AutumnEnv, accountId: string, returnUrl: string) {
+  const customerId = await customerForWorkspace(env, accountId);
+  const result = await autumnRequest(env, "billing.setup_payment", { customer_id: customerId, success_url: returnUrl });
+  if (result.customer_id !== customerId) throw unavailable();
+  return { url: billingUrl(result.url) };
+}
+
+/** Charge the saved payment method for an automatic top-up. Callers must have
+ * claimed the attempt first; the wallet is credited only via reconciliation. */
+export async function chargeAutumnAutoTopUp(env: AutumnEnv, customerId: string, amountCents: number):
+  Promise<{ charged: boolean; invoiceId: string | null; reason: string | null }> {
+  if (!env.AUTUMN_TOPUP_PLAN_ID) throw unavailable();
+  if (!isValidTopUpCents(amountCents)) throw new AppError(400, "Top-ups are whole dollar amounts between $5 and $1,000.");
+  const result = await autumnRequest(env, "billing.attach", {
+    customer_id: customerId, plan_id: env.AUTUMN_TOPUP_PLAN_ID,
+    redirect_mode: "never",
+    feature_quantities: [{ feature_id: "credits", quantity: centsToCredits(amountCents) }],
+  });
+  if (result.customer_id !== customerId) throw unavailable();
+  const action = result.required_action as { code?: unknown; reason?: unknown } | null | undefined;
+  const invoice = result.invoice as { status?: unknown; stripe_id?: unknown } | null | undefined;
+  const invoiceId = invoice && typeof invoice.stripe_id === "string" ? invoice.stripe_id : null;
+  if (action && typeof action === "object" && typeof action.code === "string")
+    return { charged: false, invoiceId, reason: action.code };
+  if (invoice && invoice.status === "paid" && invoiceId) return { charged: true, invoiceId, reason: null };
+  // An accepted charge that is still processing settles through reconciliation.
+  return { charged: false, invoiceId, reason: typeof invoice?.status === "string" ? `invoice_${invoice.status}` : "unknown" };
 }
 
 export async function createAutumnPortal(env: AutumnEnv, accountId: string, returnUrl: string) {

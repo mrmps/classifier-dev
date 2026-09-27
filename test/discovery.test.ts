@@ -155,7 +155,7 @@ describe("every discovery document", () => {
     const auth = await (await get("/auth.md")).text();
     expect(auth).toContain("service_auth (workspace key)");
     expect(auth).not.toContain("classifier_pro_");
-    expect(auth).toContain("Pro workspaces get 10x limits");
+    expect(auth).toContain("Paid plans raise them: Pro 10x, Scale 100x");
     expect(auth).toContain("Authorization: Bearer classifier_agent_");
     expect(auth).not.toContain("Pro is $20/month for");
     const docs = await (await get("/")).text();

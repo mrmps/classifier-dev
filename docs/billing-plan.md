@@ -37,7 +37,7 @@ must be recorded as blockers, not bypassed with fabricated success.
 - **Signup credit is $5, one-time and personal.** Each user gets only one personal workspace/plan and one initial grant. There is no daily or monthly free replenishment.
 - **Teams have independent balances.** New team workspaces start with zero usage credit. Creating or switching to a team neither transfers personal credit nor creates another free grant. Members consume the team's balance; per-key/agent budgets are an optional further control.
 - **Subscriptions replenish paid usage.** Pro costs $20/month and includes $20 at the published retail token rates. Paid tiers have higher rate/usage limits. Other tier prices, allowances, seat counts, rollover rules, and exact rate limits in the demo are provisional unless separately approved.
-- **No top-ups for this release.** Neither manual purchases of extra credit nor automatic top-ups are enabled. An exhausted account receives a clear API error and can select an available subscription plan; there are no surprise overage charges.
+- **Top-ups are live.** Manual purchases ($5-$1,000, whole dollars) and owner-enabled automatic recharges credit purchased funds only after their paid invoice is verified. Automatic recharges honor a balance threshold and an optional calendar-month maximum; an exhausted account with auto recharge disabled still receives a clear API error and no surprise overage charges.
 - **Anonymous access stays as it is today.** Do not reduce its allowance or require signup as part of this migration. Authenticated free accounts on hosting/datacenter IPs should have stricter limits; paid plans retain their documented limits. Country alone does not identify abuse. No specific Jina residential-versus-datacenter rule has been verified; see [migration research](./migration-research.md).
 - **One pricing and limits system for everyone.** Existing customers migrate into the new system at the verified cutover. No grandfathered tier or permanent parallel legacy billing path. Keep the current deployment working until the replacement and customer migration are ready.
 - **Use one dollar presentation.** Balances, consumption, budgets, and subscription allowances display USD. The current accounting scale is 100,000 integer credits per dollar; choose rounding and minimum-charge rules explicitly with the retail token schedule before billing is enabled.
@@ -66,7 +66,7 @@ Autumn idempotency keys are not a permanent exactly-once guarantee. Its inspecte
 
 ## Product surfaces
 
-- **Billing (`/app/credits`):** dollar balance, selected subscription, included usage, renewal/cancellation information, and transaction history. No Add funds or auto-top-up flow. Local actions must be labeled simulated.
+- **Billing (`/app/credits`):** dollar balance, selected subscription, included usage, renewal/cancellation information, transaction history, a Top up balance flow and the auto recharge controls. Local actions must be labeled simulated.
 - **Usage (`/app/usage`):** Spend / Tokens / Requests, date and credential filters, timeline, and sampling-aware AE aggregates. Show unknown token counts as unavailable and distinguish estimated retail charges from exact wallet balances.
 - **Keys and agents:** credentials belong to the selected organization, and any optional spending cap uses the same dollar units and server-side policy as billing.
 - **Onboarding and team creation:** one personal signup allowance; teams start unfunded. UI navigation or successful checkout navigation is never payment proof.

@@ -10,6 +10,8 @@ import { Permit } from "../spending/permit";
 import { boundedRequest } from "../spending";
 import { SpendingError, errorResponse, fingerprint, policy } from "../spending/policy";
 import { writeAccountAnalytics } from "../server/analytics/write";
+import { maybeAutoTopUp } from "../server/auto-top-up";
+import { rateLimitMultiplier } from "../lib/billing";
 import { typeSafeDecisionCount } from "../typesafe-compat";
 
 export async function spendingClassification(request: Request, env: AppEnv & Partial<Env>, source: "API" | "MCP", ctx: ExecutionContext): Promise<Response> {
@@ -72,7 +74,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     if ((scrape && classificationBound + BigInt(SCRAPE_NANODOLLARS) > BigInt(limits.paidRequest)) || quote > maxCredits) throw new SpendingError(402, "request_spending_limit", "This request exceeds the workspace request allowance. Split the batch.");
     const idempotencyHash = idem ? await fingerprint(env, `account-idempotency:${idem}`) : null;
     const result = await env.APP_DB.prepare(`WITH owner AS (
-      SELECT a.id,a.balance,a.paid_balance,(a.paid_balance>0 OR (a.billing_plan IN ('pro','max','scale') AND a.reset_at::timestamptz>now())) AS funded,k.id AS agent_id FROM app_accounts a JOIN app_agents k ON k.account_id=a.id
+      SELECT a.id,a.balance,a.paid_balance,a.billing_plan,(a.paid_balance>0 OR (a.billing_plan IN ('pro','max','scale') AND a.reset_at::timestamptz>now())) AS funded,k.id AS agent_id FROM app_accounts a JOIN app_agents k ON k.account_id=a.id
       WHERE k.token_hash=? AND k.status IN ('pending','connected') AND NOT a.billing_hold FOR UPDATE OF a
     ), held AS (
       INSERT INTO app_usage(id,account_id,agent_id,items,credits,status,created_at,paid_credits,usage_type,metering_mode,idempotency_key,classifications)
@@ -84,9 +86,9 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
       FROM held h WHERE a.id=h.account_id RETURNING a.id
     ), agent AS (
       UPDATE app_agents a SET used=a.used+h.credits FROM held h,debited d WHERE a.id=h.agent_id AND d.id=h.account_id RETURNING a.id
-    ) SELECT h.account_id,h.agent_id,h.credits,o.funded FROM held h JOIN owner o ON o.id=h.account_id JOIN agent k ON k.id=h.agent_id`)
+    ) SELECT h.account_id,h.agent_id,h.credits,o.funded,o.billing_plan FROM held h JOIN owner o ON o.id=h.account_id JOIN agent k ON k.id=h.agent_id`)
       .bind(keyHash, id, items, quote, now(), quote, `${source} · ${scrape ? "URL classification" : "Classification"}`, idempotencyHash, decisions, !!scrape, quote, longContext || !!scrape)
-      .first<{ account_id: string; agent_id: string; credits: number; funded: boolean }>();
+      .first<{ account_id: string; agent_id: string; credits: number; funded: boolean; billing_plan: string }>();
     if (!result) {
       const reason = await env.APP_DB.prepare(`SELECT k.status,a.billing_hold,
         (a.paid_balance>0 OR (a.billing_plan IN ('pro','max','scale') AND a.reset_at::timestamptz>now())) AS funded,
@@ -119,7 +121,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
         }
         request = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(body), signal: request.signal });
       }
-      response = await worker.fetch(request, env as Env, ctx, { meter, account: { id: result.account_id, multiplier: result.funded ? 10 : 1 }, funded: result.funded });
+      response = await worker.fetch(request, env as Env, ctx, { meter, account: { id: result.account_id, multiplier: rateLimitMultiplier(result.billing_plan, result.funded) }, funded: result.funded });
       if (permit?.error && !(response.ok && permit.error.code === "request_spending_limit")) response = errorResponse(permit.error);
     } catch (error) {
       response = error instanceof SpendingError ? errorResponse(error) : Response.json({ error: "Classification failed." }, { status: 502 });
@@ -153,6 +155,9 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
             outputTokens: tokens.every(t => t.outputTokens !== null) ? tokens.reduce((sum, t) => sum + t.outputTokens!, 0) : null,
             cachedInputTokens: null, model: tokens.map(t => t.model).join(","), providerCostUsd: actual?.unknown || scrapeCharged ? null : (actual?.used ?? 0) / 1e9,
             retailCostUsd: charge ? Number(charge.nanodollars) / 1e9 : response.ok ? null : 0, latencyMs: Date.now() - started, escalations: typeof escalations === "number" ? escalations : 0 });
+          // The settled charge may have taken the balance below the owner's
+          // auto top-up threshold; the claim statement enforces every limit.
+          if (response.ok) { try { await maybeAutoTopUp(env, result.account_id); } catch { /* the sweep retries */ } }
           return;
         } catch { /* Durable pending funds remain unavailable until reconciliation. */ }
       }

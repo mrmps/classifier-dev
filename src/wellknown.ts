@@ -22,7 +22,7 @@ export const SITE_UPDATED = "2026-09-22";
 
 export const SITE = {
   name: "classifier.dev",
-  tagline: "Zero-shot text classification over plain HTTP. Free without a key; Pro for 10x limits.",
+  tagline: "Zero-shot text classification over plain HTTP. Free without a key; paid plans raise rate limits 10-100x.",
   author: { name: "Michael Ryaboy", handle: "michael_chomsky", x: "https://x.com/michael_chomsky", cal: "https://cal.com/michaelsf/coffee" },
   repo: "https://github.com/mrmps/classifier-dev",
   email: "contact@classifier.dev",
@@ -352,7 +352,7 @@ classifier.dev does not implement that spec's agent registration or token exchan
   an apiKey value, so use a non-empty placeholder such as "unused"; it is ignored.
 - **service_auth (workspace key)** — classifier_agent_ keys charge the workspace
   credit balance. Create and manage keys in /app/keys. Free workspaces have
-  the public ceilings, shared across keys. Pro workspaces get 10x limits:
+  the public ceilings, shared across keys. Paid plans raise them: Pro 10x, Scale 100x:
   fast 30,000/minute and 200,000/day; smart 2,000/minute and 20,000/day,
   shared across keys and agents. Pro accepts up to 1,000 inputs per request.
 - **service_auth (partner key)** — separately arranged limits;

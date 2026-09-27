@@ -546,8 +546,20 @@ PRO
   Usage is charged to the workspace balance at the published input-token and escalation prices.
   Smart costs the same as Fast when no escalation is needed. A paid request
   admitted with a positive available balance can finish and leave a negative
-  balance. New requests stop at zero or below until funds are added. There are
-  no automatic top-ups.
+  balance. New requests stop at zero or below until funds are added.
+
+
+SCALE
+
+  Price                    $${BILLING_PLANS.scale.priceCents / 100}/month
+  Included usage           ${formatCreditsUsd(BILLING_PLANS.scale.includedCredits)} each month
+  Workspace seats          unlimited
+  Rate limits              100x Free, shared across workspace keys and agents
+  Billing                  https://classifier.dev/app/plans
+
+  The same metered prices as Pro with ten times the monthly allowance and
+  rate limits sized for production traffic.
+
 
   Funded workspaces skip the shared free pool and proxy checks. Each request
   has a default $10 provider-cost ceiling. Its maximum customer charge is held
@@ -577,6 +589,17 @@ ENTERPRISE
   roughly how many classifications a day; the answer comes back with a
   price, and the accuracy or latency you are buying is measured on your
   own data before you commit.
+
+PAY AS YOU GO
+
+  Top-ups                  $5 to $1,000 per purchase, whole dollars
+  Auto recharge            optional; charges the saved payment method when
+                           the balance falls below your threshold, with an
+                           optional calendar-month maximum
+  Where                    https://classifier.dev/app/credits
+
+  Purchased funds never expire and are spent after any included plan
+  allowance. Balances update only after the payment is confirmed.
 
 
 USAGE PRICES

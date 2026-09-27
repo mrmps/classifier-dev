@@ -273,3 +273,64 @@ test("a stale refund cannot mutate a held wallet after a newer sync starts", asy
   expect((await env.APP_DB.prepare("SELECT revoked_at FROM app_autumn_grants WHERE invoice_id='invoice_1'").first())?.revoked_at).toBeNull();
   expect((await env.APP_DB.prepare("SELECT reconciliation_required FROM app_autumn_customers WHERE account_id='a'").first())?.reconciliation_required).toBe(true);
 });
+
+test("a paid Scale period grants its own allowance, plan and transaction exactly once", async () => {
+  const scaleEnv = { ...env, AUTUMN_SCALE_PLAN_ID: "scale" };
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  const start = Date.now() - 60_000, end = Date.now() + 86400_000;
+  provider((path) => path.endsWith("customers.get") ? { id: "workspace_a", subscriptions: [{
+    id: "sub_1", plan_id: "scale", status: "active", past_due: false, current_period_start: start, current_period_end: end,
+  }] } : { list: [{ customer_id: "workspace_a", entity_id: null, status: "paid", currency: "usd", amount_paid: 200, total: 200,
+    refunded_amount: 0, stripe_id: "scale_invoice_1", items: [{ plan_id: "scale", feature_id: null, amount: 200, period_start: start, period_end: end }],
+  }] });
+  await reconcileAutumnCustomer(scaleEnv, "workspace_a");
+  await reconcileAutumnCustomer(scaleEnv, "workspace_a");
+  expect(await env.APP_DB.prepare("SELECT balance,billing_plan FROM app_accounts WHERE id='a'").first())
+    .toEqual({ balance: 20000000, billing_plan: "scale" });
+  expect(await env.APP_DB.prepare("SELECT kind,amount_cents,credits,plan_id FROM app_transactions").first())
+    .toEqual({ kind: "subscription", amount_cents: 20000, credits: 20000000, plan_id: "scale" });
+  // Without the Scale plan configured, the same customer state cannot grant.
+  expect((await env.APP_DB.prepare("SELECT COUNT(*) AS count FROM app_autumn_grants").first())?.count).toBe(1);
+});
+
+test("a Scale subscription never matches a Pro-priced invoice and stays retryable", async () => {
+  const scaleEnv = { ...env, AUTUMN_SCALE_PLAN_ID: "scale" };
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  const start = Date.now() - 60_000, end = Date.now() + 86400_000;
+  provider((path) => path.endsWith("customers.get") ? { id: "workspace_a", subscriptions: [{
+    id: "sub_1", plan_id: "scale", status: "active", past_due: false, current_period_start: start, current_period_end: end,
+  }] } : { list: [{ customer_id: "workspace_a", entity_id: null, status: "paid", currency: "usd", amount_paid: 20, total: 20,
+    refunded_amount: 0, stripe_id: "wrong_invoice", items: [{ plan_id: "pro", feature_id: null, amount: 20, period_start: start, period_end: end }],
+  }] });
+  await expect(reconcileAutumnCustomer(scaleEnv, "workspace_a")).rejects.toThrow("paid invoice");
+  expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='a'").first())?.balance).toBe(500000);
+});
+
+test("an ended Scale plan expires its allowance and checkout routes any active plan to the portal", async () => {
+  const scaleEnv = { ...env, AUTUMN_SCALE_PLAN_ID: "scale" };
+  await env.APP_DB.prepare("INSERT INTO app_autumn_customers(account_id,customer_id) VALUES('a','workspace_a')").run();
+  await env.APP_DB.prepare("UPDATE app_accounts SET billing_plan='scale',balance=1000000,paid_balance=123 WHERE id='a'").run();
+  provider(() => ({ id: "workspace_a", subscriptions: [] }));
+  await reconcileAutumnCustomer(scaleEnv, "workspace_a");
+  expect(await env.APP_DB.prepare("SELECT balance,billing_plan FROM app_accounts WHERE id='a'").first())
+    .toEqual({ balance: 123, billing_plan: "free" });
+  // An active Pro subscription routes a Scale checkout to the portal.
+  provider((path, body) => {
+    if (path.endsWith("get_or_create")) return { id: body.customer_id };
+    if (path.endsWith("customers.get")) return { id: body.customer_id, subscriptions: [{
+      id: "sub_1", plan_id: "pro", status: "active", past_due: false, current_period_start: Date.now() - 1, current_period_end: Date.now() + 86400_000,
+    }] };
+    expect(path.endsWith("open_customer_portal")).toBe(true);
+    return { customer_id: body.customer_id, url: "https://billing.stripe.com/session" };
+  });
+  expect((await createAutumnCheckout(scaleEnv, "a", "https://classifier.dev/app/plans", "scale")).url).toContain("billing.stripe.com");
+  // With no subscriptions, a Scale checkout attaches the Scale plan.
+  provider((path, body) => {
+    if (path.endsWith("get_or_create")) return { id: body.customer_id };
+    if (path.endsWith("customers.get")) return { id: body.customer_id, subscriptions: [] };
+    expect(body.plan_id).toBe("scale");
+    expect(body.enable_plan_immediately).toBe(false);
+    return { customer_id: body.customer_id, payment_url: "https://checkout.stripe.com/scale" };
+  });
+  expect((await createAutumnCheckout(scaleEnv, "a", "https://classifier.dev/app/plans", "scale")).url).toContain("checkout.stripe.com");
+});

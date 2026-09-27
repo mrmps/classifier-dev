@@ -132,6 +132,8 @@ export interface AppEnv extends AccountAnalyticsEnv {
   AUTUMN_SECRET_KEY?: string;
   AUTUMN_WEBHOOK_SECRET?: string;
   AUTUMN_PRO_PLAN_ID?: string;
+  AUTUMN_SCALE_PLAN_ID?: string;
+  AUTUMN_TOPUP_PLAN_ID?: string;
   APP_ORIGIN?: string;
   WORKOS_API_KEY?: string;
   WORKOS_CLIENT_ID?: string;

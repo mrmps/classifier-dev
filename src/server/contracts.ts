@@ -10,6 +10,17 @@ export interface BillingSnapshot {
   cancelAtPeriodEnd: boolean;
   complimentaryUntil: string | null;
   mode: "autumn" | "unconfigured";
+  /** Pay-as-you-go purchases are configured and available for this deployment. */
+  payAsYouGo: boolean;
+  autoTopUp: {
+    enabled: boolean;
+    amountCents: number;
+    thresholdCents: number;
+    /** 0 disables the calendar-month maximum. */
+    capCents: number;
+    monthUsedCents: number;
+    lastFailure: { reason: string; at: string } | null;
+  };
   transactions: Array<{
     id: string;
     createdAt: string;

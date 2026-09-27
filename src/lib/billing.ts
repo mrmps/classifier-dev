@@ -1,6 +1,6 @@
 /** Money stays in integer credits until presentation: one credit is $0.00001. */
 export const CREDITS_PER_DOLLAR = 100_000;
-export type BillingPlanId = "free" | "pro" | "max" | "scale";
+export type BillingPlanId = "free" | "pro" | "scale";
 export const BILLING_PLANS = {
   free: {
     id: "free",
@@ -8,6 +8,7 @@ export const BILLING_PLANS = {
     priceCents: 0,
     seatLimit: 1,
     includedCredits: 500_000,
+    rateLimitMultiplier: 1,
     description: "Start free. Upgrade your plan when you need more.",
   },
   pro: {
@@ -16,33 +17,42 @@ export const BILLING_PLANS = {
     priceCents: 2_000,
     seatLimit: 3,
     includedCredits: 2_000_000,
+    rateLimitMultiplier: 10,
     description: "For individual developers and personal agents.",
-  },
-  max: {
-    id: "max",
-    name: "Max",
-    priceCents: 10_000,
-    seatLimit: 3,
-    includedCredits: 13_000_000,
-    description: "For growing applications and frequent agent workloads.",
   },
   scale: {
     id: "scale",
     name: "Scale",
-    priceCents: 39_900,
+    priceCents: 20_000,
     seatLimit: null,
-    includedCredits: 60_000_000,
+    includedCredits: 20_000_000,
+    rateLimitMultiplier: 100,
     description: "For teams running classification in production.",
   },
 } as const;
-export const PAID_PLANS = [
-  BILLING_PLANS.pro,
-  BILLING_PLANS.max,
-  BILLING_PLANS.scale,
-];
+export const PAID_PLANS = [BILLING_PLANS.pro, BILLING_PLANS.scale];
 export const FREE_ALLOWANCE_CREDITS = BILLING_PLANS.free.includedCredits;
 export function isBillingPlanId(value: unknown): value is BillingPlanId {
   return typeof value === "string" && Object.hasOwn(BILLING_PLANS, value);
+}
+/** Rate limits are the one thing plans change besides included credits, so an
+ * unknown or legacy plan id falls back to the paid Pro multiplier, never free. */
+export function rateLimitMultiplier(plan: string, funded: boolean): number {
+  if (isBillingPlanId(plan) && plan !== "free")
+    return BILLING_PLANS[plan].rateLimitMultiplier;
+  return funded ? BILLING_PLANS.pro.rateLimitMultiplier : 1;
+}
+/** Pay-as-you-go top-ups: whole dollars, bounded so one typo cannot run away. */
+export const TOP_UP_MIN_CENTS = 500;
+export const TOP_UP_MAX_CENTS = 100_000;
+export function isValidTopUpCents(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= TOP_UP_MIN_CENTS &&
+    value <= TOP_UP_MAX_CENTS &&
+    value % 100 === 0
+  );
 }
 export const creditsToDollars = (credits: number) =>
   credits / CREDITS_PER_DOLLAR;

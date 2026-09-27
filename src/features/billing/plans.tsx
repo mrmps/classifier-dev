@@ -15,6 +15,7 @@ import {
 import { ArrowRight, ArrowUpRight, Check } from "@/components/ui/icons";
 import {
   BILLING_PLANS,
+  PAID_PLANS,
   formatCents,
   formatCreditsUsd,
   creditsToDollars,
@@ -68,9 +69,9 @@ export function Plans({
       const { billingRedirect } = await import("./checkout");
       window.location.assign(
         await billingRedirect(
-          selected.id === "free" || current.id === "pro"
-            ? "portal"
-            : "checkout",
+          selected.id === "free" || current.id !== "free"
+            ? { action: "portal" }
+            : { action: "checkout", plan: selected.id },
         ),
       );
     } catch (cause) {
@@ -182,8 +183,11 @@ export function Plans({
         </CardContent>
       </Card>
 
-      <section className="grid items-stretch gap-4" aria-label="Paid plans">
-        {[BILLING_PLANS.pro].map((plan) => (
+      <section
+        className="grid items-stretch gap-4 sm:grid-cols-2"
+        aria-label="Paid plans"
+      >
+        {PAID_PLANS.map((plan) => (
           <Card
             key={plan.id}
             className={
@@ -226,6 +230,7 @@ export function Plans({
               </div>
               <ul className="flex flex-col gap-3">
                 {[
+                  `${plan.rateLimitMultiplier}× classification rate limits`,
                   plan.seatLimit === null
                     ? "Unlimited workspace seats"
                     : `${plan.seatLimit} workspace seats`,
@@ -271,7 +276,7 @@ export function Plans({
           </table>
         </div>
         <p className="text-sm text-muted-foreground">Smart reviews uncertain answers. You pay extra only for successful escalations. For example, 1 million input tokens with 50 Smart escalations cost $0.142.</p>
-        <p className="text-xs text-muted-foreground">Output tokens are free. Input usage includes text, labels and instructions. Retries, fallback routing and Smart model tokens add no separate charges. No automatic top-ups.</p>
+        <p className="text-xs text-muted-foreground">Output tokens are free. Input usage includes text, labels and instructions. Retries, fallback routing and Smart model tokens add no separate charges. Pay-as-you-go top-ups and optional auto recharge live on the billing page.</p>
       </section>
 
       <Card className="shadow-none">
