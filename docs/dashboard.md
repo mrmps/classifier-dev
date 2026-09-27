@@ -19,8 +19,9 @@ configuring development credentials in `.dev.vars`; see
   anonymous MCP remains available where a client supports it.
 - Usage provides hourly/daily charts and filters. Activity lists recent requests.
   Analytics can be delayed or sampled and must not be used as a billing ledger.
-- Billing displays the plan, available funds, usage and upgrade actions. No
-  pay-as-you-go purchases or automatic top-ups are offered.
+- Billing displays the plan, available funds, usage and upgrade actions, plus
+  pay-as-you-go top-ups ($5-$1,000) and owner-configured auto recharge with a
+  balance threshold and an optional calendar-month maximum.
 - All app pages retain the sidebar. `/app/onboarding` remains directly accessible
   for testing, with no ordinary navigation back to the completed onboarding.
 
