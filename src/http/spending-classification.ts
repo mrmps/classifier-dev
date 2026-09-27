@@ -121,7 +121,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
         }
         request = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(body), signal: request.signal });
       }
-      response = await worker.fetch(request, env as Env, ctx, { meter, account: { id: result.account_id, multiplier: rateLimitMultiplier(result.billing_plan, result.funded) }, funded: result.funded });
+      response = await worker.fetch(request, env as Env, ctx, { meter, account: { id: result.account_id, multiplier: rateLimitMultiplier(result.billing_plan, result.funded, keyHash, env.API_KEY_RATE_LIMIT_MULTIPLIERS) }, funded: result.funded });
       if (permit?.error && !(response.ok && permit.error.code === "request_spending_limit")) response = errorResponse(permit.error);
     } catch (error) {
       response = error instanceof SpendingError ? errorResponse(error) : Response.json({ error: "Classification failed." }, { status: 502 });

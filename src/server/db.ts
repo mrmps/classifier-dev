@@ -129,6 +129,7 @@ export interface AppEnv extends AccountAnalyticsEnv {
   API_KEY_ENCRYPTION_KEY?: string;
   BILLING_SIGNING_KEY?: string;
   APP_ACCOUNTS_ENABLED?: string;
+  API_KEY_RATE_LIMIT_MULTIPLIERS?: string;
   AUTUMN_SECRET_KEY?: string;
   AUTUMN_WEBHOOK_SECRET?: string;
   AUTUMN_PRO_PLAN_ID?: string;

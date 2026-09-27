@@ -37,10 +37,20 @@ export function isBillingPlanId(value: unknown): value is BillingPlanId {
 }
 /** Rate limits are the one thing plans change besides included credits, so an
  * unknown or legacy plan id falls back to the paid Pro multiplier, never free. */
-export function rateLimitMultiplier(plan: string, funded: boolean): number {
-  if (isBillingPlanId(plan) && plan !== "free")
-    return BILLING_PLANS[plan].rateLimitMultiplier;
-  return funded ? BILLING_PLANS.pro.rateLimitMultiplier : 1;
+export function rateLimitMultiplier(plan: string, funded: boolean, keyHash?: string, overrides?: string): number {
+  const base = isBillingPlanId(plan) && plan !== "free"
+    ? BILLING_PLANS[plan].rateLimitMultiplier
+    : funded ? BILLING_PLANS.pro.rateLimitMultiplier : 1;
+  if (!funded || !keyHash || !overrides) return base;
+  try {
+    const configured: unknown = JSON.parse(overrides);
+    if (!configured || typeof configured !== "object" || Array.isArray(configured) || !Object.hasOwn(configured, keyHash)) return base;
+    const value = (configured as Record<string, unknown>)[keyHash];
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 1000
+      ? Math.max(base, value) : base;
+  } catch {
+    return base;
+  }
 }
 /** Pay-as-you-go top-ups: whole dollars, bounded so one typo cannot run away. */
 export const TOP_UP_MIN_CENTS = 500;

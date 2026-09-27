@@ -447,6 +447,13 @@ through `CLASSIFY_API_KEY` or `CLASSIFIER_API_KEY`. It does not authorize privat
 reports or admin access. Keep it in an ignored secret file; never give it to
 public clients. Anonymous quotas continue to apply to unauthenticated traffic.
 
+For a funded workspace key with an arranged bulk quota, set the
+`API_KEY_RATE_LIMIT_MULTIPLIERS` Worker secret to a JSON object mapping the
+SHA-256 hex digest of each key to an integer multiplier (1–1,000). Overrides only
+raise the admission quota for that key; account counters, balance charging,
+model capacity limits, and other keys remain unchanged. Remove the entry to
+restore the plan quota.
+
 ## Finding the classification code
 
 The domain terms are defined in [CONTEXT.md](CONTEXT.md).

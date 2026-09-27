@@ -3,7 +3,7 @@ import { spendingClassification } from "./spending-classification";
 import worker, { type Env } from "../index";
 import { newMeter } from "../cost";
 import rates from "../retail-rates.json";
-import { AppError, type AppEnv } from "../server/db";
+import { AppError, hashToken, type AppEnv } from "../server/db";
 import { requireApiAccount } from "../server/account-access";
 import { authorizeAndReserve } from "../server/usage";
 import { parseTokenRateCard, priceTokens } from "../server/token-pricing";
@@ -94,7 +94,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   let response: Response;
   try {
     response = await worker.fetch(new Request(request.url, { method: "POST", headers: request.headers, body: text }), env as Env, ctx,
-      { account: { id: accountId, multiplier: rateLimitMultiplier(reservation.billingPlan, reservation.billingPlan !== "free") }, meter });
+      { account: { id: accountId, multiplier: rateLimitMultiplier(reservation.billingPlan, reservation.billingPlan !== "free", await hashToken(request.headers.get("authorization")!.replace(/^Bearer\s+/i, "")), env.API_KEY_RATE_LIMIT_MULTIPLIERS) }, meter });
     await reservationQueue;
     if (admissionError) throw admissionError;
   } catch (error) {
