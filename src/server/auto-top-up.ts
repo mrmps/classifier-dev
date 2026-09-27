@@ -52,7 +52,11 @@ export async function maybeAutoTopUp(env: AutumnEnv, accountId: string): Promise
   await env.APP_DB.prepare("UPDATE app_auto_topup_attempts SET invoice_id=?,updated_at=? WHERE id=? AND status='pending'")
     .bind(charge.invoiceId, new Date().toISOString(), claim.id).run();
   // Credit promptly; the webhook and the scheduled sweep are the backstops.
-  try { await reconcileAutumnCustomer(env, mapping.customer_id); } catch { /* retryable */ }
+  // A fresh invoice can lag the provider's invoice listing by a few seconds.
+  try { await reconcileAutumnCustomer(env, mapping.customer_id); } catch {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    try { await reconcileAutumnCustomer(env, mapping.customer_id); } catch { /* retryable */ }
+  }
   return true;
 }
 
