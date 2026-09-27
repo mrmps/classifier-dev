@@ -157,6 +157,10 @@ TYPESAFE SDK COMPATIBILITY
   a text-only guess. A body it refuses is 400 dgemma_input with its reason, a
   saturated model is 429 dgemma_busy with Retry-After, and images sent under
   another model are 400 images_unsupported.
+  Images are the only media. Audio and video bodies (audio, audios, video or
+  videos keys) are 400 dgemma_input rather than silently ignored: audio has
+  no input path into DiffusionGemma at all, and video, which the model can
+  read, is not served yet.
   The output is structured answers, not generated image data. The TypeSafe
   JavaScript SDK 0.6.0 forwards images at runtime but its TypeScript request
   type omits that field; direct HTTP exposes the documented JSON contract.

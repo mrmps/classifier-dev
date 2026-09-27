@@ -79,6 +79,12 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   TypeSafe's. Nothing answers for the other: a refused body is `dgemma_input`,
   a busy service `dgemma_busy`, a down or unconfigured one `dgemma_unavailable`,
   and images under another model `images_unsupported`. Billed by the hour.
+  Images are dgemma's only media: the interposer silently drops keys it does
+  not read, so a dgemma body carrying `audio`, `audios`, `video` or `videos`
+  is refused with `dgemma_input` at the door rather than answered by a model
+  that never saw the media. Audio has no input path into DiffusionGemma;
+  video the model can read (vllm-project/vllm#57589) but the interposer does
+  not serve it yet — enabling it is a pod-side change, not a Worker one.
 - The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
   text, the signup form and the Markdown all render from it. Addresses go to the
   `subscriber` table in the shared application Neon database. Preserve consent,

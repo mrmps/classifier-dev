@@ -98,6 +98,31 @@ test("images under another model, malformed images and too many images are refus
   expect(calls).toHaveLength(0);
 });
 
+test("audio and video are refused at the door, never silently dropped by the pod", async () => {
+  const calls = mockUpstreams();
+  const WAV = "data:audio/wav;base64," + Buffer.from("riff").toString("base64");
+  const MP4 = "data:video/mp4;base64,AAAA";
+  // The pod's interposer ignores keys it does not read, so each of these would
+  // otherwise come back as a confident answer about media the model never saw.
+  for (const [body, word] of [
+    [{ model: "dgemma", state: "x", audio: [WAV], questions: QUESTIONS }, "audio"],
+    [{ model: "dgemma", state: "x", audios: [WAV], questions: QUESTIONS }, "audio"],
+    [{ model: "dgemma", state: "x", video: [MP4], questions: QUESTIONS }, "video"],
+    [{ model: "dgemma", state: "x", videos: [MP4], questions: QUESTIONS }, "video"],
+    [{ state: "x", images: [PNG], video: [MP4], questions: QUESTIONS }, "video"],
+  ] as const) {
+    const response = await post(body);
+    expect(response.status).toBe(400);
+    const answer = await response.json() as { code: string; error: string };
+    expect(answer.code).toBe("dgemma_input");
+    expect(answer.error).toContain(word);
+  }
+  // Audio or video without images and without naming dgemma stays TypeSafe's to validate.
+  const plain = await post({ state: "x", audio: [WAV], questions: QUESTIONS });
+  expect(plain.status).toBe(200);
+  expect(calls.map((c) => c.url)).toEqual(["https://api.typesafe.ai/v1/systemone"]);
+});
+
 test("without the service configured or enabled, an image or dgemma request is unavailable, never answered by Jev", async () => {
   const calls = mockUpstreams();
   for (const bindings of [{ ...env, DGEMMA_URL: undefined }, { ...env, DGEMMA_TOKEN: undefined }, { ...env, DGEMMA_ENABLED: "false" }]) {
