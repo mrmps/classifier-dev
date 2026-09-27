@@ -60,7 +60,7 @@ test("canonical state wins over webhook payload; duplicate events do not refetch
   expect((await autumnWebhook(signed("event1"), env)).status).toBe(204);
   expect(calls).toBe(1);
   const state = await env.APP_DB.prepare("SELECT snapshot,reconciliation_required FROM app_autumn_customers WHERE account_id='a'").first();
-  expect(state?.snapshot).toEqual({ id: "workspace_a", subscriptions: [] });
+  expect(state?.snapshot).toEqual({ id: "workspace_a", subscriptions: [], paymentMethod: { type: "none" } });
   expect(state?.reconciliation_required).toBe(false);
   expect((await env.APP_DB.prepare("SELECT balance FROM app_accounts WHERE id='a'").first())?.balance).toBe(500000);
 });

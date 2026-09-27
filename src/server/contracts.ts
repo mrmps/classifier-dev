@@ -12,6 +12,13 @@ export interface BillingSnapshot {
   mode: "autumn" | "unconfigured";
   /** Pay-as-you-go purchases are configured and available for this deployment. */
   payAsYouGo: boolean;
+  /** Saved payment method summary cached at the last reconciliation.
+   * null means not yet observed; "none" means no method is on file. */
+  paymentMethod:
+    | { type: "card"; brand: string; last4: string; expMonth: number; expYear: number }
+    | { type: "other" }
+    | { type: "none" }
+    | null;
   autoTopUp: {
     enabled: boolean;
     amountCents: number;

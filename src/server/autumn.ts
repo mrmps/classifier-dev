@@ -43,7 +43,26 @@ export type AutumnCustomer = {
     current_period_start: number | null; current_period_end: number | null;
     canceled_at: number | null;
   }>;
+  /** Saved-card summary for display, or {type:"none"} when the provider
+   * reported no saved method. Advisory only: never a payment authorization. */
+  paymentMethod: PaymentMethodSummary;
 };
+export type PaymentMethodSummary =
+  | { type: "card"; brand: string; last4: string; expMonth: number; expYear: number }
+  | { type: "other" }
+  | { type: "none" };
+function paymentMethodSummary(value: unknown): PaymentMethodSummary {
+  if (!value || typeof value !== "object") return { type: "none" };
+  const method = value as { type?: unknown; card?: { brand?: unknown; last4?: unknown; exp_month?: unknown; exp_year?: unknown } | null };
+  const card = method.card;
+  if (method.type === "card" && card && typeof card === "object" &&
+    typeof card.brand === "string" && /^[a-z_]{1,20}$/.test(card.brand) &&
+    typeof card.last4 === "string" && /^\d{4}$/.test(card.last4) &&
+    typeof card.exp_month === "number" && Number.isSafeInteger(card.exp_month) && card.exp_month >= 1 && card.exp_month <= 12 &&
+    typeof card.exp_year === "number" && Number.isSafeInteger(card.exp_year) && card.exp_year >= 2000 && card.exp_year <= 3000)
+    return { type: "card", brand: card.brand, last4: card.last4, expMonth: card.exp_month, expYear: card.exp_year };
+  return { type: "other" };
+}
 const unavailable = () => new AppError(503, "Billing is temporarily unavailable.");
 
 /** Version pinned to the published Autumn REST contract. No automatic retries
@@ -64,7 +83,7 @@ export async function autumnRequest(env: AutumnEnv, path: string, payload: unkno
 }
 
 export async function getAutumnCustomer(env: AutumnEnv, customerId: string): Promise<AutumnCustomer> {
-  const data = await autumnRequest(env, "customers.get", { customer_id: customerId });
+  const data = await autumnRequest(env, "customers.get", { customer_id: customerId, expand: ["payment_method"] });
   if (data.id !== customerId || !Array.isArray(data.subscriptions)) throw unavailable();
   for (const subscription of data.subscriptions) {
     if (!subscription || typeof subscription !== "object" || typeof subscription.id !== "string" ||
@@ -75,7 +94,7 @@ export async function getAutumnCustomer(env: AutumnEnv, customerId: string): Pro
     id: subscription.id, plan_id: subscription.plan_id, status: subscription.status, past_due: subscription.past_due,
     current_period_start: subscription.current_period_start, current_period_end: subscription.current_period_end,
     canceled_at: subscription.canceled_at ?? null,
-  })) };
+  })), paymentMethod: paymentMethodSummary(data.payment_method) };
 }
 
 async function customerForWorkspace(env: AutumnEnv, accountId: string) {

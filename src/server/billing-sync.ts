@@ -71,8 +71,8 @@ export async function reconcileAutumnCustomer(env: AutumnEnv, customerId: string
   // Unmapped customers belong to the old deployment or another application.
   if (!mapping) return false;
   const customer = await getAutumnCustomer(env, customerId);
-  const snapshot = await env.APP_DB.prepare("UPDATE app_autumn_customers SET snapshot=?::jsonb,synced_at=?,reconciliation_required=TRUE WHERE customer_id=? AND revision=?")
-    .bind(JSON.stringify(customer), new Date().toISOString(), customerId, mapping.revision).run();
+  const snapshot = await env.APP_DB.prepare("UPDATE app_autumn_customers SET snapshot=?::jsonb,payment_method=?::jsonb,synced_at=?,reconciliation_required=TRUE WHERE customer_id=? AND revision=?")
+    .bind(JSON.stringify(customer), JSON.stringify(customer.paymentMethod), new Date().toISOString(), customerId, mapping.revision).run();
   if (!snapshot.meta.changes) throw new AppError(503, "Subscription reconciliation was superseded by a newer sync.");
   const finish = async () => {
     const result = await env.APP_DB.prepare("UPDATE app_autumn_customers SET reconciliation_required=FALSE WHERE customer_id=? AND revision=?")

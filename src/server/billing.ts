@@ -20,6 +20,9 @@ export async function billingSnapshot(
       auto_top_up_cap_cents: number;
     }>();
   if (!row) throw new AppError(404, "Account not found.");
+  const paymentMethodRow = await env.APP_DB.prepare(
+    "SELECT payment_method FROM app_autumn_customers WHERE account_id=?",
+  ).bind(accountId).first<{ payment_method: BillingSnapshot["paymentMethod"] }>();
   const month = new Date().toISOString().slice(0, 7);
   const autoTopUpMonth = await env.APP_DB.prepare(
     "SELECT COALESCE(SUM(amount_cents),0) AS used FROM app_auto_topup_attempts WHERE account_id=? AND month=? AND status IN ('pending','charged')",
@@ -63,6 +66,7 @@ export async function billingSnapshot(
       env.APP_ACCOUNTS_ENABLED === "true" &&
       !!env.AUTUMN_SECRET_KEY &&
       !!env.AUTUMN_TOPUP_PLAN_ID,
+    paymentMethod: paymentMethodRow?.payment_method ?? null,
     autoTopUp: {
       enabled: !!row.auto_top_up_enabled,
       amountCents: row.auto_top_up_amount_cents,
