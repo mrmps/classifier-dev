@@ -662,6 +662,53 @@ export const OPENAPI = {
       operationId: "cancelLongContextJob", tags: ["classify"], summary: "Refund an unfinished job",
       security: [{ accountKey: [] }], parameters: [JOB_ID], responses: JOB_RESPONSE,
     } },
+    "/v1/market/compare": {
+      post: {
+        operationId: "marketCompare",
+        summary: "Ask a simulated audience which option it prefers",
+        description: "Polls a panel drawn from a 285k-persona census-grounded US adult corpus on which of 2-4 short options it prefers. The audience is plain English; the same audience string and population always poll the same panel, so repeated calls are comparable experiments. The first call for an audience resolves and scores it (about $0.015, 15s at the default population); later calls reuse the panel and answer in about a second. Estimates relative preference only, never conversion or market size. Requires an account key; billed per token like classification.",
+        tags: ["classify"],
+        security: [{ accountKey: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: {
+            type: "object",
+            required: ["audience", "options"],
+            additionalProperties: false,
+            properties: {
+              audience: { type: "string", maxLength: 400, description: "Who should judge, in plain English." },
+              options: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", required: ["content"], additionalProperties: false, properties: { id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,32}$" }, content: { type: "string", maxLength: 2000 } } } },
+              decision: { type: "string", maxLength: 500, description: "The question each panelist answers; defaults to which option they find more appealing." },
+              population: { type: "integer", minimum: 50, maximum: 2000, default: 500 },
+            },
+          } } },
+        },
+        responses: {
+          "200": {
+            description: "Weighted preference shares with diagnostics.",
+            content: { "application/json": { schema: {
+              type: "object",
+              properties: {
+                preference: { type: "object", additionalProperties: { type: "number" }, description: "Probability-mass share per option id; sums to 1." },
+                interval: { type: "object", additionalProperties: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }, description: "95% band under the Kish effective sample size." },
+                position_bias: { type: ["number", "null"], description: "Share moved by option order; a gap smaller than this is a tie." },
+                mean_certainty: { type: "number", description: "0.5 = individual panelists torn, 1 = individually certain." },
+                effective_sample_size: { type: "integer" },
+                answered: { type: "integer" },
+                candidates: { type: "integer" },
+                segments: { type: "array", items: { type: "object", properties: { attribute: { type: "string" }, value: { type: "string" }, n: { type: "integer" }, preference: { type: "object", additionalProperties: { type: "number" } } } } },
+                audience_id: { type: "string" },
+                corpus_version: { type: "string" },
+                pricing: { type: "object" },
+                usage: { type: "object" },
+              },
+              required: ["preference", "answered"],
+            } } },
+          },
+          "422": { description: "The corpus cannot represent this audience; the error says why." },
+        },
+      },
+    },
     "/v1/classify": {
       post: {
         operationId: "classifyV1",

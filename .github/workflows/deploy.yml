@@ -169,12 +169,13 @@ jobs:
           CHUNKLAYA_TOKEN: ${{ secrets.CHUNKLAYA_TOKEN }}
           DGEMMA_URL: ${{ secrets.DGEMMA_URL }}
           DGEMMA_TOKEN: ${{ secrets.DGEMMA_TOKEN }}
+          MARKET_DATABASE_URL: ${{ secrets.MARKET_DATABASE_URL }}
         run: |
           node --input-type=module -e '
             import { writeFileSync } from "node:fs";
-            const { DATABASE_URL, CHUNKLAYA_URL, CHUNKLAYA_TOKEN, DGEMMA_URL, DGEMMA_TOKEN } = process.env;
+            const { DATABASE_URL, CHUNKLAYA_URL, CHUNKLAYA_TOKEN, DGEMMA_URL, DGEMMA_TOKEN, MARKET_DATABASE_URL } = process.env;
             writeFileSync(process.env.RUNNER_TEMP + "/classifier-secrets.json",
-              JSON.stringify({ DATABASE_URL, ...(CHUNKLAYA_URL && CHUNKLAYA_TOKEN ? { CHUNKLAYA_URL, CHUNKLAYA_TOKEN } : {}), ...(DGEMMA_URL && DGEMMA_TOKEN ? { DGEMMA_URL, DGEMMA_TOKEN } : {}) }), { mode: 0o600 });
+              JSON.stringify({ DATABASE_URL, ...(CHUNKLAYA_URL && CHUNKLAYA_TOKEN ? { CHUNKLAYA_URL, CHUNKLAYA_TOKEN } : {}), ...(DGEMMA_URL && DGEMMA_TOKEN ? { DGEMMA_URL, DGEMMA_TOKEN } : {}), ...(MARKET_DATABASE_URL ? { MARKET_DATABASE_URL } : {}) }), { mode: 0o600 });
           '
           npx wrangler deploy --secrets-file "$RUNNER_TEMP/classifier-secrets.json"
 

@@ -66,8 +66,8 @@ test("deployment migrates directly and gives the Worker only the pooled URL", ()
   expect(workflow).toContain("DATABASE_URL: ${{ secrets.DATABASE_URL_UNPOOLED }}\n        run: npm run db:migrate");
   // The Worker's secrets file carries the pooled URL and, only when both are
   // set, the chunklaya pair; the deploy step never sees the unpooled URL.
-  expect(workflow).toContain("const { DATABASE_URL, CHUNKLAYA_URL, CHUNKLAYA_TOKEN, DGEMMA_URL, DGEMMA_TOKEN } = process.env;");
-  expect(workflow).toContain("JSON.stringify({ DATABASE_URL, ...(CHUNKLAYA_URL && CHUNKLAYA_TOKEN ? { CHUNKLAYA_URL, CHUNKLAYA_TOKEN } : {}), ...(DGEMMA_URL && DGEMMA_TOKEN ? { DGEMMA_URL, DGEMMA_TOKEN } : {}) })");
+  expect(workflow).toContain("const { DATABASE_URL, CHUNKLAYA_URL, CHUNKLAYA_TOKEN, DGEMMA_URL, DGEMMA_TOKEN, MARKET_DATABASE_URL } = process.env;");
+  expect(workflow).toContain("JSON.stringify({ DATABASE_URL, ...(CHUNKLAYA_URL && CHUNKLAYA_TOKEN ? { CHUNKLAYA_URL, CHUNKLAYA_TOKEN } : {}), ...(DGEMMA_URL && DGEMMA_TOKEN ? { DGEMMA_URL, DGEMMA_TOKEN } : {}), ...(MARKET_DATABASE_URL ? { MARKET_DATABASE_URL } : {}) })");
   const deployStep = workflow.slice(workflow.indexOf("- name: Deploy\n"), workflow.indexOf("npx wrangler deploy"));
   expect(deployStep).not.toContain("UNPOOLED");
   expect(workflow).not.toContain("JSON.stringify({ DATABASE_URL_UNPOOLED:");

@@ -2,6 +2,7 @@ import legacy, { type Env } from "../index";
 import { AppError, type AppEnv } from "../server/db";
 import { accountReadRoutes } from "./account";
 import { accountClassification } from "./classification";
+import { accountMarket } from "./market";
 import { accountMcp } from "./mcp";
 
 /** Account responses, including failures, must remain readable by browser API clients. */
@@ -16,6 +17,7 @@ export async function accountApi(request: Request, env: AppEnv & Env, ctx: Execu
   try {
     response = await accountReadRoutes(request, env)
       ?? await accountMcp(request, env, ctx)
+      ?? await accountMarket(request, env, ctx)
       ?? await accountClassification(request, env, "API", ctx);
   } catch (error) {
     response = Response.json({ error: error instanceof AppError ? error.message : "Unable to complete this request." }, {
