@@ -39,6 +39,19 @@ function dollarsToCents(value: string): number | null {
   return Number(value.trim()) * 100;
 }
 
+const CARD_BRANDS: Record<string, string> = {
+  visa: "Visa",
+  mastercard: "Mastercard",
+  amex: "American Express",
+  discover: "Discover",
+  diners: "Diners Club",
+  jcb: "JCB",
+  unionpay: "UnionPay",
+};
+const brandName = (brand: string) =>
+  CARD_BRANDS[brand] ??
+  brand.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
+
 function failureMessage(reason: string) {
   if (reason === "payment_method_required")
     return "Your last automatic recharge needs a saved payment method.";
@@ -180,6 +193,9 @@ export function Credits({
     : null;
   const canManage = snapshot.organizations?.active.role === "owner";
   const payAsYouGo = billing.payAsYouGo && billing.mode === "autumn";
+  const paymentMethod = billing.paymentMethod;
+  // null means the card on file has not been observed yet; never block on it.
+  const missingCard = paymentMethod?.type === "none";
   const free = billing.plan === "free";
   const allowance = snapshot.credits.included;
   const allowanceDescription = free
@@ -320,11 +336,32 @@ export function Credits({
                   type="checkbox"
                   className="size-5 accent-foreground"
                   checked={autoEnabled}
-                  disabled={!canManage}
+                  disabled={!canManage || missingCard}
                   onChange={(event) => setAutoEnabled(event.target.checked)}
                 />
               </div>
-              {billing.autoTopUp.lastFailure && (
+              {missingCard && (
+                <Alert>
+                  <AlertTitle>Add a payment method first</AlertTitle>
+                  <AlertDescription>
+                    <p>
+                      Automatic recharges charge your saved payment method, so
+                      one must be on file before auto recharge can be enabled.
+                    </p>
+                    {canManage && (
+                      <Button
+                        size="sm"
+                        className="mt-2 w-fit"
+                        disabled={openingPortal}
+                        onClick={() => void openPortal("setup-payment")}
+                      >
+                        {openingPortal ? "Opening…" : "Add payment method"}
+                      </Button>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {billing.autoTopUp.lastFailure && !missingCard && (
                 <Alert>
                   <AlertTitle>Automatic recharge needs attention</AlertTitle>
                   <AlertDescription>
@@ -437,24 +474,61 @@ export function Credits({
           </div>
           <div className="flex flex-col gap-1 py-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <dt className="shrink-0 text-sm text-muted-foreground">
-              Payment methods & invoices
+              Payment method
             </dt>
-            <dd className="text-sm text-muted-foreground sm:max-w-sm sm:text-right">
-              {billing.mode === "autumn" && canManage ? (
-                <Button
-                  variant="outline"
-                  disabled={openingPortal}
-                  onClick={() => void openPortal()}
-                >
-                  {openingPortal ? "Opening…" : "Manage payments and invoices"}
-                </Button>
-              ) : billing.mode === "autumn" ? (
-                "Your workspace owner manages payments and invoices."
+            <dd className="flex flex-col gap-2 text-sm text-muted-foreground sm:max-w-sm sm:items-end">
+              {billing.mode === "autumn" ? (
+                <>
+                  {paymentMethod?.type === "card" ? (
+                    <p>
+                      <span className="font-medium text-foreground">
+                        {brandName(paymentMethod.brand)}{" "}
+                        <span className="tabular-nums">
+                          ···· {paymentMethod.last4}
+                        </span>
+                      </span>{" "}
+                      <span className="tabular-nums">
+                        · valid until {paymentMethod.expMonth}/
+                        {paymentMethod.expYear}
+                      </span>
+                    </p>
+                  ) : paymentMethod?.type === "other" ? (
+                    <p>A payment method is saved for this workspace.</p>
+                  ) : missingCard ? (
+                    <p>
+                      No payment method on file. Add one to enable credit
+                      purchases and automatic recharges.
+                    </p>
+                  ) : null}
+                  {canManage ? (
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      {missingCard && (
+                        <Button
+                          disabled={openingPortal}
+                          onClick={() => void openPortal("setup-payment")}
+                        >
+                          Add payment method
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        disabled={openingPortal}
+                        onClick={() => void openPortal()}
+                      >
+                        {openingPortal
+                          ? "Opening…"
+                          : "Manage payments and invoices"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p>Your workspace owner manages payments and invoices.</p>
+                  )}
+                </>
               ) : (
                 "Payment management is not connected yet."
               )}
               {portalError && (
-                <p role="alert" className="mt-2 text-destructive">
+                <p role="alert" className="text-destructive">
                   {portalError}
                 </p>
               )}
