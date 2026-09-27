@@ -10,19 +10,19 @@ export default atmn({
     name: "10× classification rate limits",
     type: "boolean",
   }), feature({
-    internalId: "fe_3JrMqs92gvWniLPaJPhqiVuPA8X",
+    internalId: "fe_3JtqAMjN11vaz5HeK7iB4G2Ax39",
     featureId: "classifier_scale_limits",
     name: "100× classification rate limits",
     type: "boolean",
   }), feature({
-    internalId: "fe_3JrMqrgKPokKsoXINHblHh1ohYW",
+    internalId: "fe_3JtqAOKawqnNIF802NDz16CfBAy",
     featureId: "credits",
     name: "Usage credits",
     type: "metered",
     consumable: true,
   })],
   plans: [plan({
-    internalId: "prod_3JY06U2NCtuwTdTAEkMlOlt79yA",
+    internalId: "prod_3JY0YnGHp7SRlaypoKnlwzJH4jE",
     planId: "pro",
     versionSlug: "v1",
     active: true,
@@ -30,7 +30,7 @@ export default atmn({
     price: { amount: 20, interval: "month" },
     items: [{ featureId: "classifier_pro_limits" }],
   }), plan({
-    internalId: "prod_3JrMqrNNqVvXC9wemjHgPNaoQR5",
+    internalId: "prod_3JtqAKECpKM8l96gDlt3K83BMvA",
     planId: "scale",
     versionSlug: "v1",
     active: true,
@@ -38,7 +38,7 @@ export default atmn({
     price: { amount: 200, interval: "month" },
     items: [{ featureId: "classifier_scale_limits" }],
   }), plan({
-    internalId: "prod_3JrMquITKMqYfKzHnUTWZXiRUgA",
+    internalId: "prod_3JtqAPIcSNONBZLSBBVD5eGvvfE",
     planId: "top_up",
     versionSlug: "v1",
     active: true,
