@@ -577,7 +577,8 @@ export const OPENAPI = {
           "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
           "Use any non-empty placeholder API key for anonymous per-IP limits, or a classifier_agent_ workspace key to use workspace quota, credits and usage history. Free workspaces have the public ceilings; Pro raises them 10x and Scale 100x. " +
           "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/. " +
-          "Images: set model to \"dgemma\" and add an images array of data URLs; the same questions are then answered about the images and the state by DiffusionGemma, never by Jev, and a body with images under another model is refused with images_unsupported.",
+          "Images: set model to \"dgemma\" and add an images array of data URLs; the same questions are then answered about the images and the state by DiffusionGemma, never by Jev, and a body with images under another model is refused with images_unsupported. " +
+          "Images are the only media: a dgemma body carrying audio, audios, video or videos is refused with dgemma_input rather than silently ignored — audio has no input path into DiffusionGemma, and video is not served yet.",
         tags: ["classify"],
         security: [{ accountKey: [] }, {}],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneRequest" } } } },
@@ -596,7 +597,7 @@ export const OPENAPI = {
           "402": { description: "The workspace balance cannot cover the provider reservation; TypeSafe is not called.", content: { "application/json": { schema: { type: "object" } } } },
           "403": { description: "The workspace key is inactive or the workspace cannot authorize usage.", content: { "application/json": { schema: { type: "object" } } } },
           "413": { description: "The request body exceeds 1 MB.", content: { "application/json": { schema: { type: "object" } } } },
-          "400": { description: "An image request was refused: images_unsupported (images under a model other than dgemma) or dgemma_input (a malformed image, too many images, or a schema the image-capable model refuses; its reason is the error).", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "400": { description: "An image request was refused: images_unsupported (images under a model other than dgemma) or dgemma_input (a malformed image, too many images, audio or video sent to the image-capable model, or a schema it refuses; its reason is the error).", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "429": { description: "classifier.dev or TypeSafe rate limit; Retry-After or Retry-After-Ms is preserved. dgemma_busy when the image-capable model is saturated.", headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS }, content: { "application/json": { schema: { type: "object" } } } },
           "502": { description: "TypeSafe could not be reached.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
           "503": { description: "The compatibility endpoint or workspace billing is temporarily unavailable; dgemma_unavailable when the image-capable model is down or not configured.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
@@ -1063,7 +1064,7 @@ export const OPENAPI = {
           images: {
             type: "array", minItems: 1, maxItems: 4,
             items: { type: "string", pattern: "^data:image/(png|jpeg|webp|gif);base64,", maxLength: 900000 },
-            description: "Images the questions are asked about, ahead of the state, as data URLs; at most 4 and 900,000 data URL characters in total. Only model \"dgemma\" reads them.",
+            description: "Images the questions are asked about, ahead of the state, as data URLs; at most 4 and 900,000 data URL characters in total. Only model \"dgemma\" reads them, and images are its only media: audio and video are refused with dgemma_input.",
           },
         },
         example: {

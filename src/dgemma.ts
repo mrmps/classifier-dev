@@ -10,6 +10,12 @@ import { addTokens, type Meter } from "./cost";
  * nowhere else: there is no fallback to Jev, which cannot look at the image,
  * and none the other way. Everything else on the route stays TypeSafe's to
  * validate, so the official SDKs keep their native behaviour.
+ *
+ * Images are the only media. The interposer drops keys it does not read, so
+ * audio or video sent through this door would be answered confidently by a
+ * model that never saw it; those bodies are refused here instead. Audio has
+ * no path into DiffusionGemma at all, and video, which the model itself can
+ * read, is not served by the interposer yet.
  */
 
 export const DGEMMA_MODEL = "dgemma";
@@ -44,6 +50,15 @@ export function dgemmaRoute(body: string): DgemmaRoute {
   if (!hasImages && !named) return { kind: "typesafe" };
   if (hasImages && parsed.model !== undefined && !named) {
     return refuse("images_unsupported", `Jev does not accept images; set model to "${DGEMMA_MODEL}" or remove images`);
+  }
+  // The interposer ignores keys it does not read, so audio or video traveling
+  // with this body would be silently dropped and the questions answered about
+  // the text alone. Refusing here is the honest answer.
+  for (const key of ["audio", "audios", "video", "videos"]) {
+    if (parsed[key] === undefined || parsed[key] === null) continue;
+    return refuse("dgemma_input", key.startsWith("audio")
+      ? `${DGEMMA_MODEL} reads text and images only; DiffusionGemma has no audio input, so remove ${key}`
+      : `${DGEMMA_MODEL} reads text and images only; video is not supported yet, so remove ${key}`);
   }
   if (hasImages) {
     if (!Array.isArray(images) || images.length === 0 || images.length > DGEMMA_MAX_IMAGES) {
