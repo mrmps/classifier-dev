@@ -1,4 +1,4 @@
-import { sharingConsent, requireSharingStorage, SharingError, SHARING_HINT, saveTrainingData } from "./training-data";
+import { sharingPreference, requireSharingStorage, SharingError, SHARING_HINT, SHARING_NOTICE, saveTrainingData } from "./training-data";
 import { requestTokens } from "./model-analytics";
 import { classificationUsage, classificationPricing } from "./classification-usage";
 import { classifyLongContext, LongContextError, longContextInputTokens, LONG_CONTEXT_THRESHOLD, LONG_CONTEXT_MAX_TOKENS, LONG_CONTEXT_MAX_INPUTS, LONG_CONTEXT_MAX_DECISIONS } from "./long-context";
@@ -217,7 +217,7 @@ const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
   "access-control-allow-headers": "Content-Type, Authorization, Accept, Prefer, Idempotency-Key, If-None-Match, Mcp-Session-Id, MCP-Protocol-Version, X-TypeSafe-SDK, X-TypeSafe-Runtime, X-TypeSafe-Retry-Count, X-Classifier-Share-Data",
-  "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, Retry-After-Ms, x-api-version, x-typesafe-request-id, Idempotency-Key, X-Classifier-Data-Sharing",
+  "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, Retry-After-Ms, x-api-version, x-typesafe-request-id, Idempotency-Key, X-Classifier-Data-Sharing, X-Classifier-Data-Policy",
 };
 
 /**
@@ -378,7 +378,7 @@ const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = 
   pricing: { doc: PRICING, title: "pricing", desc: "Start free, then add a workspace plan for usage credits, API keys and billing." },
   about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
   contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },
-  privacy: { doc: PRIVACY, title: "privacy", desc: "Request privacy, optional training-data sharing, and operational logs." },
+  privacy: { doc: PRIVACY, title: "privacy", desc: "Training-data retention, per-request opt-out, and operational logs." },
   terms: { doc: TERMS, title: "terms", desc: "Free within the limits, offered as is; what you agree to by using it." },
 };
 
@@ -1446,7 +1446,7 @@ const worker = {
       if (share !== null) headers["x-classifier-share-data"] = share;
       const auth = original.headers.get("authorization");
       if (auth) headers.authorization = auth;
-      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx, execution);
+      const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(chatEndpoint ? { ...body, share_data: false } : body) }), env, ctx, execution);
       const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
       const sharingState = r.headers.get("x-classifier-data-sharing");
       if (sharingState) parsed.data_sharing = sharingState;
@@ -1550,13 +1550,15 @@ const worker = {
       let body = hasBody ? await req.text() : undefined;
       let sdkBody: Record<string, unknown> | undefined;
       let sharing = false;
+      let sharingChoice: boolean | undefined;
       if (path === "v1/systemone" && req.method === "POST") {
         try {
           const parsed = JSON.parse(body ?? "");
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) sdkBody = parsed;
         } catch { /* Provider validation handles malformed JSON. */ }
         try {
-          sharing = sharingConsent(req, sdkBody);
+          sharingChoice = sharingPreference(req, sdkBody);
+          sharing = sharingChoice ?? !!env.TRAINING_DATA;
           requireSharingStorage(env, sharing);
         } catch (error) {
           if (error instanceof SharingError) return json({ error: error.message, code: error.code }, error.status);
@@ -1632,12 +1634,14 @@ const worker = {
       );
       sdkRecord(response.status, response.ok ? "" : `typesafe_${response.status}`);
       const headers = new Headers(response.headers);
+      headers.set("x-classifier-data-policy", SHARING_NOTICE);
+      headers.set("x-classifier-data-sharing", "off");
       if (sharing && sdkBody && decisions) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
         endpoint: "systemone", status: response.status,
         request: Object.fromEntries(["state", "questions", "model", "context", "config"].filter(key => Object.hasOwn(sdkBody!, key)).map(key => [key, sdkBody![key]])),
         response: await response.clone().json().catch(() => ({ error: "Non-JSON model response" })),
         usage: { provider_cost_usd: meter.usd, tokens: meter.tokens, ms: Date.now() - sdkStarted },
-      }));
+      }, sharingChoice === true ? "explicit" : "default"));
       // Own the browser policy at this boundary. An upstream credentialed CORS
       // header combined with our wildcard origin would make an otherwise valid
       // SDK response unreadable in browsers.
@@ -1698,7 +1702,7 @@ const worker = {
     if (path === "v1/sandbox/classify" || path === "sandbox/classify") {
       const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, req), env, ctx, execution);
       const h = new Headers(r.headers);
-      h.set("x-sandbox", "true; identical to production; normal billing applies; request content is retained only with explicit training-data opt-in");
+      h.set("x-sandbox", "true; identical to production; normal billing applies; request content is retained for training by default; opt out with share_data=false");
       return new Response(r.body, { status: r.status, headers: h });
     }
 
@@ -2076,6 +2080,7 @@ const worker = {
       return json({ error: "Invalid API key. Create a workspace key at /app/keys.", code: "invalid_api_key" }, 401, { "cache-control": "no-store", "x-api-version": API_VERSION });
     }
     let sharing = false;
+    let sharingChoice: boolean | undefined;
     let modelStarted = false;
     let multiplier = account?.multiplier ?? 1;
     const quotaOwner = account ? `account:${account.id}` : ip;
@@ -2115,6 +2120,8 @@ const worker = {
       const daily = isLaya ? Math.min(LAYA_LIMITS[processing].daily * (sharing ? 2 : 1), TIERS[tier].daily * multiplier) : TIERS[tier].daily * multiplier;
       const h: Record<string, string> = {
         "x-api-version": API_VERSION,
+        "x-classifier-data-policy": SHARING_NOTICE,
+        "x-classifier-data-sharing": "off",
         "ratelimit-limit": enterprise && !isLaya ? "unlimited" : String(limit),
         "ratelimit-policy": enterprise && !isLaya ? "unlimited" : `${limit};w=60, ${daily};w=86400`,
       };
@@ -2136,7 +2143,7 @@ const worker = {
       if (sharing && modelStarted) headers["x-classifier-data-sharing"] = await saveTrainingData(env, {
         endpoint: "classify", status, request: trainingRequest(), response: { error: msg, code: reason },
         usage: { provider_cost_usd: meter.usd, tokens: meter.tokens, ms },
-      });
+      }, sharingChoice === true ? "explicit" : "default");
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
       const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
       if (wantJson) return json({ error: msg, code: reason, ...hint, ...more }, status, headers);
@@ -2163,7 +2170,8 @@ const worker = {
       }
       const b = body as Record<string, unknown>;
       try {
-        sharing = sharingConsent(req, b);
+        sharingChoice = sharingPreference(req, b);
+        sharing = sharingChoice ?? !!env.TRAINING_DATA;
         requireSharingStorage(env, sharing);
       } catch (error) {
         if (error instanceof SharingError) return fail(error.message, error.status, error.code);
@@ -2218,7 +2226,8 @@ const worker = {
     } else {
       if (url.searchParams.has("model") || url.searchParams.has("processing")) return fail("Model and processing selection require POST /v1/classify", 400, "bad_model");
       try {
-        sharing = sharingConsent(req);
+        sharingChoice = sharingPreference(req);
+        sharing = sharingChoice ?? !!env.TRAINING_DATA;
         requireSharingStorage(env, sharing);
       } catch (error) {
         if (error instanceof SharingError) return fail(error.message, error.status, error.code);
@@ -2481,7 +2490,7 @@ const worker = {
       endpoint: "classify", status: 200, request: trainingRequest(),
       response: { results: matrix ?? results, ...modelSummary },
       usage: { ...classificationUsage(meter), provider_cost_usd: meter.usd, tokens: meter.tokens, ms },
-    });
+    }, sharingChoice === true ? "explicit" : "default");
     if (layaTiming) {
       // Durations only: no request contents or identity. worker_total starts at
       // this handler, excluding outer dispatch and final response serialization.

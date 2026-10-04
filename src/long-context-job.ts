@@ -1,4 +1,4 @@
-import { sharingConsent, SharingError } from "./training-data";
+import { sharingPreference, SharingError } from "./training-data";
 import { classificationPricing, classificationUsage } from "./classification-usage";
 import { newMeter, type Meter, type ModelTokenUsage } from "./cost";
 import { jevClassificationFits, jevClassify, jevKeys, MULTI_THRESHOLD } from "./jev";
@@ -168,7 +168,7 @@ export class LongContextJob implements DurableObject {
       if (!body || typeof body !== "object" || Array.isArray(body))
         return answer(400, "long_context_input", "Provide a JSON job configuration.");
       try {
-        if (sharingConsent(request, body)) return answer(400, "bad_share_data", "Training-data sharing and doubled quotas apply to synchronous classification only, not background document jobs. Remove share_data to continue without training collection.");
+        if (sharingPreference(request, body)) return answer(400, "bad_share_data", "Training-data sharing and doubled quotas apply to synchronous classification only, not background document jobs. Remove share_data to continue without training collection.");
       } catch (error) {
         if (error instanceof SharingError) return answer(error.status, error.code, error.message);
         throw error;

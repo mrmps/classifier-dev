@@ -9,7 +9,7 @@ let modelCalls = 0, classifications = 0;
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => /\.(js|wasm)$/.test(p)).sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b)).map(p => ({ type: p.endsWith('.wasm') ? 'CompiledWasm' : 'ESModule', path: `dist/server/${p}` }));
 const sse = delta => new WorkerResponse(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
 const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'chat', modules, modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
-  durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'],
+  durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true } }, kvNamespaces: ['STATS'], r2Buckets: ['TRAINING_DATA'],
   bindings: { SPENDING_ENABLED: 'true', PRIVACY_SALT: 'fixture', SPUR_API_KEY: 'fixture', TYPESAFE_API_KEY: 'fixture', OPENROUTER_API_KEY: 'fixture', ENTERPRISE_API_KEY: 'fixture-enterprise' },
   outboundService: async request => {
     if (request.url.startsWith('https://api.spur.us/')) return WorkerResponse.json({});
@@ -61,6 +61,7 @@ try {
   assert.equal(turn[1].error, undefined);
   assert.match(turn[1].text, /billing/);
   assert.equal(classifications, 1);
+  assert.equal((await (await mf.getR2Bucket('TRAINING_DATA')).list()).objects.length, 0, 'chat tool calls must not inherit default training collection');
   report.results.push({ name: 'anonymous streamed classification through MCP and provider', events: turn });
   for (let i = 1; i < 10; i++) {
     const next = await post(message('Classify another refund request'));

@@ -3,7 +3,13 @@
 All notable changes to the `classify` CLI. Semver; the API it talks to is
 versioned separately at https://classifier.dev.
 
-## Unreleased
+## 0.1.4 — 2026-10-04
+
+- Synchronous classifications share training data by default. `--no-share-data`
+  opts out and uses standard quotas; `--share-data` explicitly enables sharing
+  and doubled quotas. See https://classifier.dev/privacy.
+- Includes the previously unreleased whole-document upload support described
+  in the README. Background document jobs do not share training data.
 
 - The first rate-limit wait on a run without a key says, once, that Pro lifts
   the free limits, with the link the API sent as `upgrade`.

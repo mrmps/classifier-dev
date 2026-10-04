@@ -406,9 +406,9 @@ SANDBOX
 
   The sandbox endpoint, POST /v1/sandbox/classify, runs real inference with
   the same authentication, quotas and billing as POST /v1/classify. Workspace
-  keys spend workspace credits. Request content is retained only with
-  training-data opt-in; usage and billing metadata are. Start with a handful of inputs. This is not a
-  simulated billing environment.
+  keys spend workspace credits. Request content is retained for training unless
+  you set share_data: false; usage and billing metadata are still recorded.
+  Start with a handful of inputs. This is not a simulated billing environment.
 
 
 ERRORS
@@ -716,8 +716,13 @@ SECURITY
 
 export const PRIVACY = `classifier.dev privacy
 
-The short version: classification does not retain your texts for training
-unless you explicitly opt in on that request.
+Effective October 4, 2026: synchronous classification request content is
+retained for model training by default. Opt out on each request with the JSON
+boolean "share_data": false, X-Classifier-Share-Data: false, or
+?share_data=false on GET. This replaces the earlier opt-in policy and applies
+to new requests after this policy takes effect; earlier unretained content
+cannot be recovered.
+
 Successful classifier label names are retained for 90 days as one aggregate
 record per label set, without caller identity or source text. Signed-in
 workspaces store account details, API keys and usage records so you can manage
@@ -730,26 +735,31 @@ WHAT IS SENT WHERE
   The texts and labels you send are forwarded to the model provider that
   answers the request — TypeSafe for the decision model, directly or through
   Vercel AI Gateway, and for the smart tier's re-asked items, the reasoning
-  model's provider via OpenRouter. Public requests retain content only with
-  explicit training-data opt-in. Workspace content logging, when enabled, is
-  described below. The response identifies the model used (model, modelsUsed).
+  model's provider via OpenRouter. Synchronous classification retains content
+  for training unless you opt out on the request. Workspace content logging,
+  when enabled, is described below. The response identifies the model used (model, modelsUsed).
 
 
-OPTIONAL TRAINING-DATA SHARING
+TRAINING-DATA RETENTION AND OPT-OUT
 
   ${SHARING_DESCRIPTION}
 
-  Send the JSON boolean "share_data": true on a synchronous classification
-  request, set X-Classifier-Share-Data: true, or use ?share_data=true on GET.
-  MCP classification tools accept share_data in their arguments. Omit it or
-  set false for normal limits without training collection. Conflicting values
-  or non-boolean JSON values are rejected. Sharing is chosen per request;
-  signing in, upgrading, or workspace logging does not enable it.
+  To opt out, send the JSON boolean "share_data": false on a synchronous
+  classification request, set X-Classifier-Share-Data: false, or use
+  ?share_data=false on GET. MCP classification tools accept share_data: false
+  in their arguments. An omitted setting or true enables sharing and doubled
+  quotas; false disables training collection and uses standard quotas.
+  Conflicting values or non-boolean JSON values are rejected. The choice is
+  per request, including requests from existing clients and authenticated
+  workspaces. Signing in or a paid subscription does not opt you out.
+  Configure your client to send false on every request if you do not want
+  training collection. Opting out does not disable operational or billing
+  records, or separately enabled workspace request-content logging.
 
-  We retain all admitted, opted-in classification task fields (text, labels,
+  We retain all admitted, shared classification task fields (text, labels,
   dimension definitions, instructions and options), model results, failure
-  status, model names, token usage, cost, time and consent version in a private
-  Cloudflare R2 bucket. Invalid requests and quota refusals are not collected.
+  status, model names, token usage, cost, time, policy version and sharing mode
+  (default or explicit) in a private Cloudflare R2 bucket. Invalid requests and quota refusals are not collected.
   Records have random IDs and no account ID, API key, IP, caller fingerprint,
   user-agent or billing request ID. Recognized credentials, email addresses
   and IPv4 addresses are redacted before storage. This cannot guarantee
@@ -760,8 +770,9 @@ OPTIONAL TRAINING-DATA SHARING
   are retained until deleted, including in derived training datasets. Contact
   ${SITE.email} about a contribution or deletion. Removing a record does not
   reverse training already performed with it. You keep ownership of your
-  content and grant permission to retain and use opted-in content for these
-  purposes. Only opt in when you have permission to share every input.
+  content. Shared content is used for these purposes under our terms. Opt out
+  before sending content you do not have permission to contribute for training.
+  An omitted setting is recorded as default sharing, not explicit consent.
 
   Per-minute and daily classification quotas, including Laya/Kev lanes and
   the public label-set allowance, double for shared requests. Existing usage
@@ -772,8 +783,11 @@ OPTIONAL TRAINING-DATA SHARING
 
   X-Classifier-Data-Sharing: saved confirms the R2 write; failed means the
   model result is still returned but collection failed. If storage is not
-  configured, opted-in requests are rejected before classification. MCP
-  results include the same state as data_sharing when a write was attempted.
+  configured, default requests use standard quotas without training collection;
+  explicit share_data: true requests are rejected before classification.
+  X-Classifier-Data-Sharing: off means no training write was attempted. MCP
+  results expose the state as data_sharing. X-Classifier-Data-Policy describes
+  the default and opt-out method. Storage writes add latency to shared requests.
 
 
 PUBLIC SERVICE LOGS
@@ -927,9 +941,12 @@ WHAT YOU AGREE TO
   not advice: check anything that matters.
 
   You keep every right to the texts and labels you send. The service uses them
-  to answer the request and forwards them to the model provider. With explicit
-  training-data opt-in, you also permit retention, operator review, training
-  and evaluation as described at https://classifier.dev/privacy.
+  to answer the request and forwards them to the model provider. Synchronous
+  classification content is retained by default for operator review, training
+  and evaluation as described at https://classifier.dev/privacy. By sharing
+  content under this policy, you permit these uses. To opt out of training
+  retention, set share_data: false on every request. You must have permission
+  to contribute any content you share for training.
   The answers are yours to keep and to use however you like.
 
 
