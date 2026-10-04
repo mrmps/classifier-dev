@@ -69,7 +69,7 @@ jobs:
           path: captures/chat-e2e.json
       - name: Verify spending through the built Worker and real Durable Objects
         run: npm run test:e2e:spending
-      - name: Verify opt-in training collection and quotas
+      - name: Verify default training collection, opt-out and quotas
         run: npm run test:e2e:training
       - name: Save training-data verification evidence
         uses: actions/upload-artifact@v4

@@ -46,8 +46,9 @@ OPTIONS
       --model laya          opt into the automatically routed Laya trial (default: jev)
       --model chunklaya     opt into the legacy long-document model
       --processing bulk     Laya bulk lane; default fast is one decision per call
-      --share-data          retain this request for training and operator review; double rate limits
-                            share only authorized, non-sensitive content (off by default)
+      --no-share-data       opt out of training-data retention; standard rate limits
+      --share-data          explicitly share for training (default); double rate limits
+                            share only authorized, non-sensitive content
   -i, --instructions <text>  extra criteria: "judge only the service, ignore the food"
       --document <file>      upload one UTF-8 document, up to 10M tokens (paid workspace)
   -r, --review <t>           print only inputs with confidence below t
@@ -103,6 +104,7 @@ function parseArgs(argv) {
     else if (a === "-h" || a === "--help") o.help = true;
     else if (a === "-v" || a === "--version") o.version = true;
     else if (a === "--share-data") o.shareData = true;
+    else if (a === "--no-share-data") o.shareData = false;
     else if (a === "-m" || a === "--multi") o.multi = true;
     else if (a === "-s" || a === "--smart") o.smart = true;
     else if (a === "-c" || a === "--count") o.count = true;
@@ -184,7 +186,7 @@ async function readStdin() {
 async function post(o, inputs) {
   const body = { inputs, labels: o.labels };
   if (o.model !== "jev") { body.model = o.model; if (o.model !== "chunklaya") body.processing = o.processing; }
-  if (o.shareData) body.share_data = true;
+  if (o.shareData !== undefined) body.share_data = o.shareData;
   if (o.multi) body.multi = true;
   if (o.max) body.max_labels = o.max;
   if (o.smart) body.tier = "smart";
@@ -223,7 +225,7 @@ async function post(o, inputs) {
       // The API says exactly how long; a batch that trips the minute window
       // resumes on its own rather than dying at item 7,400. The first wait
       // also says, once, that the wait is optional.
-      if (!hinted && payload.error?.includes("share_data")) { hinted = true; process.stderr.write(`classify: ${payload.error} Use --share-data to opt in.\n`); }
+      if (!hinted && payload.error?.includes("share_data")) { hinted = true; process.stderr.write(`classify: ${payload.error} Use --share-data to enable sharing.\n`); }
       if (o.model === "jev" && !o.apiKey && !hinted) { hinted = true; process.stderr.write(`classify: free limits are per IP; Pro lifts them 10x for $20/month: ${payload.upgrade || "https://classifier.dev/pro"}\n`); }
       await retry("rate limited", Number(res.headers.get("retry-after")) || 5, attempt, attempts, deadline);
       continue;

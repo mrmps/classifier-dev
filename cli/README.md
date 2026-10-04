@@ -23,6 +23,19 @@ One line per input, in input order: `label`, `confidence`, `text`, tab-separated
 everything the API returns; `--quiet` gives labels only; `--count` gives a
 histogram.
 
+## Training-data sharing
+
+Synchronous requests are retained for training and operator review by default,
+with doubled classification quotas. Use `--no-share-data` on every invocation
+to opt out and use standard quotas:
+
+    classify spam,"not spam" --no-share-data "A private example"
+
+`--share-data` explicitly enables sharing. Contribute only content you have
+permission to share. Redaction is best effort, records are retained until
+deleted, and billing is unchanged. Read the [privacy policy](https://classifier.dev/privacy).
+Background `--document` jobs do not participate.
+
 ## One whole document
 
 With a funded workspace key in `CLASSIFY_API_KEY`, upload a UTF-8 document of
@@ -62,6 +75,8 @@ resumes; a daily quota stops immediately. Errors go to stderr with exit code 1.
     -m, --multi                every label that applies, plus a score per label
     -k, --max <n>              at most n labels (implies --multi)
     -s, --smart                re-ask uncertain answers of a reasoning model
+        --no-share-data       opt out of training-data retention
+        --share-data          explicitly enable sharing (default)
     -i, --instructions <text>  extra criteria
         --document <file>      one whole UTF-8 document (funded workspace)
     -r, --review <t>           print only inputs with confidence below t

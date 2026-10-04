@@ -647,7 +647,7 @@ function trainingDate(value: string) {
 function trainingPage(content: string) {
   return shell("Shared training data · classifier.dev", `<div class="admin-app dark training-page">
     <header class="topbar"><a class="brand" href="/">classifier<span>.dev</span></a><a class="signout" href="/admin?logout=1">Sign out ↗</a></header>
-    <main><div class="page-heading"><div><h1>Shared training data</h1><p>Opted-in requests and model results</p></div>
+    <main><div class="page-heading"><div><h1>Shared training data</h1><p>Requests shared by default or explicitly, and model results</p></div>
     <a class="control" href="/admin">Back to analytics</a></div>
     <p class="training-note">Model predictions are not verified labels. Redaction is best effort; contributed text may still contain sensitive information.</p>
     ${content}</main></div>`, '<link rel="stylesheet" href="/admin-assets/admin.css">');
@@ -689,7 +689,7 @@ async function trainingResponse(req: Request, env: Env): Promise<Response> {
           <p class="training-meta">${esc(trainingDate(meta.created ?? object.uploaded.toISOString()))} · ${esc(meta.model ?? "jev")} · ${esc(meta.items ?? "?")} ${meta.items === "1" ? "input" : "inputs"} · ${Number(meta.status) < 400 ? "Completed" : "Failed"} (${esc(meta.status ?? "?")})</p>
           <div class="training-links"><a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}">View request and result →</a>
           <a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}&amp;format=json">Download JSON</a></div></article>`;
-      }).join("")}</div>` : '<p class="empty-state">No shared requests yet. Requests with share_data: true will appear after inference.</p>'}${navigation}`));
+      }).join("")}</div>` : '<p class="empty-state">No shared requests yet. Classification requests appear after inference unless share_data: false is set.</p>'}${navigation}`));
   } catch {
     return page(503, () => trainingPage('<p role="alert">Unable to load shared data. <a href="/admin?view=training">Retry</a>.</p>'));
   }

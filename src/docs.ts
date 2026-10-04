@@ -741,26 +741,28 @@ ON REQUEST
 
 ${roadmapDoc()}
 
-OPTIONAL TRAINING-DATA SHARING
+TRAINING-DATA RETENTION AND OPT-OUT
 
   ${SHARING_DESCRIPTION}
 
-  POST: add the JSON boolean "share_data": true. GET: ?share_data=true.
-  SDK clients: send X-Classifier-Share-Data: true. MCP: set share_data: true
-  in classification tool arguments. Only opt in when authorized to share
-  every input for training. Omitted or false means no training collection.
+  Training collection is on by default. To opt out: POST the JSON boolean
+  "share_data": false. GET: ?share_data=false. SDK clients: send
+  X-Classifier-Share-Data: false. MCP: set share_data: false in classification
+  tool arguments. Apply the opt-out on every request. Only share content you
+  have permission to contribute for training. Omitted or true means sharing.
   Existing usage still counts. Both minute and daily quotas double, including
   Laya/Kev lanes and public label-set allowances; plan multipliers stack.
   Billing, spending safeguards, input-size limits and provider capacity stay
   unchanged. Synchronous classification only; chat and background jobs are
-  excluded. Rate-limit failures explain how to opt in.
+  excluded. Rate-limit failures at standard quotas explain how to enable sharing.
   X-Classifier-Data-Sharing: saved confirms storage; failed preserves the model
-  result but means collection failed. MCP exposes this as data_sharing.
+  result but means collection failed; off means no training write was attempted.
+  MCP exposes this as data_sharing. X-Classifier-Data-Policy gives the opt-out.
   Details, retention and permissions: https://classifier.dev/privacy.
 
 PRIVACY
 
-  Your text is retained for training only with explicit opt-in. It goes to
+  Your text is retained for training by default unless you set share_data: false. It goes to
   the model provider for classification. Per-request analytics record a
   keyed fingerprint of the label set, plus the tier, model, latency, status and
   coarse country. Successful simple and multi-label classifier names are also

@@ -349,7 +349,7 @@ export const OPENAPI = {
       post: {
         operationId: "classifySandbox",
         summary: "Sandbox: identical to POST /v1/classify. Exists for tooling that requires a sandbox URL.",
-        description: "This alias runs real inference with the same authentication, quotas and billing as /v1/classify, and adds an `x-sandbox` header. Request content is retained only with training-data opt-in; account usage and billing metadata are recorded. It is not a free or simulated billing environment.",
+        description: "This alias runs real inference with the same authentication, quotas and billing as /v1/classify, and adds an `x-sandbox` header. Request content is retained for training by default; set share_data: false to opt out; account usage and billing metadata are recorded. It is not a free or simulated billing environment.",
         tags: ["classify"],
         parameters: [{ $ref: "#/components/parameters/ShareData" }, { $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } } },

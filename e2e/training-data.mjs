@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Miniflare, convertV4MiniflareOptions, Response as WorkerResponse } from 'miniflare';
 
-// Failure contract: no implicit consent or truthy strings; shared/private calls
+// Failure contract: defaults share without claiming consent; explicit false never stores; shared/private calls
 // use the same counters; model failures remain observable; no identity, secrets,
 // or executable markup in storage/admin; unavailable storage cannot fake success.
 const report = { runtime: 'built Worker + workerd + real SQLite quotas and R2; deterministic provider', results: [] };
@@ -39,14 +39,22 @@ const mf = make();
 const send = (body, ip = '203.0.113.1', extra = {}, path = '/v1/classify') => mf.dispatchFetch(`https://classifier.dev${path}`, {
   method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip, ...extra }, body: JSON.stringify(body),
 });
-const base = { input: 'A useful example', labels: ['useful', 'irrelevant'] };
+const base = { input: 'A useful example', labels: ['useful', 'irrelevant'], share_data: false };
 try {
   const bucket = await mf.getR2Bucket('TRAINING_DATA');
-  for (const consent of [undefined, false]) {
-    const response = await send({ ...base, ...(consent === undefined ? {} : { share_data: consent }) });
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('ratelimit-limit'), '3000');
-  }
+  const defaultResponse = await send({ input: base.input, labels: base.labels }, '203.0.113.40');
+  assert.equal(defaultResponse.headers.get('ratelimit-limit'), '6000');
+  assert.equal(defaultResponse.headers.get('x-classifier-data-sharing'), 'saved');
+  assert.match(defaultResponse.headers.get('x-classifier-data-policy'), /share_data=false/);
+  const defaultObject = (await bucket.list()).objects[0];
+  const defaultRecord = await (await bucket.get(defaultObject.key)).json();
+  assert.equal(defaultRecord.sharing.mode, 'default');
+  assert.equal(defaultRecord.consent, undefined, 'default sharing must not claim consent');
+  await bucket.delete(defaultObject.key);
+  const privateFirst = await send(base);
+  assert.equal(privateFirst.status, 200);
+  assert.equal(privateFirst.headers.get('ratelimit-limit'), '3000');
+  assert.equal(privateFirst.headers.get('x-classifier-data-sharing'), 'off');
   assert.equal((await bucket.list()).objects.length, 0);
   for (const consent of ['true', 'false', 1, null, {}, []]) {
     const response = await send({ ...base, share_data: consent });
@@ -54,7 +62,7 @@ try {
   }
   assert.equal((await bucket.list()).objects.length, 0);
   assert.equal((await send({ ...base, share_data: false }, '203.0.113.1', { 'x-classifier-share-data': 'true' })).status, 400);
-  report.results.push({ name: 'default and false store nothing; invalid consent rejected', passed: true });
+  report.results.push({ name: 'default shares with honest provenance; explicit false stores nothing; invalid choices rejected', passed: true });
   const shared = await send({ ...base, input: 'Contact alice@example.com with Bearer secret-token or sk_examplesecret123. <script>alert(1)</script>',
     instructions: 'Route this message', share_data: true, ignored_secret: 'not a task field' });
   assert.equal(shared.status, 200, await shared.clone().text());
@@ -64,7 +72,9 @@ try {
   const objects = (await bucket.list()).objects;
   assert.equal(objects.length, 1);
   const stored = await (await bucket.get(objects[0].key)).json();
-  assert.equal(stored.consent.version, '2026-10-04');
+  assert.equal(stored.sharing.policy_version, '2026-10-04-opt-out');
+  assert.equal(stored.sharing.mode, 'explicit');
+  assert.equal(stored.schema_version, 2);
   assert.equal(stored.request.instructions, 'Route this message');
   assert.equal(stored.response.results[0].label, 'useful');
   assert.equal(stored.status, 200);
@@ -72,10 +82,10 @@ try {
   const encoded = JSON.stringify(stored);
   assert.doesNotMatch(encoded, /alice@example\.com|secret-token|sk_examplesecret123|203\.0\.113|not a task field/);
   report.results.push({ name: 'full opted-in task, results and provenance saved with double quotas and credential redaction', record: stored });
-  // Same owner has already spent three decisions: toggling consent cannot reset it.
+  // Same owner has already spent two decisions: toggling consent cannot reset it.
   const privateAgain = await send(base);
-  assert.equal(privateAgain.headers.get('ratelimit-remaining'), '2996');
-  for (let i = 0; i < 3; i++) assert.equal((await send({ inputs: Array(1000).fill('example'), labels: base.labels }, '203.0.113.2')).status, 200);
+  assert.equal(privateAgain.headers.get('ratelimit-remaining'), '2997');
+  for (let i = 0; i < 3; i++) assert.equal((await send({ inputs: Array(1000).fill('example'), labels: base.labels, share_data: false }, '203.0.113.2')).status, 200);
   const denied = await send(base, '203.0.113.2');
   assert.equal(denied.status, 429);
   assert.match((await denied.json()).error, /share_data.*true/);
@@ -87,22 +97,36 @@ try {
   assert.equal(dimensions.status, 200, await dimensions.clone().text());
   const multi = await send({ ...base, multi: true, share_data: true });
   assert.equal(multi.status, 200);
-  const get = await mf.dispatchFetch('https://classifier.dev/useful,irrelevant/example?verbose=1&share_data=true', { headers: { 'cf-connecting-ip': '203.0.113.3' } });
+  const get = await mf.dispatchFetch('https://classifier.dev/useful,irrelevant/example?verbose=1', { headers: { 'cf-connecting-ip': '203.0.113.3' } });
   assert.equal(get.status, 200);
   assert.equal(get.headers.get('x-classifier-data-sharing'), 'saved');
-  const sdk = await send({ state: 'Example', questions: { category: { type: 'choice', criteria: { useful: null, irrelevant: null } } } }, '203.0.113.4', { 'x-classifier-share-data': 'true' }, '/v1/systemone');
+  const sdk = await send({ state: 'Example', questions: { category: { type: 'choice', criteria: { useful: null, irrelevant: null } } } }, '203.0.113.4', {}, '/v1/systemone');
   assert.equal(sdk.status, 200, await sdk.clone().text());
   assert.equal(sdk.headers.get('ratelimit-limit'), '6000');
   assert.equal(sdk.headers.get('x-classifier-data-sharing'), 'saved');
   const laya = await send({ ...base, model: 'laya', share_data: true }, '203.0.113.5');
   assert.equal(laya.status, 200, await laya.clone().text());
   assert.equal(laya.headers.get('ratelimit-limit'), '120');
-  const mcp = await send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'classify_texts', arguments: { inputs: ['MCP example'], labels: base.labels, share_data: true } } }, '203.0.113.6', {}, '/mcp');
+  const mcp = await send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'classify_texts', arguments: { inputs: ['MCP example'], labels: base.labels } } }, '203.0.113.6', {}, '/mcp');
   const rpc = await mcp.json();
   assert.ok(!rpc.error && !rpc.result.isError, JSON.stringify(rpc));
   assert.equal(rpc.result.structuredContent.data_sharing, 'saved');
   assert.equal((await bucket.list()).objects.length, 8);
-  report.results.push({ name: 'dimensions, multi-label, GET, SDK, Laya and MCP preserve consent and persist', passed: true });
+  const beforeOptOut = (await bucket.list()).objects.length;
+  const privateGet = await mf.dispatchFetch('https://classifier.dev/useful,irrelevant/example?verbose=1&share_data=false');
+  assert.equal(privateGet.headers.get('x-classifier-data-sharing'), 'off');
+  const privateSdk = await send({ state: 'Private SDK example', questions: { category: { type: 'choice', criteria: { useful: null, irrelevant: null } } } }, '203.0.113.41', { 'x-classifier-share-data': 'false' }, '/v1/systemone');
+  assert.equal(privateSdk.headers.get('x-classifier-data-sharing'), 'off');
+  const privateMcp = await send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'classify_texts', arguments: { inputs: ['Private MCP example'], labels: base.labels, share_data: false } } }, '203.0.113.42', {}, '/mcp');
+  assert.equal((await privateMcp.json()).result.structuredContent.data_sharing, 'off');
+  assert.equal((await bucket.list()).objects.length, beforeOptOut);
+  for (const accept of ['text/plain', 'text/markdown', 'text/html']) {
+    const policy = await (await mf.dispatchFetch('https://classifier.dev/privacy', { headers: { accept } })).text();
+    assert.match(policy, /retained for model training by default/);
+    assert.match(policy, /share_data/);
+    assert.doesNotMatch(policy, /unless you explicitly opt in/);
+  }
+  report.results.push({ name: 'GET, SDK and MCP share by default and honor explicit opt-out; all privacy formats agree', passed: true });
   failProvider = true;
   const failure = await send({ ...base, model: 'laya', share_data: true }, '203.0.113.20');
   failProvider = false;
@@ -152,6 +176,10 @@ try {
   report.results.push({ name: 'shared requests enforce the doubled daily ceiling', passed: true });
   const missing = make(false);
   try {
+    const normal = await missing.dispatchFetch('https://classifier.dev/v1/classify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input: base.input, labels: base.labels }) });
+    assert.equal(normal.status, 200);
+    assert.equal(normal.headers.get('ratelimit-limit'), '3000');
+    assert.equal(normal.headers.get('x-classifier-data-sharing'), 'off');
     const response = await missing.dispatchFetch('https://classifier.dev/v1/classify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...base, share_data: true }) });
     assert.equal(response.status, 503);
     assert.match((await response.json()).error, /sharing.*unavailable/i);
@@ -196,10 +224,17 @@ try {
       env: { ...process.env, CLASSIFY_ENDPOINT: address + '/v1/classify', CLASSIFY_NO_UPDATE_CHECK: '1', CLASSIFY_API_KEY: '', CLASSIFIER_API_KEY: '' },
     });
     assert.equal((await bucket.list()).objects.length, beforeCli + 1);
-    report.results.push({ name: 'CLI --share-data reaches the real Worker and R2', passed: true });
+    await exec(process.execPath, ['cli/classify.js', 'useful,irrelevant', 'Private CLI example', '--no-share-data', '--json'], {
+      env: { ...process.env, CLASSIFY_ENDPOINT: address + '/v1/classify', CLASSIFY_NO_UPDATE_CHECK: '1', CLASSIFY_API_KEY: '', CLASSIFIER_API_KEY: '' },
+    });
+    assert.equal((await bucket.list()).objects.length, beforeCli + 1);
+    report.results.push({ name: 'CLI sharing and explicit opt-out reach the real Worker and R2', passed: true });
     if (process.argv.includes('--browser')) {
       const browser = async (...args) => (await exec('agent-browser', ['--session', 'training-data-e2e', ...args])).stdout;
       try {
+        await browser('open', address + '/privacy');
+        await browser('set', 'viewport', '1366', '900');
+        await browser('screenshot', 'captures/optout-privacy-after.png');
         await browser('open', address + '/admin?view=training');
         await browser('set', 'viewport', '1366', '900');
         await browser('wait', '--text', 'Shared training data');
