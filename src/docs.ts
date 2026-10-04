@@ -68,7 +68,7 @@ export const URL_CLASSIFICATION = `SCRAPE AND CLASSIFY A URL
 export const DOCS = `classifier.dev
 
 Zero-shot classification over plain HTTP. Send text and labels for a label,
-or images and questions for structured answers. There is no
+or state and questions for structured answers. There is no
 API key or account required for free use, so the example below works the
 moment you paste it.
 
