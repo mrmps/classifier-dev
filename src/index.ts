@@ -1626,6 +1626,8 @@ const worker = {
           return json({ error: refusal.message + (!sharing && env.TRAINING_DATA ? ` ${SHARING_HINT}` : ""), code: refusal.code }, refusal.status, refusal.headers);
         }
       }
+      let providerStarted = false;
+      meter.onProviderAttempt = () => { providerStarted = true; };
       const response = await typeSafeCompatibleResponse(
         req,
         env.TYPESAFE_API_KEY,
@@ -1636,7 +1638,7 @@ const worker = {
       const headers = new Headers(response.headers);
       headers.set("x-classifier-data-policy", SHARING_NOTICE);
       headers.set("x-classifier-data-sharing", "off");
-      if (sharing && sdkBody && decisions) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
+      if (sharing && sdkBody && decisions && providerStarted) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
         endpoint: "systemone", status: response.status,
         request: Object.fromEntries(["state", "questions", "model", "context", "config"].filter(key => Object.hasOwn(sdkBody!, key)).map(key => [key, sdkBody![key]])),
         response: await response.clone().json().catch(() => ({ error: "Non-JSON model response" })),
@@ -2081,7 +2083,7 @@ const worker = {
     }
     let sharing = false;
     let sharingChoice: boolean | undefined;
-    let modelStarted = false;
+    let providerStarted = false;
     let multiplier = account?.multiplier ?? 1;
     const quotaOwner = account ? `account:${account.id}` : ip;
     const quotaScope = account ? "per account" : "per IP";
@@ -2140,7 +2142,7 @@ const worker = {
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.model : layaModel(selectedModel),
         meter, usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
-      if (sharing && modelStarted) headers["x-classifier-data-sharing"] = await saveTrainingData(env, {
+      if (sharing && providerStarted) headers["x-classifier-data-sharing"] = await saveTrainingData(env, {
         endpoint: "classify", status, request: trainingRequest(), response: { error: msg, code: reason },
         usage: { provider_cost_usd: meter.usd, tokens: meter.tokens, ms },
       }, sharingChoice === true ? "explicit" : "default");
@@ -2425,7 +2427,7 @@ const worker = {
     const trainingRequest = () => ({ inputs, ...(dimensions ? { dimensions } : { labels }), tier,
       model: selectedModel, ...(instructions !== undefined ? { instructions } : {}),
       ...(multi ? { multi: true, max_labels: multi.max } : {}), ...(layaPlan ? { processing } : {}) });
-    modelStarted = true;
+    meter.onProviderAttempt = () => { providerStarted = true; };
     let results: Result[];
     let matrix: Result[][] | undefined;
     let fallbackDecisions = 0;
