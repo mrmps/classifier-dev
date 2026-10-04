@@ -96,3 +96,93 @@ func TestSingleResultShape(t *testing.T) {
 		t.Fatalf("expected a shape error, got %v", err)
 	}
 }
+
+func TestClassifyDimensions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["labels"]; ok {
+			t.Error("dimensions request must not carry labels")
+		}
+		items := body["items"].([]interface{})
+		dims := body["dimensions"].(map[string]interface{})
+		results := make([]map[string]interface{}, len(items))
+		for i := range items {
+			fields := map[string]interface{}{}
+			for name, dim := range dims {
+				d := dim.(map[string]interface{})
+				labels := d["labels"].([]interface{})
+				conf := 0.85
+				fields[name] = map[string]interface{}{
+					"label": labels[0], "confidence": conf,
+					"scores": map[string]interface{}{labels[0].(string): conf},
+					"model": "jev-test", "ms": 50,
+				}
+			}
+			results[i] = map[string]interface{}{"dimensions": fields}
+		}
+		out := map[string]interface{}{
+			"tier": "fast", "model": "jev-test", "modelsUsed": []string{"jev-test"},
+			"results": results, "usage": map[string]interface{}{
+				"items": len(items), "dimensions": len(dims),
+				"classifications": len(items) * len(dims),
+			},
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL}
+	res, err := c.ClassifyDimensions(context.Background(), DimensionRequest{
+		Items: []string{"checkout broke"},
+		Dimensions: map[string]Dimension{
+			"team": {Labels: []string{"billing", "platform"}},
+			"kind": {Labels: []string{"bug", "request"}, Instructions: "bug = broken"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(res.Results))
+	}
+	if res.Results[0].Dimensions["team"].Label != "billing" {
+		t.Errorf("expected billing, got %s", res.Results[0].Dimensions["team"].Label)
+	}
+	if res.Results[0].Dimensions["kind"].Label != "bug" {
+		t.Errorf("expected bug, got %s", res.Results[0].Dimensions["kind"].Label)
+	}
+}
+
+func TestClassifyDimensionsValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		req  DimensionRequest
+		msg  string
+	}{
+		{"no items", DimensionRequest{Dimensions: map[string]Dimension{"a": {Labels: []string{"x", "y"}}}}, "items must hold 1 to 1,000 texts"},
+		{"no dimensions", DimensionRequest{Items: []string{"x"}}, "dimensions must hold 1 to 20 entries"},
+		{"empty dimensions", DimensionRequest{Items: []string{"x"}, Dimensions: map[string]Dimension{}}, "dimensions must hold 1 to 20 entries"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := (&Client{}).ClassifyDimensions(context.Background(), tc.req)
+			if err == nil || err.Error() != "classifier.dev: "+tc.msg {
+				t.Fatalf("expected %q, got %v", tc.msg, err)
+			}
+		})
+	}
+}
+
+func TestClassifyDimensionsResultCountMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer srv.Close()
+	_, err := (&Client{BaseURL: srv.URL}).ClassifyDimensions(context.Background(), DimensionRequest{
+		Items: []string{"x"}, Dimensions: map[string]Dimension{"a": {Labels: []string{"x", "y"}}},
+	})
+	if err == nil {
+		t.Fatal("expected error for result count mismatch")
+	}
+}
