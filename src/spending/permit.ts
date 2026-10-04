@@ -11,7 +11,7 @@ export class Permit {
   private pending = new Set<Promise<unknown>>();
   constructor(readonly amount: number, readonly expires: number) {}
   async drain() { while (this.pending.size) await Promise.allSettled([...this.pending]); }
-  async fetch(provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+  async fetch(provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit, onAttempt?: () => void): Promise<Response> {
     let bound: number;
     try {
       if (this.closed) throw new SpendingError(402, "request_finished", "The request allowance has closed.");
@@ -33,6 +33,7 @@ export class Permit {
     this.used += bound;
     const execute = async () => {
       try {
+        onAttempt?.();
         const response = await fetch(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
         if (response.headers.get("content-type")?.includes("text/event-stream")) {
           // Streaming callers report usage at EOF; no reservation is released here.
@@ -64,5 +65,7 @@ export class Permit {
   }
 }
 export function providerFetch(meter: Meter | undefined, provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit): Promise<Response> {
-  return meter?.permit ? meter.permit.fetch(provider, model, output, input, init) : fetch(input, init);
+  if (meter?.permit) return meter.permit.fetch(provider, model, output, input, init, meter.onProviderAttempt);
+  meter?.onProviderAttempt?.();
+  return fetch(input, init);
 }

@@ -465,7 +465,7 @@ async function postGateway(key: string, body: JevBody, meter?: Meter, analytics?
   const questions = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, gatewayQuestion(q)]));
   let res: Response;
   try {
-    res = await fetch(GATEWAY, {
+    res = await providerFetch(meter, "vercel", body.model, 0, GATEWAY, {
       method: "POST",
       headers: {
         authorization: `Bearer ${key}`,

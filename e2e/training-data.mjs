@@ -8,20 +8,23 @@ import { Miniflare, convertV4MiniflareOptions, Response as WorkerResponse } from
 // Failure contract: defaults share without claiming consent; explicit false never stores; shared/private calls
 // use the same counters; model failures remain observable; no identity, secrets,
 // or executable markup in storage/admin; unavailable storage cannot fake success.
+// Admission and pre-dispatch spending refusals must never become model records;
+// actual provider failures remain errors, and historical rejections export no labels.
 const report = { runtime: 'built Worker + workerd + real SQLite quotas and R2; deterministic provider', results: [] };
 await mkdir('captures', { recursive: true });
 const modules = (await readdir('dist/server', { recursive: true })).filter(p => /\.(js|wasm)$/.test(p))
   .sort((a, b) => a === 'index.js' ? -1 : b === 'index.js' ? 1 : a.localeCompare(b))
   .map(p => ({ type: p.endsWith('.wasm') ? 'CompiledWasm' : 'ESModule', path: `dist/server/${p}` }));
-let providerCalls = 0, failProvider = false;
+let providerCalls = 0, failProvider = false, proxyCaller = false;
 const make = (storage = true, extraBindings = {}) => new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'training', modules,
   modulesRoot: 'dist/server', compatibilityDate: '2026-08-01', compatibilityFlags: ['nodejs_compat'],
-  durableObjects: { LIMITER: { className: 'RateLimiter', useSQLite: true }, QUOTAS: { className: 'QuotaCoordinator', useSQLite: true } },
+  durableObjects: { FREE_BUDGET: { className: 'FreeBudget', useSQLite: true }, LIMITER: { className: 'RateLimiter', useSQLite: true }, QUOTAS: { className: 'QuotaCoordinator', useSQLite: true } },
   kvNamespaces: ['STATS'], r2Buckets: storage ? ['TRAINING_DATA'] : [],
   bindings: { TYPESAFE_API_KEY: 'fixture', BEAM_API_KEY: 'fixture', LAYA_ENABLED: 'true',
     QUOTA_COORDINATOR_ENABLED: 'true', PRIVACY_SALT: 'private-fixture', AI_GATEWAY_DISABLED: 'true',
     ADMIN_PASSWORD: 'admin-fixture', ADMIN_SIGNING_KEY: 'private-admin-fixture', ...extraBindings },
   outboundService: async request => {
+    if (request.url.startsWith('https://api.spur.us/')) return WorkerResponse.json(proxyCaller ? { tunnels: [{ anonymous: true }] } : {});
     providerCalls++;
     if (failProvider) return WorkerResponse.json({ detail: { error_type: 'upstream_unavailable' } }, { status: 503 });
     assert.equal(request.headers.get('x-classifier-share-data'), null, 'our opt-in header must not reach model providers');
@@ -42,6 +45,21 @@ const send = (body, ip = '203.0.113.1', extra = {}, path = '/v1/classify') => mf
 const base = { input: 'A useful example', labels: ['useful', 'irrelevant'], share_data: false };
 try {
   const bucket = await mf.getR2Bucket('TRAINING_DATA');
+  for (const [blocked, allowance, expectedCode] of [[true, '0.01', 'proxy_requires_payment'], [false, '0.000000001', 'request_spending_limit']]) {
+    const guarded = make(true, { SPENDING_ENABLED: 'true', SPUR_API_KEY: 'fixture', FREE_REQUEST_USD: allowance });
+    proxyCaller = blocked;
+    try {
+      for (const [path, body] of [['/v1/classify', { input: base.input, labels: base.labels }], ['/v1/systemone', { state: base.input, questions: { category: { type: 'choice', criteria: { useful: null, irrelevant: null } } } }]]) {
+        const before = providerCalls;
+        const response = await guarded.dispatchFetch('https://classifier.dev' + path, { method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.70', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        assert.equal(response.status, blocked ? 403 : 402);
+        assert.equal((await response.json()).code, expectedCode);
+        assert.equal(providerCalls, before, 'admission must reject before any model dispatch');
+        assert.equal((await (await guarded.getR2Bucket('TRAINING_DATA')).list()).objects.length, 0, 'no training record without a provider attempt');
+      }
+    } finally { proxyCaller = false; await guarded.dispose(); }
+  }
+  report.results.push({ name: 'real proxy and pre-dispatch spending rejections make no model calls or training records across API and SDK', passed: true });
   const defaultResponse = await send({ input: base.input, labels: base.labels }, '203.0.113.40');
   assert.equal(defaultResponse.headers.get('ratelimit-limit'), '6000');
   assert.equal(defaultResponse.headers.get('x-classifier-data-sharing'), 'saved');
@@ -74,7 +92,7 @@ try {
   const stored = await (await bucket.get(objects[0].key)).json();
   assert.equal(stored.sharing.policy_version, '2026-10-04-opt-out');
   assert.equal(stored.sharing.mode, 'explicit');
-  assert.equal(stored.schema_version, 2);
+  assert.equal(stored.schema_version, 3);
   assert.equal(stored.request.instructions, 'Route this message');
   assert.equal(stored.response.results[0].label, 'useful');
   assert.equal(stored.status, 200);
@@ -133,7 +151,7 @@ try {
   assert.equal(failure.status, 503);
   assert.equal(failure.headers.get('x-classifier-data-sharing'), 'saved');
   const failures = await Promise.all((await bucket.list()).objects.map(async object => (await bucket.get(object.key)).json()));
-  assert.ok(failures.some(record => record.status === 503 && record.response.code === 'laya_unavailable'));
+  assert.ok(failures.some(record => record.status === 503 && record.response.code === 'laya_unavailable' && record.label_source === null));
   report.results.push({ name: 'admitted model failures retain their actual status and error code', passed: true });
   const unauthenticated = await mf.dispatchFetch('https://classifier.dev/admin?view=training');
   assert.equal(unauthenticated.status, 401);
@@ -229,6 +247,23 @@ try {
     });
     assert.equal((await bucket.list()).objects.length, beforeCli + 1);
     report.results.push({ name: 'CLI sharing and explicit opt-out reach the real Worker and R2', passed: true });
+
+    const rejectedKey = 'requests/0000000000000-00000000-0000-4000-8000-000000000403.json';
+    const rejectedRecord = { ...stored, schema_version: 2, status: 403, label_source: 'model_prediction',
+      request: { inputs: ['Synthetic product listing'], labels: ['CASE', 'COOLING'] },
+      response: { error: 'Anonymous proxy traffic requires a funded API key.', code: 'proxy_requires_payment' },
+      usage: { provider_cost_usd: 0, tokens: [], ms: 1 } };
+    await bucket.put(rejectedKey, JSON.stringify(rejectedRecord), { customMetadata: { status: '403', model: 'jev', items: '1' } });
+    const rejectedHtml = await (await admin('&key=' + encodeURIComponent(rejectedKey))).text();
+    assert.match(rejectedHtml, /Access rejection/);
+    assert.match(rejectedHtml, /No model prediction/);
+    assert.doesNotMatch(rejectedHtml, /<h3>Model result/);
+    const rejectedExport = await (await admin('&key=' + encodeURIComponent(rejectedKey) + '&format=json')).json();
+    assert.equal(rejectedExport.label_source, null);
+    assert.equal(rejectedExport.schema_version, 3);
+    assert.equal(rejectedExport.response.code, 'proxy_requires_payment');
+    assert.match(await (await admin('')).text(), /No prediction/);
+    report.results.push({ name: 'historical rejection UI and JSON export cannot claim a model prediction', passed: true });
     if (process.argv.includes('--browser')) {
       const browser = async (...args) => (await exec('agent-browser', ['--session', 'training-data-e2e', ...args])).stdout;
       try {
@@ -250,7 +285,12 @@ try {
         await browser('screenshot', 'captures/training-detail-desktop.png');
         await browser('download', 'a[href*="format=json"]', 'captures/training-download.json');
         assert.deepEqual(JSON.parse(await readFile('captures/training-download.json', 'utf8')), stored);
-        report.results.push({ name: 'desktop/mobile admin list, record detail and browser download', passed: true });
+        await browser('open', address + '/admin?view=training&key=' + encodeURIComponent(rejectedKey));
+        await browser('screenshot', 'captures/admission-desktop-after.png');
+        await browser('set', 'viewport', '390', '844');
+        await browser('screenshot', 'captures/admission-mobile-after.png');
+        assert.equal(JSON.parse(await browser('eval', 'document.documentElement.scrollWidth <= innerWidth')), true);
+        report.results.push({ name: 'desktop/mobile admin list, rejection detail and browser download', passed: true });
       } finally { await browser('close'); }
     }
   } finally { await new Promise(resolve => local.close(resolve)); }

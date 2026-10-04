@@ -666,15 +666,19 @@ async function trainingResponse(req: Request, env: Env): Promise<Response> {
       const object = await env.TRAINING_DATA.get(key);
       if (!object) return page(404, () => trainingPage('<p>Record not found.</p>'));
       const record = await object.json<TrainingRecord>();
+      const failed = record.status >= 400;
+      if (failed) { record.schema_version = 3; record.label_source = null; }
+      const rejected = failed && (record.response as { code?: string } | null)?.code === "proxy_requires_payment";
       if (url.searchParams.get("format") === "json") return new Response(JSON.stringify(record, null, 2), {
         headers: { ...securityHeaders(), "content-type": "application/json", "content-disposition": `attachment; filename="training-${record.id}.json"` },
       });
       return page(200, () => trainingPage(`<div class="actions training-actions"><a class="control" href="/admin?view=training">All contributions</a>
         <a class="control" href="/admin?view=training&amp;key=${esc(encodeURIComponent(key))}&amp;format=json">Download JSON</a></div>
-        <h2>Request and result</h2><p class="training-meta">${esc(trainingDate(record.created_at))} · ${record.status < 400 ? "Completed" : "Failed"} (${record.status})</p>
+        <h2>Request and ${failed ? "error" : "result"}</h2><p class="training-meta">${esc(trainingDate(record.created_at))} · ${record.status < 400 ? "Completed" : "Failed"} (${record.status})</p>
         <h3>Input</h3><pre class="training-record">${esc(Array.isArray(record.request.inputs) ? record.request.inputs.join("\n\n") : JSON.stringify(record.request.state, null, 2))}</pre>
         <h3>Labels and instructions</h3><pre class="training-record">${esc(JSON.stringify({ labels: record.request.labels, dimensions: record.request.dimensions, instructions: record.request.instructions, questions: record.request.questions }, null, 2))}</pre>
-        <h3>Model result</h3><pre class="training-record">${esc(JSON.stringify(record.response, null, 2))}</pre>
+        <h3>${failed ? rejected ? "Access rejection" : "Request error" : "Model result"}</h3>
+        ${failed ? `<p class="training-note">${rejected ? "Rejected before inference. No model prediction was produced." : "No model prediction was returned."} Exclude this record from labeled training datasets.</p>` : ""}<pre class="training-record">${esc(JSON.stringify(record.response, null, 2))}</pre>
         <details><summary>Full record and metadata</summary><pre class="training-record">${esc(JSON.stringify(record, null, 2))}</pre></details>`));
     }
     const listed = await env.TRAINING_DATA.list({ prefix: "requests/", limit: 25, cursor: cursor || undefined, include: ["customMetadata"] });
@@ -686,8 +690,8 @@ async function trainingResponse(req: Request, env: Env): Promise<Response> {
       ${navigation}${listed.objects.length ? `<div class="training-list">${listed.objects.map(object => {
         const meta = object.customMetadata ?? {};
         return `<article class="panel"><h2><a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}">${esc(trainingPreview(meta) || "Open contribution")}</a></h2>
-          <p class="training-meta">${esc(trainingDate(meta.created ?? object.uploaded.toISOString()))} · ${esc(meta.model ?? "jev")} · ${esc(meta.items ?? "?")} ${meta.items === "1" ? "input" : "inputs"} · ${Number(meta.status) < 400 ? "Completed" : "Failed"} (${esc(meta.status ?? "?")})</p>
-          <div class="training-links"><a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}">View request and result →</a>
+          <p class="training-meta">${esc(trainingDate(meta.created ?? object.uploaded.toISOString()))} · ${esc(meta.model ?? "jev")} · ${esc(meta.items ?? "?")} ${meta.items === "1" ? "input" : "inputs"} · ${Number(meta.status) < 400 ? "Completed" : "Failed"} (${esc(meta.status ?? "?")})${Number(meta.status) >= 400 ? " · No prediction" : ""}</p>
+          <div class="training-links"><a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}">View request and ${Number(meta.status) >= 400 ? "error" : "result"} →</a>
           <a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}&amp;format=json">Download JSON</a></div></article>`;
       }).join("")}</div>` : '<p class="empty-state">No shared requests yet. Classification requests appear after inference unless share_data: false is set.</p>'}${navigation}`));
   } catch {

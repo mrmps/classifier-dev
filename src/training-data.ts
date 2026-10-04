@@ -51,8 +51,8 @@ function sanitize(value: unknown, depth = 0): unknown {
 }
 
 export type TrainingRecord = {
-  schema_version: 2;
-  label_source: "model_prediction";
+  schema_version: 1 | 2 | 3;
+  label_source: "model_prediction" | null;
   redaction: { version: 1; applied: boolean };
   id: string;
   created_at: string;
@@ -68,7 +68,7 @@ export async function saveTrainingData(env: Pick<Env, "TRAINING_DATA">, data: Pi
   const id = crypto.randomUUID();
   const now = Date.now();
   const record: TrainingRecord = {
-    schema_version: 2, label_source: "model_prediction", redaction: { version: 1, applied: false }, id, created_at: new Date(now).toISOString(),
+    schema_version: 3, label_source: data.status < 400 ? "model_prediction" : null, redaction: { version: 1, applied: false }, id, created_at: new Date(now).toISOString(),
     sharing: { policy_version: SHARING_VERSION, mode, purpose: "model_training" },
     ...data, request: sanitize(data.request) as Record<string, unknown>, response: sanitize(data.response), usage: sanitize(data.usage),
   };

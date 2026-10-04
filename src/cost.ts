@@ -54,6 +54,8 @@ export type Meter = {
     tokenizer: "cl100k_base";
   };
   permit?: import("./spending/permit").Permit;
+  /** Runs at provider dispatch, after admission and spending checks. */
+  onProviderAttempt?: () => void;
   usd: number;
   tokens: ModelTokenUsage[];
   /** Trusted account billing hook. Called before every provider attempt, never HTTP supplied. */
