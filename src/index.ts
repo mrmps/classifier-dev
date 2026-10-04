@@ -39,8 +39,7 @@ export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
-import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets } from "./typesafe-compat";
-import { dgemmaRoute, dgemmaResponse, dgemmaUnconfigured } from "./dgemma";
+import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv {
   QUOTAS?: DurableObjectNamespace;
@@ -59,9 +58,6 @@ export interface Env extends LayaEnv, SpendingEnv {
   CHUNKLAYA_URL?: string;
   CHUNKLAYA_TOKEN?: string;
   CHUNKLAYA_ENABLED?: string;
-  DGEMMA_URL?: string;
-  DGEMMA_TOKEN?: string;
-  DGEMMA_ENABLED?: string;
   /**
    * Vercel AI Gateway, which serves Jev on a free monthly credit. With it set,
    * Jev is asked there first and TYPESAFE_API_KEY catches what the gateway
@@ -1551,18 +1547,25 @@ const worker = {
       const sdkStarted = Date.now();
       let imageCount = 0;
       try { const parsed = JSON.parse(body ?? ""); imageCount = Array.isArray(parsed?.images) ? parsed.images.length : 0; } catch {}
-      const door = decisions ? dgemmaRoute(body ?? "") : { kind: "typesafe" as const };
-      const sdkRecord = (status: number, reason = "", model = door.kind === "typesafe" ? "typesafe" : "dgemma") => {
+      let unsupported: ReturnType<typeof unsupportedSystemOneInput> = null;
+      if (decisions) {
+        try { unsupported = unsupportedSystemOneInput(JSON.parse(body ?? "")); } catch {}
+      }
+      const sdkRecord = (status: number, reason = "") => {
         if (path !== "v1/systemone" || req.method !== "POST") return;
         record(env, ctx, {
           tier: "fast", n: status === 200 ? decisions : 0, ms: Date.now() - sdkStarted,
           labels: labelSets.length === 1 ? labelSets[0].labels : labelSets.map(set => JSON.stringify(set.labels)),
           mode: labelSets.length > 1 ? "dimensions" : "single",
-          ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : model,
+          ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : "typesafe",
           meter, images: imageCount, usd: meter.usd, reason, agent,
           attempted: decisions, escalationFailed: 0,
         });
       };
+      if (unsupported) {
+        sdkRecord(400, unsupported.code);
+        return json(unsupported, 400);
+      }
       const multiplier = account?.multiplier ?? 1;
       const quotaOwner = account ? `account:${account.id}` : ip;
       const rpm = TIERS.fast.rpm * multiplier;
@@ -1594,27 +1597,13 @@ const worker = {
           return json({ error: refusal.message, code: refusal.code }, refusal.status, refusal.headers);
         }
       }
-      // A body that names model "dgemma" or carries images belongs to the
-      // image-capable service, which speaks the same contract; everything
-      // else stays TypeSafe's to validate. Neither answers for the other.
-      if (door.kind === "refuse") {
-        sdkRecord(door.status, door.code, "dgemma");
-        return json({ error: door.message, code: door.code }, door.status);
-      }
-      let response: Response;
-      if (door.kind === "dgemma") {
-        const pod = env.DGEMMA_ENABLED === "true" ? jevKeys(env)?.dgemma : undefined;
-        response = pod ? await dgemmaResponse(pod, door.body, meter, req.signal) : dgemmaUnconfigured();
-        sdkRecord(response.status, response.ok ? "" : `dgemma_${response.status}`, "dgemma");
-      } else {
-        response = await typeSafeCompatibleResponse(
-          req,
-          env.TYPESAFE_API_KEY,
-          body,
-          decisions ? meter : undefined,
-        );
-        sdkRecord(response.status, response.ok ? "" : `typesafe_${response.status}`);
-      }
+      const response = await typeSafeCompatibleResponse(
+        req,
+        env.TYPESAFE_API_KEY,
+        body,
+        decisions ? meter : undefined,
+      );
+      sdkRecord(response.status, response.ok ? "" : `typesafe_${response.status}`);
       const headers = new Headers(response.headers);
       // Own the browser policy at this boundary. An upstream credentialed CORS
       // header combined with our wildcard origin would make an otherwise valid

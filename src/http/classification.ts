@@ -10,7 +10,7 @@ import { parseTokenRateCard, priceTokens } from "../server/token-pricing";
 import { extendTokenReservation, providerCallBound } from "../server/token-reservation";
 import { refundTokenReservation, settleTokenReservation } from "../server/token-ledger";
 import { writeAccountAnalytics } from "../server/analytics/write";
-import { typeSafeDecisionCount } from "../typesafe-compat";
+import { typeSafeDecisionCount, unsupportedSystemOneInput } from "../typesafe-compat";
 import { rateLimitMultiplier } from "../lib/billing";
 import { isLongContextRequest } from "../long-context";
 import { documentRequest } from "./document";
@@ -43,6 +43,10 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   let body: Record<string, unknown> = {};
   let itemCount: number;
   if (typeSafe) {
+    try {
+      const unsupported = unsupportedSystemOneInput(JSON.parse(text));
+      if (unsupported) return Response.json(unsupported, { status: 400 });
+    } catch { /* TypeSafe owns validation of malformed requests. */ }
     itemCount = typeSafeDecisionCount(text);
   } else {
     try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }

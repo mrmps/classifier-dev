@@ -19,6 +19,13 @@ function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+export function unsupportedSystemOneInput(value: unknown): { code: "bad_model" | "images_unsupported"; error: string } | null {
+  const body = object(value);
+  if (body?.model === "dgemma") return { code: "bad_model", error: "This model is no longer available." };
+  if (body?.images !== undefined && body.images !== null) return { code: "images_unsupported", error: "Image inputs are not supported by this endpoint." };
+  return null;
+}
+
 /** One System One question is one decision for classifier.dev quota purposes. */
 export function typeSafeDecisionCount(body: string): number {
   try {
