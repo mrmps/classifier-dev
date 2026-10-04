@@ -25,6 +25,7 @@
     "test:e2e:chat-analytics": "bun e2e/chat-analytics.ts",
     "test:e2e:chat": "node e2e/chat.mjs",
     "test:e2e:spending": "node e2e/spending.mjs",
+    "test:e2e:training": "node e2e/training-data.mjs",
     "test:e2e:usage": "node e2e/usage.mjs",
     "test:e2e:long-context": "node e2e/long-context.mjs",
     "test:e2e:long-context-billing": "bun e2e/long-context-billing.ts",

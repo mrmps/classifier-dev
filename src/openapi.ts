@@ -1,3 +1,4 @@
+import { SHARING_SCHEMA, SHARING_DESCRIPTION } from "./training-data";
 import { SPENDING_ERROR_CODES } from "./spending/policy";
 import { DIMENSIONS_SCHEMA } from "./dimensions";
 import { ACCOUNT_PATHS } from "./account-openapi";
@@ -14,6 +15,7 @@ import { MAX_DESIRED_LATENCY_MS, MIN_DESIRED_LATENCY_MS, ROADMAP, ROADMAP_KEYS }
 export const ERROR_CODES = [
   ...SPENDING_ERROR_CODES,
   "scrape_unavailable", "scrape_payment_required", "scrape_failed", "scrape_empty", "scrape_too_large",
+  "bad_share_data", "data_sharing_unavailable",
   "bad_model", "bad_processing", "laya_input", "laya_rate_limit", "laya_unavailable",
   "chunklaya_input", "chunklaya_busy", "chunklaya_unavailable",
   "images_unsupported",
@@ -54,6 +56,7 @@ const err = (description: string, headers?: Record<string, unknown>, plain = fal
   },
 });
 const RATE_LIMIT_HEADERS = {
+  "X-Classifier-Data-Sharing": { schema: { type: "string", enum: ["saved", "failed"] }, description: "R2 persistence state for explicitly shared requests. A failed write does not discard the classification result." },
   "RateLimit-Limit": { schema: { type: "string" }, description: "Classifications allowed per minute for this tier." },
   "RateLimit-Remaining": { schema: { type: "string" }, description: "Left in the current minute. Present once the limiter has been consulted: on every 200 and 429, not on a 400 that never reached it." },
   "RateLimit-Policy": { schema: { type: "string" }, description: "The policy, e.g. 3000;w=60, 20000;w=86400." },
@@ -79,6 +82,7 @@ const JOB_RESPONSE = { "200": { description: "Job progress or result.", content:
   "409": err("The job is closed, busy, or the next part sequence is different."),
   "503": err("Jev or job processing is unavailable; retry the same part or finish call.") };
 const DOCUMENT_PARAMETERS = [
+  { $ref: "#/components/parameters/ShareData" },
   { $ref: "#/components/parameters/IdempotencyKey" },
   { name: "Prefer", in: "header", schema: { type: "string", const: "respond-async" }, description: "Upload one complete document and receive a background job, even below the synchronous limits." },
   { name: "labels", in: "query", schema: { type: "string" }, description: "For text/plain uploads: comma-separated labels." },
@@ -345,9 +349,9 @@ export const OPENAPI = {
       post: {
         operationId: "classifySandbox",
         summary: "Sandbox: identical to POST /v1/classify. Exists for tooling that requires a sandbox URL.",
-        description: "This alias runs real inference with the same authentication, quotas and billing as /v1/classify, and adds an `x-sandbox` header. Request content is not stored; account usage and billing metadata are recorded. It is not a free or simulated billing environment.",
+        description: "This alias runs real inference with the same authentication, quotas and billing as /v1/classify, and adds an `x-sandbox` header. Request content is retained only with training-data opt-in; account usage and billing metadata are recorded. It is not a free or simulated billing environment.",
         tags: ["classify"],
-        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        parameters: [{ $ref: "#/components/parameters/ShareData" }, { $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } } },
         responses: {
           "200": { description: "Same as /v1/classify.", headers: { "x-sandbox": { schema: { type: "string" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyResponse" } } } },
@@ -572,6 +576,7 @@ export const OPENAPI = {
     "/v1/systemone": {
       post: {
         operationId: "typeSafeSystemOne",
+        parameters: [{ $ref: "#/components/parameters/ShareData" }],
         summary: "Run the TypeSafe System One contract through classifier.dev.",
         description:
           "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
@@ -736,7 +741,7 @@ export const OPENAPI = {
         summary: "Classify up to 1,000 texts synchronously.",
         description: "inputs takes up to 1,000 texts and results come back in the same order. This path retains synchronous limits; for one whole document up to 10M tokens/100 MB, use POST /v1/classify instead.",
         tags: ["classify"],
-        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        parameters: [{ $ref: "#/components/parameters/ShareData" }, { $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: {
           required: true,
           content: { "application/json": { schema: { $ref: "#/components/schemas/ClassifyRequest" } } },
@@ -758,6 +763,8 @@ export const OPENAPI = {
         description: "Content negotiation on Accept: text/plain (default, what curl prints), text/markdown, text/html, or application/json for the same machine-readable index as GET /api. `?format=` overrides Accept.",
         tags: ["docs"],
         parameters: [
+          { $ref: "#/components/parameters/ShareData" },
+          { name: "share_data", in: "query", schema: { type: "string", enum: ["true", "false"] }, description: SHARING_DESCRIPTION },
           { name: "format", in: "query", required: false, schema: { type: "string", enum: ["text", "markdown", "html", "json"] }, description: "Force a representation regardless of Accept." },
           {
             name: "labels",
@@ -849,6 +856,8 @@ export const OPENAPI = {
           "The same request works as query parameters on the root, GET /?labels=spam,not+spam&text=Win+a+free+iPhone, " +
           "with the same options; a malformed request answers with a URL that would have worked.",
         parameters: [
+          { $ref: "#/components/parameters/ShareData" },
+          { name: "share_data", in: "query", schema: { type: "string", enum: ["true", "false"] }, description: SHARING_DESCRIPTION },
           {
             name: "labels",
             in: "path",
@@ -1056,6 +1065,7 @@ export const OPENAPI = {
         type: "object",
         required: ["state", "model", "questions"],
         properties: {
+          share_data: SHARING_SCHEMA,
           state: TYPESAFE_ENTRY,
           model: { type: "string", description: "A name or alias returned by GET /v1/models." },
           questions: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_QUESTION },
@@ -1137,6 +1147,7 @@ export const OPENAPI = {
               "smart re-asks single-label answers below 0.7 confidence of a reasoning model; multi-label ignores it. Long context and explicit chunklaya refuse smart with 400 bad_tier. Read case-insensitively; any other value is a 400 bad_tier.",
           },
           instructions: { type: "string", description: "Extra criteria for the classifier." },
+          share_data: SHARING_SCHEMA,
           multi: { type: "boolean", description: "Return every label that applies, with a score per label. true, \"true\", 1 and \"1\" all mean yes." },
           max_labels: { type: "integer", minimum: 1, description: "Cap on how many multi-label answers come back; implies multi. A numeric string is read; zero or less means no cap; a fraction is rounded down." },
         },
@@ -1420,6 +1431,7 @@ export const OPENAPI = {
       },
     },
     parameters: {
+      ShareData: { name: "X-Classifier-Share-Data", in: "header", schema: { type: "string", enum: ["true", "false"] }, description: SHARING_DESCRIPTION },
       IdempotencyKey: {
         name: "Idempotency-Key",
         in: "header",

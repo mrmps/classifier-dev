@@ -455,3 +455,18 @@ body:has(.admin-app) {
 .model-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .model-filter select { max-width: 100%; padding: 8px 12px; border: 1px solid #48516a; border-radius: 6px; background: #111827; color: #edf0f7; font: inherit; }
 .model-filter select:focus-visible { outline: 2px solid #8caaff; outline-offset: 3px; }
+
+.training-page main { max-width: 1180px; padding-top: 28px; }
+.training-page .topbar { max-width: 1180px; margin: auto; padding: 16px 20px 0; display: flex; align-items: center; justify-content: space-between; }
+.training-page .training-note { color: var(--muted); max-width: 80ch; }
+.training-page .training-actions { margin-block: 20px; }
+.training-page .training-list { display: grid; gap: 16px; margin-block: 20px; }
+.training-page .training-list .panel { padding: 20px; }
+.training-page .training-list h2 { overflow-wrap: anywhere; font-size: 16px; line-height: 1.5; margin-bottom: 8px; }
+.training-page .training-meta { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+.training-page .training-links { display: flex; flex-wrap: wrap; gap: 12px 24px; color: #8caaff; }
+.training-page .training-links a:hover { text-decoration: underline; }
+.training-page .training-record { white-space: pre-wrap; overflow-wrap: anywhere; padding: 20px; background: #111721; border: 0; border-radius: 8px; font-size: 13px; }
+
+.training-page h3 { font-size: 14px; margin-top: 24px; margin-bottom: 8px; }
+.training-page details { margin-block: 24px; }

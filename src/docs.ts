@@ -1,3 +1,4 @@
+import { SHARING_DESCRIPTION } from "./training-data";
 import { SCRAPE_PRICE } from "./scrape";
 import { vsJevText } from "./vsjev";
 import { roadmapDoc } from "./newsletter";
@@ -740,10 +741,27 @@ ON REQUEST
 
 ${roadmapDoc()}
 
+OPTIONAL TRAINING-DATA SHARING
+
+  ${SHARING_DESCRIPTION}
+
+  POST: add the JSON boolean "share_data": true. GET: ?share_data=true.
+  SDK clients: send X-Classifier-Share-Data: true. MCP: set share_data: true
+  in classification tool arguments. Only opt in when authorized to share
+  every input for training. Omitted or false means no training collection.
+  Existing usage still counts. Both minute and daily quotas double, including
+  Laya/Kev lanes and public label-set allowances; plan multipliers stack.
+  Billing, spending safeguards, input-size limits and provider capacity stay
+  unchanged. Synchronous classification only; chat and background jobs are
+  excluded. Rate-limit failures explain how to opt in.
+  X-Classifier-Data-Sharing: saved confirms storage; failed preserves the model
+  result but means collection failed. MCP exposes this as data_sharing.
+  Details, retention and permissions: https://classifier.dev/privacy.
+
 PRIVACY
 
-  The text you send is never stored or logged. It goes to the model provider
-  for the classification and nowhere else. Per-request analytics record a
+  Your text is retained for training only with explicit opt-in. It goes to
+  the model provider for classification. Per-request analytics record a
   keyed fingerprint of the label set, plus the tier, model, latency, status and
   coarse country. Successful simple and multi-label classifier names are also
   kept for 90 days in a separate aggregate registry with no caller identity or

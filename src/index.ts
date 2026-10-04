@@ -1,3 +1,4 @@
+import { sharingConsent, requireSharingStorage, SharingError, SHARING_HINT, saveTrainingData } from "./training-data";
 import { requestTokens } from "./model-analytics";
 import { classificationUsage, classificationPricing } from "./classification-usage";
 import { classifyLongContext, LongContextError, longContextInputTokens, LONG_CONTEXT_THRESHOLD, LONG_CONTEXT_MAX_TOKENS, LONG_CONTEXT_MAX_INPUTS, LONG_CONTEXT_MAX_DECISIONS } from "./long-context";
@@ -42,6 +43,7 @@ import { pricingHtml } from "./pricingui";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv {
+  TRAINING_DATA?: R2Bucket;
   QUOTAS?: DurableObjectNamespace;
   QUOTA_COORDINATOR_ENABLED?: string;
   OPENROUTER_API_KEY: string;
@@ -214,8 +216,8 @@ export function primaryModels(): string[] {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
-  "access-control-allow-headers": "Content-Type, Authorization, Accept, Prefer, Idempotency-Key, If-None-Match, Mcp-Session-Id, MCP-Protocol-Version, X-TypeSafe-SDK, X-TypeSafe-Runtime, X-TypeSafe-Retry-Count",
-  "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, Retry-After-Ms, x-api-version, x-typesafe-request-id, Idempotency-Key",
+  "access-control-allow-headers": "Content-Type, Authorization, Accept, Prefer, Idempotency-Key, If-None-Match, Mcp-Session-Id, MCP-Protocol-Version, X-TypeSafe-SDK, X-TypeSafe-Runtime, X-TypeSafe-Retry-Count, X-Classifier-Share-Data",
+  "access-control-expose-headers": "RateLimit-Limit, RateLimit-Remaining, RateLimit-Policy, Retry-After, Retry-After-Ms, x-api-version, x-typesafe-request-id, Idempotency-Key, X-Classifier-Data-Sharing",
 };
 
 /**
@@ -376,7 +378,7 @@ const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = 
   pricing: { doc: PRICING, title: "pricing", desc: "Start free, then add a workspace plan for usage credits, API keys and billing." },
   about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
   contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },
-  privacy: { doc: PRIVACY, title: "privacy", desc: "Inputs are not stored. What is logged, and what is not collected." },
+  privacy: { doc: PRIVACY, title: "privacy", desc: "Request privacy, optional training-data sharing, and operational logs." },
   terms: { doc: TERMS, title: "terms", desc: "Free within the limits, offered as is; what you agree to by using it." },
 };
 
@@ -1147,9 +1149,9 @@ function labelLimitEnabled(env: Env) {
  * This is deliberately separate from per-IP admission: the existing limiter
  * object gives it the same atomic minute/day semantics without linking callers.
  */
-async function limitClassifier(env: Env, fingerprint: string, cost: number) {
-  const rpm = configuredLabelLimit(env.FREE_LABEL_RPM, LABEL_LIMITS.rpm);
-  const daily = configuredLabelLimit(env.FREE_LABEL_DAILY, LABEL_LIMITS.daily);
+async function limitClassifier(env: Env, fingerprint: string, cost: number, multiplier: number) {
+  const rpm = configuredLabelLimit(env.FREE_LABEL_RPM, LABEL_LIMITS.rpm) * multiplier;
+  const daily = configuredLabelLimit(env.FREE_LABEL_DAILY, LABEL_LIMITS.daily) * multiplier;
   const id = env.LIMITER.idFromName(`classifier:${fingerprint}`);
   const response = await env.LIMITER.get(id).fetch(
     `https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}`,
@@ -1172,7 +1174,7 @@ async function limitClassifier(env: Env, fingerprint: string, cost: number) {
 
 type ClassifierRefusal = { message: string; status: number; code: ErrorCode; headers: Record<string, string> };
 
-async function classifierRefusal(env: Env, sets: { labels: string[]; cost: number }[]): Promise<ClassifierRefusal | null> {
+async function classifierRefusal(env: Env, sets: { labels: string[]; cost: number }[], multiplier = 1): Promise<ClassifierRefusal | null> {
   if (!labelLimitEnabled(env)) return null;
   try {
     const grouped = new Map<string, number>();
@@ -1181,7 +1183,7 @@ async function classifierRefusal(env: Env, sets: { labels: string[]; cost: numbe
       if (fingerprint) grouped.set(fingerprint, (grouped.get(fingerprint) ?? 0) + set.cost);
     }
     for (const [fingerprint, cost] of grouped) {
-      const gate = await limitClassifier(env, fingerprint, cost);
+      const gate = await limitClassifier(env, fingerprint, cost, multiplier);
       if (gate.limited) return {
         status: 429, code: "label_set_limit",
         message: `The shared free allowance for this label set has reached ${gate.limit.toLocaleString("en-US")} classifications ${gate.scope === "day" ? "today" : "this minute"}. Use a funded workspace key for a separate allowance.`,
@@ -1433,15 +1435,21 @@ const worker = {
     // limits, the metering and the logging are identical; only the client
     // family differs.
     const mcpClassify: ClassifyFn = async (body, original) => {
+      if (chatEndpoint && (body.share_data === true || original.headers.get("x-classifier-share-data") === "true"))
+        return { status: 400, body: { error: "The chat assistant cannot opt in to training-data sharing. Send an explicit API request instead.", code: "bad_share_data" } };
       const headers: Record<string, string> = {
         "content-type": "application/json",
         "user-agent": `mcp/1.0 (${original.headers.get("user-agent") ?? "unknown client"})`,
         "cf-connecting-ip": ip,
       };
+      const share = original.headers.get("x-classifier-share-data");
+      if (share !== null) headers["x-classifier-share-data"] = share;
       const auth = original.headers.get("authorization");
       if (auth) headers.authorization = auth;
       const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, { method: "POST", headers, body: JSON.stringify(body) }), env, ctx, execution);
       const parsed = (await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: `http_${r.status}` }))) as Record<string, unknown>;
+      const sharingState = r.headers.get("x-classifier-data-sharing");
+      if (sharingState) parsed.data_sharing = sharingState;
       return { status: r.status, body: parsed };
     };
     if (MCP_PATHS.has(path)) {
@@ -1539,7 +1547,26 @@ const worker = {
       if (env.SPENDING_ENABLED === "true" && req.method !== (path === "v1/systemone" ? "POST" : "GET"))
         return json({ error: "Method not allowed", code: "method_not_allowed" }, 405);
       const hasBody = req.method !== "GET" && req.method !== "HEAD";
-      const body = hasBody ? await req.text() : undefined;
+      let body = hasBody ? await req.text() : undefined;
+      let sdkBody: Record<string, unknown> | undefined;
+      let sharing = false;
+      if (path === "v1/systemone" && req.method === "POST") {
+        try {
+          const parsed = JSON.parse(body ?? "");
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) sdkBody = parsed;
+        } catch { /* Provider validation handles malformed JSON. */ }
+        try {
+          sharing = sharingConsent(req, sdkBody);
+          requireSharingStorage(env, sharing);
+        } catch (error) {
+          if (error instanceof SharingError) return json({ error: error.message, code: error.code }, error.status);
+          throw error;
+        }
+        if (sdkBody && Object.hasOwn(sdkBody, "share_data")) {
+          delete sdkBody.share_data;
+          body = JSON.stringify(sdkBody);
+        }
+      }
       const decisions = path === "v1/systemone" && req.method === "POST"
         ? typeSafeDecisionCount(body ?? "")
         : 0;
@@ -1566,7 +1593,7 @@ const worker = {
         sdkRecord(400, unsupported.code);
         return json(unsupported, 400);
       }
-      const multiplier = account?.multiplier ?? 1;
+      const multiplier = (account?.multiplier ?? 1) * (sharing ? 2 : 1);
       const quotaOwner = account ? `account:${account.id}` : ip;
       const rpm = TIERS.fast.rpm * multiplier;
       const daily = TIERS.fast.daily * multiplier;
@@ -1578,7 +1605,7 @@ const worker = {
           const retryAfter = gate.resetIn ?? 60;
           sdkRecord(429, "rate_limit");
           return json(
-            { error: `Rate limit reached; retry in ${retryAfter}s.` },
+            { error: `Rate limit reached; retry in ${retryAfter}s.${!sharing && env.TRAINING_DATA ? ` ${SHARING_HINT}` : ""}` },
             429,
             {
               "retry-after": String(retryAfter),
@@ -1591,10 +1618,10 @@ const worker = {
       }
 
       if (decisions && !account && !enterprise && !execution?.internal) {
-        const refusal = await classifierRefusal(env, labelSets);
+        const refusal = await classifierRefusal(env, labelSets, sharing ? 2 : 1);
         if (refusal) {
           sdkRecord(refusal.status, refusal.code);
-          return json({ error: refusal.message, code: refusal.code }, refusal.status, refusal.headers);
+          return json({ error: refusal.message + (!sharing && env.TRAINING_DATA ? ` ${SHARING_HINT}` : ""), code: refusal.code }, refusal.status, refusal.headers);
         }
       }
       const response = await typeSafeCompatibleResponse(
@@ -1605,6 +1632,12 @@ const worker = {
       );
       sdkRecord(response.status, response.ok ? "" : `typesafe_${response.status}`);
       const headers = new Headers(response.headers);
+      if (sharing && sdkBody && decisions) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
+        endpoint: "systemone", status: response.status,
+        request: Object.fromEntries(["state", "questions", "model", "context", "config"].filter(key => Object.hasOwn(sdkBody!, key)).map(key => [key, sdkBody![key]])),
+        response: await response.clone().json().catch(() => ({ error: "Non-JSON model response" })),
+        usage: { provider_cost_usd: meter.usd, tokens: meter.tokens, ms: Date.now() - sdkStarted },
+      }));
       // Own the browser policy at this boundary. An upstream credentialed CORS
       // header combined with our wildcard origin would make an otherwise valid
       // SDK response unreadable in browsers.
@@ -1665,7 +1698,7 @@ const worker = {
     if (path === "v1/sandbox/classify" || path === "sandbox/classify") {
       const r = await worker.fetch(new Request(`${origin}/${API_VERSION}/classify`, req), env, ctx, execution);
       const h = new Headers(r.headers);
-      h.set("x-sandbox", "true; identical to production; normal billing applies; request content is not stored");
+      h.set("x-sandbox", "true; identical to production; normal billing applies; request content is retained only with explicit training-data opt-in");
       return new Response(r.body, { status: r.status, headers: h });
     }
 
@@ -2042,10 +2075,12 @@ const worker = {
     if (!enterprise && !account && !execution?.internal && req.headers.has("authorization")) {
       return json({ error: "Invalid API key. Create a workspace key at /app/keys.", code: "invalid_api_key" }, 401, { "cache-control": "no-store", "x-api-version": API_VERSION });
     }
-    const multiplier = account?.multiplier ?? 1;
+    let sharing = false;
+    let modelStarted = false;
+    let multiplier = account?.multiplier ?? 1;
     const quotaOwner = account ? `account:${account.id}` : ip;
     const quotaScope = account ? "per account" : "per IP";
-    const paid = multiplier > 1;
+    const paid = (account?.multiplier ?? 1) > 1;
 
     // ---- gather params from either shape -----------------------------------
     let inputs: string[] = [];
@@ -2076,8 +2111,8 @@ const worker = {
     // responses are not cached for replay.
     const apiHeaders = (remaining = -1): Record<string, string> => {
       const isLaya = selectedModel === "laya" || selectedModel === "kev";
-      const limit = isLaya ? Math.min(LAYA_LIMITS[processing].rpm, TIERS[tier].rpm * multiplier) : TIERS[tier].rpm * multiplier;
-      const daily = isLaya ? Math.min(LAYA_LIMITS[processing].daily, TIERS[tier].daily * multiplier) : TIERS[tier].daily * multiplier;
+      const limit = isLaya ? Math.min(LAYA_LIMITS[processing].rpm * (sharing ? 2 : 1), TIERS[tier].rpm * multiplier) : TIERS[tier].rpm * multiplier;
+      const daily = isLaya ? Math.min(LAYA_LIMITS[processing].daily * (sharing ? 2 : 1), TIERS[tier].daily * multiplier) : TIERS[tier].daily * multiplier;
       const h: Record<string, string> = {
         "x-api-version": API_VERSION,
         "ratelimit-limit": enterprise && !isLaya ? "unlimited" : String(limit),
@@ -2092,11 +2127,16 @@ const worker = {
       if (idem) h["idempotency-key"] = idem.slice(0, 255);
       return h;
     };
-    const fail = (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, unknown> = {}) => {
+    const fail = async (msg: string, status: number, reason: ErrorCode, extra: Record<string, string> = {}, ms = 0, remaining = -1, more: Record<string, unknown> = {}) => {
+      if (status === 429 && !sharing && env.TRAINING_DATA && ["rate_limit_minute", "rate_limit_day", "laya_rate_limit", "label_set_limit"].includes(reason)) msg += ` ${SHARING_HINT}`;
       recordLongContext(env, meter.longContext, "error");
       record(env, ctx, { tier, n: 0, ms, labels, ip, country, status, client, model: selectedModel === "jev" ? "" : selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND.model : layaModel(selectedModel),
         meter, usd: meter.usd, reason, agent, attempted: inputs.length, escalationFailed: 0, mode, dimensions: dimensions?.length ?? 0 });
       const headers = { ...apiHeaders(remaining), ...extra };
+      if (sharing && modelStarted) headers["x-classifier-data-sharing"] = await saveTrainingData(env, {
+        endpoint: "classify", status, request: trainingRequest(), response: { error: msg, code: reason },
+        usage: { provider_cost_usd: meter.usd, tokens: meter.tokens, ms },
+      });
       // A GET that was malformed gets back a URL that would have worked, in the spelling it used.
       const hint = status === 400 && getReq ? { usage: USAGE, try: suggest(origin, getReq) } : undefined;
       if (wantJson) return json({ error: msg, code: reason, ...hint, ...more }, status, headers);
@@ -2122,6 +2162,14 @@ const worker = {
         return fail('Body must be a JSON object such as {"input":"...","labels":["a","b"]}. See https://classifier.dev', 400, "bad_json");
       }
       const b = body as Record<string, unknown>;
+      try {
+        sharing = sharingConsent(req, b);
+        requireSharingStorage(env, sharing);
+      } catch (error) {
+        if (error instanceof SharingError) return fail(error.message, error.status, error.code);
+        throw error;
+      }
+      multiplier *= sharing ? 2 : 1;
       if (Object.hasOwn(b, "url")) return fail("URL classification requires a funded workspace key. Use POST /v1/classify with Authorization: Bearer classifier_agent_...", 401, "invalid_api_key");
       if (b.model !== undefined && b.model !== "jev" && b.model !== "laya" && b.model !== "kev" && b.model !== "chunklaya")
         return fail('model must be "jev", "laya", "kev" or "chunklaya"', 400, "bad_model");
@@ -2169,6 +2217,14 @@ const worker = {
       }
     } else {
       if (url.searchParams.has("model") || url.searchParams.has("processing")) return fail("Model and processing selection require POST /v1/classify", 400, "bad_model");
+      try {
+        sharing = sharingConsent(req);
+        requireSharingStorage(env, sharing);
+      } catch (error) {
+        if (error instanceof SharingError) return fail(error.message, error.status, error.code);
+        throw error;
+      }
+      multiplier *= sharing ? 2 : 1;
       // GET /{labels}/{text}, GET /?labels=a,b&text=..., or a mix of the two.
       // The path goes in undecoded so a %2C, %2F or %2B inside a label survives.
       getReq = readGet(CLASSIFY_ALIASES.has(path) ? "" : rawPath, url);
@@ -2254,7 +2310,7 @@ const worker = {
       try {
         layaPlan = planLaya(dimensions
           ? inputs.flatMap(input => dimensions!.map(d => ({ input, labels: d.labels, instructions: dimensionInstructions(d, instructions) })))
-          : inputs.map(input => ({ input, labels, instructions, multi: !!multi })), processing, selectedModel as LayaModel);
+          : inputs.map(input => ({ input, labels, instructions, multi: !!multi })), processing, selectedModel as LayaModel, sharing ? 2 : 1);
       } catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
           error.status === 400 ? "laya_input" : error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -2268,14 +2324,14 @@ const worker = {
     if (!account && !enterprise && !execution?.internal) {
       const refusal = await classifierRefusal(env, dimensions
         ? dimensions.map(dimension => ({ labels: dimension.labels, cost: inputs.length }))
-        : [{ labels, cost: decisions }]);
+        : [{ labels, cost: decisions }], sharing ? 2 : 1);
       if (refusal) return fail(refusal.message, refusal.status, refusal.code, refusal.headers);
     }
     const regularQuotaStarted = performance.now();
     const combinedQuota = !!layaPlan && env.QUOTA_COORDINATOR_ENABLED === "true" && !!env.QUOTAS;
     let layaRun: LayaRun | undefined;
     let layaAbort: AbortController | undefined;
-    if (combinedQuota && layaTiming && processing === "fast" && env.LAYA_FAST_ADMISSION) {
+    if (combinedQuota && !sharing && layaTiming && processing === "fast" && env.LAYA_FAST_ADMISSION) {
       try {
         const key = env.LIMITER.idFromName(`laya:fast:${quotaOwner}`).toString();
         const checks = await Promise.all(Array.from({length:layaPlan!.cost}, () => env.LAYA_FAST_ADMISSION!.limit({key})));
@@ -2292,7 +2348,7 @@ const worker = {
     let gate: AdmissionResult;
     if (combinedQuota) {
       const quotas: Omit<Quota,"id">[] = enterprise ? [] : [{scope:tier,cost:decisions,limit:rpm,daily:TIERS[tier].daily * multiplier}];
-      quotas.push({scope:`laya:${processing}`,cost:layaPlan!.cost,limit:LAYA_LIMITS[processing].rpm,daily:LAYA_LIMITS[processing].daily});
+      quotas.push({scope:`laya:${processing}`,cost:layaPlan!.cost,limit:LAYA_LIMITS[processing].rpm * (sharing ? 2 : 1),daily:LAYA_LIMITS[processing].daily * (sharing ? 2 : 1)});
       try {
         // The coordinator returns stage timings without the diagnostic
         // storage.sync(); its output gate still preserves counter durability.
@@ -2345,7 +2401,7 @@ const worker = {
     // the separate, deliberately small Laya allowance.
     if (layaPlan && !combinedQuota) {
       const layaQuotaStarted = performance.now();
-      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost, layaTiming ? laneQuotaTiming : undefined); }
+      try { layaRemaining = await limitLaya(env, processing, quotaOwner, layaPlan.cost, layaTiming ? laneQuotaTiming : undefined, sharing ? 2 : 1); }
       catch (error) {
         if (error instanceof LayaError) return fail(error.message, error.status,
           error.scope === "day" ? "rate_limit_day" : error.status === 429 ? "laya_rate_limit" : "laya_unavailable",
@@ -2357,6 +2413,10 @@ const worker = {
 
     const started = Date.now();
     const backend = selectedModel === "chunklaya" ? CHUNKLAYA_BACKEND : JEV_BACKEND;
+    const trainingRequest = () => ({ inputs, ...(dimensions ? { dimensions } : { labels }), tier,
+      model: selectedModel, ...(instructions !== undefined ? { instructions } : {}),
+      ...(multi ? { multi: true, max_labels: multi.max } : {}), ...(layaPlan ? { processing } : {}) });
+    modelStarted = true;
     let results: Result[];
     let matrix: Result[][] | undefined;
     let fallbackDecisions = 0;
@@ -2417,6 +2477,11 @@ const worker = {
     // The native limiter reports only pass/fail, so we publish the ceiling, not a
     // fabricated remaining count. The limit is also documented at GET /.
     const headers = apiHeaders(gate.remaining);
+    if (sharing) headers["x-classifier-data-sharing"] = await saveTrainingData(env, {
+      endpoint: "classify", status: 200, request: trainingRequest(),
+      response: { results: matrix ?? results, ...modelSummary },
+      usage: { ...classificationUsage(meter), provider_cost_usd: meter.usd, tokens: meter.tokens, ms },
+    });
     if (layaTiming) {
       // Durations only: no request contents or identity. worker_total starts at
       // this handler, excluding outer dispatch and final response serialization.

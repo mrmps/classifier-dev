@@ -34,6 +34,10 @@ crons = ["0 15 * * *", "0 21 * * *", "0 3 * * *", "*/15 * * * *"]
 binding = "STATS"
 id = "YOUR_KV_NAMESPACE_ID"
 
+[[r2_buckets]]
+binding = "TRAINING_DATA"
+bucket_name = "classifier-training-data"
+
 [[analytics_engine_datasets]]
 binding = "AE"
 dataset = "classifier_events"

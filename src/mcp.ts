@@ -1,3 +1,4 @@
+import { SHARING_SCHEMA } from "./training-data";
 import { DIMENSIONS_SCHEMA } from "./dimensions";
 
 /**
@@ -116,7 +117,7 @@ const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : 
 function classifyOrError(status: number, body: Record<string, unknown>): ToolResult | null {
   if (status === 200) return null;
   const msg = typeof body.error === "string" ? body.error : `HTTP ${status}`;
-  return { text: `error: ${msg}`, structured: { error: msg, code: body.code ?? `http_${status}` }, isError: true };
+  return { text: `error: ${msg}`, structured: { error: msg, code: body.code ?? `http_${status}`, ...(body.data_sharing ? { data_sharing: body.data_sharing } : {}) }, isError: true };
 }
 
 type Row = { label?: string; labels?: string[]; confidence?: number | null; scores?: Record<string, number> | null };
@@ -144,7 +145,7 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
         "so act on the sure ones and look at the rest yourself, or pass tier \"smart\" to have the unsure ones re-asked of a reasoning model.",
       inputSchema: {
         type: "object",
-        properties: { ...urlProperties, inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA,
+        properties: { share_data: SHARING_SCHEMA, ...urlProperties, inputs: INPUTS_SCHEMA, labels: LABELS_SCHEMA, instructions: INSTRUCTIONS_SCHEMA, tier: TIER_SCHEMA,
           model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"], description: "Jev is default. Default/explicit jev inputs over 32,000 characters use paid Fast-only long context: up to 250,000 original cl100k_base context tokens total, 20 documents, 32 decisions and a 1 MB body. Requires paid workspace balance or active paid subscription, not signup credit. $0.084/M original context tokens counted once across inputs, independent of dimensions. Final Jev uses selected evidence; eligible chunks may be omitted, disclosed in usage.long_context. No evidence returns 422 long_context_no_evidence without charge. Explicit 'chunklaya' retains legacy opt-in (4,000,000 characters/input, 20 inputs, subject to body limit). 'laya' (512-token context) and 'kev' (8K context) remain experimental alternatives." },
           processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted; has no effect with explicit Jev. With Laya, omit to select fast for one decision or bulk for batches automatically. Explicit fast accepts one decision. Shared capacity limits can return 429." } },
         required: ["labels"],
@@ -174,11 +175,12 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
         },
         required: ["results"],
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
         const scraped = await urlResult(a, ctx);
         if (scraped) return scraped;
         const body = {
+          ...(a.share_data !== undefined ? { share_data: a.share_data } : {}),
           inputs: strings(a.inputs, "inputs", 1, 1000),
           labels: strings(a.labels, "labels", 2, 100),
           instructions: str(a.instructions, "instructions", { optional: true, max: 2000 }),
@@ -200,14 +202,14 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
       description: "Classify each text by several named dimensions, such as team, urgency and kind, in one request. Returns a label, confidence, scores and model for each field. At most 1,000 item × dimension decisions; every field counts toward the quota. Use per-dimension instructions to define ambiguous categories.",
       inputSchema: {
         type: "object", required: ["dimensions"], oneOf: [{ required: ["items"], not: { required: ["url"] } }, { required: ["url"], not: { required: ["items"] } }], additionalProperties: false,
-        properties: { ...urlProperties, items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA,
+        properties: { share_data: SHARING_SCHEMA, ...urlProperties, items: INPUTS_SCHEMA, dimensions: DIMENSIONS_SCHEMA, instructions: { ...INSTRUCTIONS_SCHEMA, maxLength: 4000 }, tier: TIER_SCHEMA,
           model: { type: "string", enum: ["jev", "laya", "kev", "chunklaya"] }, processing: { type: "string", enum: ["fast", "bulk"], description: "Optional. Implies Laya if model is omitted; has no effect with explicit Jev. Omit for automatic fast/bulk selection based on item × dimension decisions." } },
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
         const scraped = await urlResult(a, ctx);
         if (scraped) return scraped;
-        const r = await classify({ items: strings(a.items, "items", 1, 1000), dimensions: a.dimensions ?? null,
+        const r = await classify({ ...(a.share_data !== undefined ? { share_data: a.share_data } : {}), items: strings(a.items, "items", 1, 1000), dimensions: a.dimensions ?? null,
           instructions: str(a.instructions, "instructions", { optional: true, max: 4000 }), tier: tier(a.tier),
           ...(a.model !== undefined ? { model: a.model } : {}), ...(a.processing !== undefined ? { processing: a.processing } : {}) }, ctx.req);
         return classifyOrError(r.status, r.body) ?? { text: JSON.stringify(r.body), structured: r.body };
@@ -224,6 +226,7 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
         type: "object",
         properties: {
           ...urlProperties,
+          share_data: SHARING_SCHEMA,
           inputs: INPUTS_SCHEMA,
           labels: LABELS_SCHEMA,
           instructions: INSTRUCTIONS_SCHEMA,
@@ -253,13 +256,14 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
         },
         required: ["results"],
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
         const scraped = await urlResult(a, ctx, true);
         if (scraped) return scraped;
         const max = number(a.max_labels, "max_labels", 1, 100);
         if (max !== undefined && !Number.isInteger(max)) throw new InvalidParams("max_labels must be a whole number");
         const body: Record<string, unknown> = {
+          ...(a.share_data !== undefined ? { share_data: a.share_data } : {}),
           inputs: strings(a.inputs, "inputs", 1, 1000),
           labels: strings(a.labels, "labels", 2, 100),
           instructions: str(a.instructions, "instructions", { optional: true, max: 2000 }),
@@ -287,6 +291,7 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
       inputSchema: {
         type: "object",
         properties: {
+          share_data: SHARING_SCHEMA,
           inputs: INPUTS_SCHEMA,
           labels: LABELS_SCHEMA,
           instructions: INSTRUCTIONS_SCHEMA,
@@ -305,10 +310,11 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
         },
         required: ["total", "counts", "unsure"],
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
         const threshold = number(a.unsure_below, "unsure_below", 0, 1) ?? 0.7;
         const body = {
+          ...(a.share_data !== undefined ? { share_data: a.share_data } : {}),
           inputs: strings(a.inputs, "inputs", 1, 1000),
           labels: strings(a.labels, "labels", 2, 100),
           instructions: str(a.instructions, "instructions", { optional: true, max: 2000 }),
@@ -325,7 +331,7 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
         }
         const sorted = Object.entries(counts).sort((p, q) => q[1] - p[1]);
         const text = sorted.map(([l, n]) => `${n}\t${l}`).join("\n") + `\n\n${unsure} of ${rows.length} under ${threshold} confidence`;
-        return { text, structured: { total: rows.length, counts: Object.fromEntries(sorted), unsure, unsure_below: threshold } };
+        return { text, structured: { ...(r.body.data_sharing ? { data_sharing: r.body.data_sharing } : {}), total: rows.length, counts: Object.fromEntries(sorted), unsure, unsure_below: threshold } };
       },
     },
     {
@@ -338,6 +344,7 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
       inputSchema: {
         type: "object",
         properties: {
+          share_data: SHARING_SCHEMA,
           inputs: INPUTS_SCHEMA,
           labels: LABELS_SCHEMA,
           instructions: INSTRUCTIONS_SCHEMA,
@@ -368,10 +375,11 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
         },
         required: ["total", "uncertain"],
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async run(a, ctx) {
         const below = number(a.below, "below", 0, 1) ?? 0.7;
         const body = {
+          ...(a.share_data !== undefined ? { share_data: a.share_data } : {}),
           inputs: strings(a.inputs, "inputs", 1, 1000),
           labels: strings(a.labels, "labels", 2, 100),
           instructions: str(a.instructions, "instructions", { optional: true, max: 2000 }),
@@ -390,7 +398,7 @@ export function productServer(classify: ClassifyFn, market?: ClassifyFn): McpSer
           ? `index\tlabel\tconfidence\trunner-up\ttext\n` +
             uncertain.map((u) => `${u.index}\t${u.label}\t${u.confidence == null ? "-" : u.confidence.toFixed(2)}\t${u.runner_up ?? "-"}\t${clip(u.text)}`).join("\n")
           : `all ${rows.length} answers were at or above ${below} confidence`;
-        return { text, structured: { total: rows.length, below, uncertain } };
+        return { text, structured: { ...(r.body.data_sharing ? { data_sharing: r.body.data_sharing } : {}), total: rows.length, below, uncertain } };
       },
     },
   ];
@@ -655,7 +663,7 @@ export function docsServer(docs: Doc[]): McpServer {
 const MCP_CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
-  "access-control-allow-headers": "Content-Type, Authorization, Accept, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID",
+  "access-control-allow-headers": "Content-Type, Authorization, Accept, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, X-Classifier-Share-Data",
   "access-control-expose-headers": "Mcp-Session-Id, MCP-Protocol-Version",
 };
 

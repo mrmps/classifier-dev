@@ -52,7 +52,7 @@ export type LayaTask = { input: string; labels: string[]; instructions?: string;
 export type LayaPlan = { tasks: LayaTask[]; cost: number; processing: Processing; model: LayaModel };
 
 /** Validate and price before any quota, billing, or inference side effects. */
-export function planLaya(tasks: LayaTask[], processing: Processing, model: LayaModel = "laya"): LayaPlan {
+export function planLaya(tasks: LayaTask[], processing: Processing, model: LayaModel = "laya", multiplier = 1): LayaPlan {
   if (!tasks.length || tasks.length > 1000) throw new LayaError("Laya accepts 1–1,000 decisions per request", 400);
   if (processing === "fast" && tasks.length > 1) throw new LayaError("Laya fast accepts one decision per call; use processing: bulk for batches or dimensions", 400);
   let cost = 0;
@@ -65,7 +65,7 @@ export function planLaya(tasks: LayaTask[], processing: Processing, model: LayaM
     if (questions > LAYA_LIMITS[processing].questions) throw new LayaError("Too many questions for Laya fast; use processing: bulk", 400);
     cost += questions;
   }
-  if (cost > LAYA_LIMITS[processing].rpm) throw new LayaError("Batch exceeds the Laya per-minute question quota; split it into smaller calls", 400);
+  if (cost > LAYA_LIMITS[processing].rpm * multiplier) throw new LayaError("Batch exceeds the Laya per-minute question quota; split it into smaller calls", 400);
   return { tasks, cost, processing, model };
 }
 
@@ -78,11 +78,11 @@ export function readQuotaTiming(response: Response, timing?: QuotaTiming) {
   }
 }
 
-export async function limitLaya(env: LayaEnv, lane: Processing, owner: string, cost: number, timing?: QuotaTiming) {
+export async function limitLaya(env: LayaEnv, lane: Processing, owner: string, cost: number, timing?: QuotaTiming, multiplier = 1) {
   const { rpm, daily } = LAYA_LIMITS[lane];
   try {
     const id = env.LIMITER.idFromName(`laya:${lane}:${owner}`);
-    const response = await env.LIMITER.get(id).fetch(`https://limiter/?limit=${rpm}&daily=${daily}&cost=${cost}${timing ? "&timing=1" : ""}`);
+    const response = await env.LIMITER.get(id).fetch(`https://limiter/?limit=${rpm * multiplier}&daily=${daily * multiplier}&cost=${cost}${timing ? "&timing=1" : ""}`);
     readQuotaTiming(response, timing);
     if (!response.ok) throw new Error("limiter unavailable");
     const result = await response.json() as { limited: boolean; remaining: number; resetIn?: number; scope?: "minute" | "day" };
