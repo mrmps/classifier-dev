@@ -61,7 +61,7 @@ describe("the plugin", () => {
       for (const t of server.tools) {
         expect(t.name.length).toBeLessThanOrEqual(64);
         expect(t.title).toBeTruthy();
-        expect(t.annotations.readOnlyHint).toBe(true);
+        expect(t.annotations.readOnlyHint).toBe(server.name === "classifier.dev docs");
         expect(t.annotations.destructiveHint).toBe(false);
       }
     }

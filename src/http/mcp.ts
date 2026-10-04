@@ -53,6 +53,7 @@ export async function accountMcp(
             method: "POST",
             headers: {
               "content-type": "application/json",
+              ...(original.headers.has("x-classifier-share-data") ? { "x-classifier-share-data": original.headers.get("x-classifier-share-data")! } : {}),
               authorization: original.headers.get("authorization") || "",
               "cf-connecting-ip": request.headers.get("cf-connecting-ip") || "",
               ...(request.headers.get("idempotency-key") ? { "idempotency-key": request.headers.get("idempotency-key")! } : {}),
@@ -67,7 +68,7 @@ export async function accountMcp(
           return { status: 401, body: { error: "Missing credential." } };
         return {
           status: response.status,
-          body: (await response.json()) as Record<string, unknown>,
+          body: { ...await response.json() as Record<string, unknown>, ...(response.headers.has("x-classifier-data-sharing") ? { data_sharing: response.headers.get("x-classifier-data-sharing") } : {}) },
         };
       } catch (error) {
         return {

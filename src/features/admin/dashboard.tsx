@@ -477,6 +477,7 @@ export function Dashboard({
             </p>
           </div>
           <div className="actions">
+            <a className="control" href="/admin?view=training">Shared training data</a>
             <div className="range" aria-label="Time range">
               {(["24h", "7d", "30d"] as RangeKey[]).map((r) => (
                 <a

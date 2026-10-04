@@ -18,6 +18,7 @@
  * fingerprints to aggregate label names; it contains no caller or source text.
  */
 
+import { trainingPreview, TRAINING_KEY, type TrainingRecord } from "./training-data";
 import { modelName, modelUsage, modelUsageQuery } from "./model-analytics";
 import type { Env } from "./index";
 import { CHAT_DATASET, CHAT_FIELDS } from "./chat-analytics";
@@ -540,7 +541,7 @@ export function dashboard(range: RangeKey, d: AdminData, nonce: string) {
     `<section><h2>${esc(name)}</h2>${unavailable(query, rows.length ? `<div class="scroll"><table><thead><tr>${keys.map((k) => `<th>${esc(k)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${keys.map((k) => `<td>${esc(k === "reason" ? reasonText(String(r[k] || "")) : (r[k] ?? "—"))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<p>No activity in this period.</p>`)}</section>`;
   const body = `<div class="page"><article class="doc">
 <h1>Service analytics</h1><p>${esc(RANGES[range].label)} · ${esc(d.generatedAt)} · UTC</p>
-<nav aria-label="Time range"><a href="/admin?range=24h">24h</a> · <a href="/admin?range=7d">7d</a> · <a href="/admin?range=30d">30d</a> · <a href="/admin?logout=1">Sign out</a></nav>
+<nav aria-label="Time range"><a href="/admin?view=training">Shared training data</a> · <a href="/admin?range=24h">24h</a> · <a href="/admin?range=7d">7d</a> · <a href="/admin?range=30d">30d</a> · <a href="/admin?logout=1">Sign out</a></nav>
 <noscript><p>Enable JavaScript for interactive charts. The data report is available below.</p></noscript>
 ${d.errors.length ? `<p role="alert">some panels are empty because data is unavailable. Refresh to retry. ${esc(d.errors.join(" · ").slice(0, 300))}</p>` : ""}
 <section><h2>Totals</h2>${unavailable(
@@ -636,6 +637,62 @@ function classifierRegistryPage(data: Awaited<ReturnType<typeof classifierRegist
         </tbody></table>${navigation("Bottom")}` : `<p class="empty-state">${cursor ? "No label sets on this page. Return to the first page to refresh the registry." : "No label sets collected yet. Successful classifications will appear here."}</p>`}`
         : '<p role="alert">Unable to load label sets. Reload this page to retry, or <a href="/admin?view=labels">start from the first page</a>.</p>'}
     </main></div>`, '<link rel="stylesheet" href="/admin-assets/admin.css">');
+}
+
+function trainingDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " UTC";
+}
+
+function trainingPage(content: string) {
+  return shell("Shared training data · classifier.dev", `<div class="admin-app dark training-page">
+    <header class="topbar"><a class="brand" href="/">classifier<span>.dev</span></a><a class="signout" href="/admin?logout=1">Sign out ↗</a></header>
+    <main><div class="page-heading"><div><h1>Shared training data</h1><p>Opted-in requests and model results</p></div>
+    <a class="control" href="/admin">Back to analytics</a></div>
+    <p class="training-note">Model predictions are not verified labels. Redaction is best effort; contributed text may still contain sensitive information.</p>
+    ${content}</main></div>`, '<link rel="stylesheet" href="/admin-assets/admin.css">');
+}
+
+async function trainingResponse(req: Request, env: Env): Promise<Response> {
+  const url = new URL(req.url);
+  if (req.method !== "GET") return page(405, () => trainingPage('<p role="alert">Use GET to view shared data.</p>'));
+  if (!env.TRAINING_DATA) return page(503, () => trainingPage('<p role="alert">Training storage is not configured.</p>'));
+  const key = url.searchParams.get("key");
+  const cursor = url.searchParams.get("cursor") ?? "";
+  if ((key !== null && !TRAINING_KEY.test(key)) || cursor.length > 2048)
+    return page(400, () => trainingPage('<p role="alert">Invalid record or page cursor.</p>'));
+  try {
+    if (key) {
+      const object = await env.TRAINING_DATA.get(key);
+      if (!object) return page(404, () => trainingPage('<p>Record not found.</p>'));
+      const record = await object.json<TrainingRecord>();
+      if (url.searchParams.get("format") === "json") return new Response(JSON.stringify(record, null, 2), {
+        headers: { ...securityHeaders(), "content-type": "application/json", "content-disposition": `attachment; filename="training-${record.id}.json"` },
+      });
+      return page(200, () => trainingPage(`<div class="actions training-actions"><a class="control" href="/admin?view=training">All contributions</a>
+        <a class="control" href="/admin?view=training&amp;key=${esc(encodeURIComponent(key))}&amp;format=json">Download JSON</a></div>
+        <h2>Request and result</h2><p class="training-meta">${esc(trainingDate(record.created_at))} · ${record.status < 400 ? "Completed" : "Failed"} (${record.status})</p>
+        <h3>Input</h3><pre class="training-record">${esc(Array.isArray(record.request.inputs) ? record.request.inputs.join("\n\n") : JSON.stringify(record.request.state, null, 2))}</pre>
+        <h3>Labels and instructions</h3><pre class="training-record">${esc(JSON.stringify({ labels: record.request.labels, dimensions: record.request.dimensions, instructions: record.request.instructions, questions: record.request.questions }, null, 2))}</pre>
+        <h3>Model result</h3><pre class="training-record">${esc(JSON.stringify(record.response, null, 2))}</pre>
+        <details><summary>Full record and metadata</summary><pre class="training-record">${esc(JSON.stringify(record, null, 2))}</pre></details>`));
+    }
+    const listed = await env.TRAINING_DATA.list({ prefix: "requests/", limit: 25, cursor: cursor || undefined, include: ["customMetadata"] });
+    const navigation = `<nav class="actions training-actions" aria-label="Contribution pages">
+      ${cursor ? '<a class="control" href="/admin?view=training">Newest contributions</a>' : ''}
+      ${listed.truncated ? `<a class="control" rel="next" href="/admin?view=training&amp;cursor=${esc(encodeURIComponent(listed.cursor))}">Older contributions →</a>` : ''}</nav>`;
+    return page(200, () => trainingPage(`<div class="actions training-actions"><a class="control" href="/admin?view=training">Refresh</a></div>
+      <p>${listed.objects.length} contributions on this page · newest first · retained until deleted</p>
+      ${navigation}${listed.objects.length ? `<div class="training-list">${listed.objects.map(object => {
+        const meta = object.customMetadata ?? {};
+        return `<article class="panel"><h2><a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}">${esc(trainingPreview(meta) || "Open contribution")}</a></h2>
+          <p class="training-meta">${esc(trainingDate(meta.created ?? object.uploaded.toISOString()))} · ${esc(meta.model ?? "jev")} · ${esc(meta.items ?? "?")} ${meta.items === "1" ? "input" : "inputs"} · ${Number(meta.status) < 400 ? "Completed" : "Failed"} (${esc(meta.status ?? "?")})</p>
+          <div class="training-links"><a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}">View request and result →</a>
+          <a href="/admin?view=training&amp;key=${esc(encodeURIComponent(object.key))}&amp;format=json">Download JSON</a></div></article>`;
+      }).join("")}</div>` : '<p class="empty-state">No shared requests yet. Requests with share_data: true will appear after inference.</p>'}${navigation}`));
+  } catch {
+    return page(503, () => trainingPage('<p role="alert">Unable to load shared data. <a href="/admin?view=training">Retry</a>.</p>'));
+  }
 }
 
 /**
@@ -757,6 +814,8 @@ export async function adminResponse(req: Request, env: Env, path: string, ip: st
     // A cookie that does not check out should not come back on the next request.
     return locked(401, undefined, Boolean(token));
   }
+
+  if (url.searchParams.get("view") === "training") return trainingResponse(req, env);
 
   const asked = url.searchParams.get("range") ?? "24h";
   if (url.searchParams.get("view") === "labels") {

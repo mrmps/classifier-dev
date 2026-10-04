@@ -13,7 +13,7 @@ import { normalizeLabels } from "./privacy";
 import { addJevCost, addTokens, JEV_ACCOUNT_MODEL, type Meter } from "./cost";
 
 const TYPESAFE_ORIGIN = "https://api.typesafe.ai";
-const PRIVATE_REQUEST_HEADERS = /^(authorization|cookie|host|content-length|connection|forwarded|cf-|x-forwarded-|x-real-ip$|true-client-ip$|fly-client-ip$)/i;
+const PRIVATE_REQUEST_HEADERS = /^(x-classifier-share-data$|authorization|cookie|host|content-length|connection|forwarded|cf-|x-forwarded-|x-real-ip$|true-client-ip$|fly-client-ip$)/i;
 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -79,6 +79,7 @@ export async function typeSafeCompatibleResponse(
 
   const incoming = new URL(request.url);
   const upstream = new URL(`${incoming.pathname}${incoming.search}`, TYPESAFE_ORIGIN);
+  upstream.searchParams.delete("share_data");
   // Preserve SDK-supplied request options, including custom tracing headers,
   // while keeping the caller's credential, cookies and edge identity private.
   const headers = new Headers();

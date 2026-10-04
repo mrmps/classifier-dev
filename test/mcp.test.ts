@@ -123,14 +123,14 @@ describe("mcp tools", () => {
     expect(calls).toHaveLength(3);
   });
 
-  it("lists five well-formed, read-only tools", async () => {
+  it("lists five well-formed tools with explicit retention side effects", async () => {
     const { result } = await (await post(rpc("tools/list"))).json();
     expect(result.tools.map((t: { name: string }) => t.name)).toEqual(["classify_texts", "classify_dimensions", "classify_multi_label", "count_labels", "review_uncertain"]);
     for (const t of result.tools) {
       expect(t.description.length).toBeGreaterThan(100);
       expect(t.inputSchema.type).toBe("object");
       expect(t.inputSchema.required).toContain(t.name === "classify_dimensions" ? "dimensions" : "labels");
-      expect(t.annotations.readOnlyHint).toBe(true);
+      expect(t.annotations.readOnlyHint).toBe(false);
       expect(t.annotations.destructiveHint).toBe(false);
     }
   });

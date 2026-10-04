@@ -69,6 +69,13 @@ jobs:
           path: captures/chat-e2e.json
       - name: Verify spending through the built Worker and real Durable Objects
         run: npm run test:e2e:spending
+      - name: Verify opt-in training collection and quotas
+        run: npm run test:e2e:training
+      - name: Save training-data verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-data-e2e
+          path: captures/training-data-e2e.json
       - name: Verify classification usage responses
         run: npm run test:e2e:usage
       - name: Verify long-context screening and judgment
