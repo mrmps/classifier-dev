@@ -43,7 +43,19 @@ Cold startup took 148–161 seconds in the initial profiles; a cached start took
 84 seconds. New shapes can still stall compilation, contributing to p99. The
 source panels cover 102–4,034 rendered tokens, below the supported maximum.
 A remote SSH path handled 10 requests/sec at 333 ms p95 but failed heavily at
-100 requests/sec; a public gateway still needs separate qualification.
+100 requests/sec. A temporary HTTPS Quick Tunnel then completed 6,000/6,000
+mixed requests offered at 100/sec with no retries or errors:
+
+| Remote HTTPS traffic | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| Interactive | 224 ms | 391 ms | 640 ms |
+| Bulk | 236 ms | 457 ms | 761 ms |
+
+The HTTPS overload/recovery checks passed with 192 long requests, below the
+gateway's 200-in-flight cap. A heavier 256-request probe hit a transport error;
+both failed and passing probes are retained in [HTTPS evidence](evidence/https.json).
+Quick Tunnels have no uptime guarantee; Salad and a production gateway remain
+unqualified. These finite load tests do not establish a production SLA.
 
 A proposed tensor-count optimization passed quality but failed to establish a
 performance win in a same-GPU ABBA comparison; it was discarded. Full aggregate
@@ -102,6 +114,30 @@ Configuration: `JEFF_MAX_BATCH` (1–8), `JEFF_MAX_BATCH_TOKENS` (at least 8192)
 Graph policies are `on` (partitioned dynamic capture), `off` (compiled kernels
 without CUDA graphs), and `static` (dynamic capture and graph partitioning
 disabled). Changing graph policy, GPU or batching requires requalification.
+
+## Temporary remote HTTPS check
+
+For a temporary endpoint, install the Linux AMD64 binary from the pinned
+[cloudflared 2026.9.3 release](https://github.com/cloudflare/cloudflared/releases/tag/2026.9.3),
+verify SHA-256 `77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2`,
+and run on the GPU host:
+
+```sh
+cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080
+```
+
+Use the printed HTTPS URL with the same application bearer key. Keep the process
+running. The URL changes on restart; this adds no production DNS configuration.
+[Quick Tunnel limits](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
+include 200 in-flight requests and no uptime guarantee. The tested remote
+admission/recovery profile stays below that gateway limit while increasing work
+per request so network arrival smoothing does not hide server overload:
+
+```sh
+python gpu/jeff/e2e.py --url https://YOUR-TUNNEL.trycloudflare.com \
+  --overload-requests 192 --overload-state-words 4000 \
+  --overload-timeout-ms 10000 --out results/e2e-https.json
+```
 
 ## Reproduce checks and load measurements
 

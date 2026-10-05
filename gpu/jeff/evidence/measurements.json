@@ -1327,7 +1327,7 @@
     ]
   },
   "limitations": [
-    "Localhost HTTP except explicitly named remote-ssh runs; not Salad or public HTTPS latency.",
+    "Runs in this file are localhost HTTP except explicitly named remote-ssh runs. Separate https.json records a successful temporary HTTPS test; neither establishes a Salad or production SLA.",
     "Early single/adaptive runs used the original static flag, which did not prevent partitioned dynamic capture. The corrected static option is not the selected policy.",
     "Early runs used unrestricted CPU affinity; final and paired experiments pinned four logical CPUs.",
     "Prior-to-final graph-policy comparisons are exploratory, not controlled attribution.",
@@ -1336,5 +1336,6 @@
     "SSH100rps failed substantially; do not omit those errors or transfer localhost numbers to a public SLA.",
     "Salad deployment and container-on-GPU qualification remain unverified; CPU image build and native GPU runtime were verified separately.",
     "Early batch1 control used GPU2 and adaptive batching GPU0, same host and GPU SKU; not a same-GPU paired attribution experiment."
-  ]
+  ],
+  "https_evidence": "https.json"
 }

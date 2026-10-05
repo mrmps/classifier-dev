@@ -31,6 +31,7 @@ async def run(args):
     receipt = {'runner_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                'checks': checks, 'configuration': {
                    'concurrent': args.concurrent, 'overload_requests': args.overload_requests,
+                   'overload_state_words': args.overload_state_words,
                    'min_observed_batch': args.min_observed_batch},
                'limitations': ['Requires a ready, otherwise idle service; overload burst must exceed admission capacity.',
                                'Checks API behavior and response association; source-development gates separately verify model quality.']}
@@ -108,6 +109,7 @@ async def run(args):
 
             async def burst(i):
                 body = choice(f'overload-{i}')
+                body['request']['state'] += ' word' * args.overload_state_words
                 body.update(priority='bulk', timeout_ms=args.overload_timeout_ms)
                 return (await request('POST', '/v1/decide', body))[0]
             statuses = await asyncio.gather(*(burst(i) for i in range(args.overload_requests)))
@@ -147,6 +149,7 @@ if __name__ == '__main__':
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--concurrent', type=int, default=8, help='Keep below configured admission capacity')
     parser.add_argument('--overload-requests', type=int, default=256, help='Must exceed configured admission capacity')
+    parser.add_argument('--overload-state-words', type=int, default=0, help='Increase GPU work when network arrival smoothing prevents overload')
     parser.add_argument('--overload-timeout-ms', type=int, default=1000, help='Long enough for burst admission to reach capacity')
     parser.add_argument('--min-observed-batch', type=int, default=1, help='Use 2 to require batching in adaptive configuration')
     parser.add_argument('--oversize-chars', type=int, default=2_000_000)
@@ -155,6 +158,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if min(args.concurrent, args.overload_requests, args.min_observed_batch, args.oversize_chars, args.context_words, args.drain_timeout, args.overload_timeout_ms) <= 0:
         raise SystemExit('all size and timeout options must be positive')
+    if not 0 <= args.overload_state_words <= 6000:
+        raise SystemExit('overload-state-words must be between 0 and 6000')
     try:
         raise SystemExit(asyncio.run(run(args)))
     except (ValueError, OSError):
