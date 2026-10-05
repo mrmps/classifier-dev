@@ -59,15 +59,17 @@ compatible with CUDA 13. It does not need a separate CUDA toolkit. Blackwell
 has been exercised; other GPUs require the same quality and load checks.
 
 ```sh
-docker build -t jeff-serving gpu/jeff
+JEFF_IMAGE=ghcr.io/mrmps/classifier-dev/jeff-serving@sha256:0b3c46aaa8f9d756e1374294413f47c908bb736abc561f58b9e48bfad3cd568b
 # Supply a random JEFF_API_KEY of at least 24 characters through your secret manager.
 docker run --rm --gpus 'device=0' -p 8080:8080 \
   -e JEFF_API_KEY -e JEFF_GRAPHS=off \
-  -v jeff-cache:/cache jeff-serving
+  -v jeff-cache:/cache "$JEFF_IMAGE"
 ```
 
-Use the image digest produced by the **Jeff serving image** workflow for remote
-deployment. Its CPU build verifies imports, recipe hashes and every weight file;
+The [image receipt](evidence/image.json) links the successful build and anonymous
+registry verification. To build locally, run `docker build -t jeff-serving gpu/jeff`
+and substitute `jeff-serving` for the image above. The CPU build verifies imports,
+recipe hashes and every weight file;
 GPU readiness and numerical checks are separate. See [Salad deployment](SALAD.md)
 for the IPv6 gateway, account scope, GPU selection and secret injection. The
 Salad template is not evidence of a completed Salad deployment.
