@@ -13,6 +13,44 @@ interactive batches. The admission limit is 128 active callers; expired work
 already executing cannot be interrupted, so at most one additional GPU batch
 and one encoder operation can remain in flight. All queues are in memory.
 
+## Measured result — 2026-10-05
+
+On an RTX PRO 6000 Blackwell, the selected graph-free profile completed 18,000
+HTTP requests at 100 requests/second with zero errors: a two-minute 50/50 mix
+and a one-minute mix with 90% bulk traffic. Server threads were restricted to
+four logical CPUs. These are **localhost HTTP** measurements, not internet SLAs.
+
+| Traffic | Interactive p50 / p95 / p99 | Bulk p50 / p95 / p99 |
+| --- | --- | --- |
+| 50% interactive, 50% bulk | 32.7 / 77.9 / 368.4 ms | 41.2 / 119.0 / 666.4 ms |
+| 10% interactive, 90% bulk | 30.0 / 64.1 / 514.9 ms | 42.9 / 119.9 / 655.8 ms |
+
+The two-minute run delivered 52,890 real input tokens/second and peaked at
+3.21 GiB reserved CUDA memory. Saturation screening reached 181–186 requests/sec
+with adaptive batching versus 60–63 with batch 1, but higher queue depth raised
+latency. Those controls used different identical GPUs on the same host. Open-loop
+overload at 200–300 requests/sec produced 429s and occasional deadline errors;
+do not advertise saturation throughput together with the 100-rps latency.
+
+All 5,943 source-development predictions passed retention gates against both
+native Jeff and the published fixed-batch recipe. Native macro deltas were
+−0.0925 percentage points on broad and +0.2608 on general. All input tensors,
+counts and graft boundaries matched the original preparation in 1,712 batch
+comparisons. These point gates are not statistical noninferiority or a new
+JevBench result. Weights, BF16 precision and context handling are unchanged.
+
+Cold startup took 148–161 seconds in the initial profiles; a cached start took
+84 seconds. New shapes can still stall compilation, contributing to p99. The
+source panels cover 102–4,034 rendered tokens, below the supported maximum.
+A remote SSH path handled 10 requests/sec at 333 ms p95 but failed heavily at
+100 requests/sec; a public gateway still needs separate qualification.
+
+A proposed tensor-count optimization passed quality but failed to establish a
+performance win in a same-GPU ABBA comparison; it was discarded. Full aggregate
+measurements, rejected experiments, errors, hashes and quality losses are in
+[measurements.json](evidence/measurements.json). Raw receipts remain in the
+research workspace's `jeff-adaptive-20261005/receipts` directory.
+
 ## Run on a new NVIDIA GPU
 
 The image includes the pinned weights, native code, CUDA-enabled Python packages
