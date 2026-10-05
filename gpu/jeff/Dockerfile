@@ -10,7 +10,8 @@ ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY recipe.lock.json fetch.py engine.py server.py entrypoint.sh ./
+COPY recipe.lock.json fetch.py ./
 RUN python fetch.py --recipe /app/recipe --checkpoint /opt/model
+COPY engine.py server.py entrypoint.sh ./
 EXPOSE 8080
 ENTRYPOINT ["bash", "/app/entrypoint.sh"]

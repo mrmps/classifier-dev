@@ -2,9 +2,9 @@ name: Jeff serving image
 on:
   push:
     branches: [codex/jeff-adaptive-serving, main]
-    paths: [gpu/jeff/**, .github/workflows/jeff-image.yml]
+    paths: [gpu/jeff/Dockerfile, gpu/jeff/.dockerignore, gpu/jeff/requirements.txt, gpu/jeff/recipe.lock.json, gpu/jeff/fetch.py, gpu/jeff/engine.py, gpu/jeff/server.py, gpu/jeff/entrypoint.sh, .github/workflows/jeff-image.yml]
   pull_request:
-    paths: [gpu/jeff/**, .github/workflows/jeff-image.yml]
+    paths: [gpu/jeff/Dockerfile, gpu/jeff/.dockerignore, gpu/jeff/requirements.txt, gpu/jeff/recipe.lock.json, gpu/jeff/fetch.py, gpu/jeff/engine.py, gpu/jeff/server.py, gpu/jeff/entrypoint.sh, .github/workflows/jeff-image.yml]
 permissions:
   contents: read
   packages: write
