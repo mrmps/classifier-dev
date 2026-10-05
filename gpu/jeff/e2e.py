@@ -73,6 +73,7 @@ async def run(args):
             check('decide_requires_auth', (await request('POST', '/v1/decide', choice('auth'), auth=False))[0] == 401)
             check('metrics_requires_auth', (await request('GET', '/metrics', auth=False))[0] == 401)
             check('malformed_json', (await request('POST', '/v1/decide', raw=b'{'))[0] == 400)
+            check('deeply_nested_json', (await request('POST', '/v1/decide', raw=b'['*2000+b'0'+b']'*2000))[0] == 400)
             check('invalid_schema', (await request('POST', '/v1/decide', {'id': 'invalid'}))[0] == 400)
             image = choice('images')
             image['request']['images'] = ['data:image/png;base64,AA==']

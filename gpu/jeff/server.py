@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import collections
+import hashlib
 import hmac
 import json
 import os
@@ -43,6 +44,8 @@ class Service:
         self.padded_tokens = 0
         self.started = time.monotonic()
         self.worker = None
+        self.source_sha256 = {name: hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest()
+                              for name in ('server.py', 'engine.py', 'fetch.py', 'recipe.lock.json')}
 
     async def initialize(self):
         loop = asyncio.get_running_loop()
@@ -88,7 +91,7 @@ class Service:
                 raise ValueError('Expected text-only native request')
             if not isinstance(data.get('state'), (str, dict, list)):
                 raise ValueError('State must be text, object or array')
-        except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        except (ValueError, TypeError, KeyError, RecursionError):
             self.counts['invalid'] += 1
             raise web.HTTPBadRequest(text='Invalid decision request') from None
         if self.active >= self.args.max_queue:
@@ -119,7 +122,7 @@ class Service:
         except ContextTooLong:
             self.counts['invalid'] += 1
             raise web.HTTPRequestEntityTooLarge(max_size=8192, actual_size=8193) from None
-        except (ValueError, TypeError, KeyError, IndexError, StopIteration):
+        except (ValueError, TypeError, KeyError, IndexError, StopIteration, RecursionError):
             self.counts['invalid'] += 1
             raise web.HTTPBadRequest(text='Invalid decision schema') from None
         except TimeoutError:
@@ -220,6 +223,7 @@ class Service:
             'padded_input_tokens': self.padded_tokens, 'queue_depth': len(self.queue),
             'inflight': self.inflight, 'admitted_in_progress': self.active,
             'model': self.engine.info if self.engine else None,
+            'source_sha256': self.source_sha256,
             'memory': self.engine.memory() if self.engine else None, 'scheduler': self.config()})
 
     async def health(self, request):
@@ -257,7 +261,7 @@ def main():
     parser.add_argument('--max-queue', type=int, default=128)
     parser.add_argument('--fairness-batches', type=int, default=4)
     parser.add_argument('--request-timeout-ms', type=int, default=30000)
-    parser.add_argument('--graphs', choices=('on', 'static', 'off'), default='on')
+    parser.add_argument('--graphs', choices=('on', 'static', 'off'), default='off')
     parser.add_argument('--cpu-threads', type=int, default=4)
     args = parser.parse_args()
     if not (1 <= args.max_batch <= 8 and 1 <= args.max_queue <= 4096 and

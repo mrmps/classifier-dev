@@ -9,4 +9,4 @@ exec python /app/server.py --recipe /app/recipe --checkpoint "${JEFF_CHECKPOINT:
   --batch-wait-ms "${JEFF_BATCH_WAIT_MS:-2}" \
   --bulk-wait-ms "${JEFF_BULK_WAIT_MS:-10}" \
   --max-queue "${JEFF_MAX_QUEUE:-128}" \
-  --graphs "${JEFF_GRAPHS:-on}"
+  --graphs "${JEFF_GRAPHS:-off}"

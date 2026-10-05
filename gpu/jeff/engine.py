@@ -17,7 +17,7 @@ class ContextTooLong(ValueError):
     pass
 
 class Engine:
-    def __init__(self, recipe, checkpoint, graphs='on', threads=4):
+    def __init__(self, recipe, checkpoint, graphs='off', threads=4):
         from fetch import verify_recipe
         recipe = Path(recipe).resolve()
         verify_recipe(recipe)
@@ -35,6 +35,7 @@ class Engine:
             torch._inductor.config.triton.cudagraphs = False
         elif graphs == 'static':
             torch._inductor.config.triton.cudagraph_skip_dynamic_graphs = True
+            torch._inductor.config.graph_partition = False
         self.torch, self.validate = torch, validate
         self.PreparedBatch, self.GraftBatch = PreparedBatch, GraftBatch
         self.messages, self.describe, self.options, self.answer = decision_messages, describe, options, answer
@@ -44,12 +45,19 @@ class Engine:
             # reduce-overhead enables graphs, so disable them in the compiled callable explicitly.
             self.model.forward = torch.compile(self.model.forward._torchdynamo_orig_callable,
                                                dynamic=True, options={'triton.cudagraphs': False})
+        elif graphs == 'static':
+            # Partitioning bypasses the dynamic-graph exclusion in the pinned Torch runtime.
+            self.model.forward = torch.compile(self.model.forward._torchdynamo_orig_callable,
+                dynamic=True, options={'triton.cudagraphs': True,
+                    'triton.cudagraph_skip_dynamic_graphs': True, 'graph_partition': False})
         self.processor = self.native.model.processor
         self.versions = {n: p._version for n, p in self.model.named_parameters()}
         self.info = {'gpu': torch.cuda.get_device_name(0), 'torch': torch.__version__,
                      'transformers': transformers.__version__, 'precision': 'BF16',
                      'parameters': sum(p.numel() for p in self.model.parameters()),
-                     'model_revision': self.native.pins['revision'], 'graphs': graphs}
+                     'model_revision': self.native.pins['revision'], 'graphs': graphs,
+                     'compiler_options': {key: self.model.forward.get_compiler_config()[key] for key in
+                         ('triton.cudagraphs', 'triton.cudagraph_skip_dynamic_graphs', 'graph_partition')}}
         if self.info['parameters'] != 855344192:
             raise RuntimeError('Unexpected model parameter count')
 
