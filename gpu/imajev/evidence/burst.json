@@ -1,0 +1,260 @@
+{
+  "hardware": "RTX 6000 Ada, one GPU",
+  "client": "Node 24.18.0, TypeSafe SDK 0.6.0, retries disabled, HTTP loopback",
+  "baseline_revision": "4a35bbf73f3b7fc81cb687f7e3d0c4e6c0786664",
+  "candidate_server_sha256": "b8893da3db0ec6aa199f8b706e79dbded9cb5d970d476633941f438acda25449",
+  "conditions": "Warm resident BF16 model. Four simultaneous requests alternate cat and shoe photographs, each asking a subject and animal question. Overflow uses twelve. Deadline uses four heavier two-image/eight-question requests; two expire while waiting for GPU access.",
+  "baseline": [
+    {
+      "index": 0,
+      "status": 200,
+      "ms": 295.96859300000006,
+      "queue_ms": null,
+      "answers": {
+        "subject": {
+          "choice": "cat",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.9764015350498332,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 1,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 2,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 3,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    }
+  ],
+  "candidate": [
+    {
+      "index": 0,
+      "status": 200,
+      "ms": 246.38224699999998,
+      "queue_ms": 0.03650132566690445,
+      "answers": {
+        "subject": {
+          "choice": "cat",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.9764015350498332,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 1,
+      "status": 200,
+      "ms": 282.368036,
+      "queue_ms": 203.80827877670527,
+      "answers": {
+        "subject": {
+          "choice": "shoes",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.03580536828154986,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 2,
+      "status": 200,
+      "ms": 483.699086,
+      "queue_ms": 269.74809262901545,
+      "answers": {
+        "subject": {
+          "choice": "cat",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.9764015350498332,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 3,
+      "status": 200,
+      "ms": 551.726804,
+      "queue_ms": 471.0397128947079,
+      "answers": {
+        "subject": {
+          "choice": "shoes",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.03580536828154986,
+          "abstained": false
+        }
+      }
+    }
+  ],
+  "overflow": [
+    {
+      "index": 0,
+      "status": 200,
+      "ms": 249.050008,
+      "queue_ms": 0.030850060284137726,
+      "answers": {
+        "subject": {
+          "choice": "cat",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.9764015350498332,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 1,
+      "status": 200,
+      "ms": 297.35905399999996,
+      "queue_ms": 201.65971480309963,
+      "answers": {
+        "subject": {
+          "choice": "shoes",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.03580536828154986,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 2,
+      "status": 200,
+      "ms": 485.376272,
+      "queue_ms": 267.04942202195525,
+      "answers": {
+        "subject": {
+          "choice": "cat",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.9764015350498332,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 3,
+      "status": 200,
+      "ms": 551.849276,
+      "queue_ms": 455.6013182736933,
+      "answers": {
+        "subject": {
+          "choice": "shoes",
+          "abstained": false
+        },
+        "animal": {
+          "noul": 0.03580536828154986,
+          "abstained": false
+        }
+      }
+    },
+    {
+      "index": 4,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 5,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 6,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 7,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 8,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 9,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 10,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    },
+    {
+      "index": 11,
+      "status": 429,
+      "ms": null,
+      "queue_ms": null,
+      "answers": {}
+    }
+  ],
+  "deadline": [
+    {
+      "index": 0,
+      "status": 429,
+      "ms": 2019.5974688977003,
+      "queue_ms": null
+    },
+    {
+      "index": 1,
+      "status": 200,
+      "ms": 1602.1613120101392,
+      "queue_ms": 0.041800085455179214
+    },
+    {
+      "index": 2,
+      "status": 200,
+      "ms": 3189.606051426381,
+      "queue_ms": 1587.090973276645
+    },
+    {
+      "index": 3,
+      "status": 429,
+      "ms": 2020.6576040945947,
+      "queue_ms": null
+    }
+  ]
+}
