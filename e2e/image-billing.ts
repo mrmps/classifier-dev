@@ -69,6 +69,12 @@ try {
   await db.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
   const success = await send(body, key, "image-once");
   assert.equal(success.response.status, 200);
+  const timing = Object.fromEntries([...success.response.headers.get("server-timing")!.matchAll(/([a-z_]+);dur=([\d.]+)/g)]
+    .map(([, name, duration]) => [name, Number(duration)]));
+  for (const name of ["request_read", "account_prepare", "account_reserve"]) {
+    assert.ok(Number.isFinite(timing[name]) && timing[name] >= 0, `Missing admission timing: ${name}`);
+  }
+  assert.ok(timing.request_read + timing.account_prepare + timing.account_reserve <= timing.account_admit);
   assert.deepEqual(success.row, { status: "completed", nano: "42000", tokens: 1000 });
   assert.equal((await send(body, key, "image-once")).response.status, 409);
   assert.equal(calls, 1);

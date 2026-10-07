@@ -21,6 +21,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     if (env.APP_ACCOUNTS_ENABLED !== "true") throw new AppError(503, "Account credentials are disabled.");
     request = await boundedRequest(request);
     const text = await request.clone().text();
+    const requestReadAt = Date.now();
     let body: Record<string, unknown>;
     try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
@@ -75,6 +76,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     const quote = Number((classificationBound + BigInt(scrape ? SCRAPE_NANODOLLARS : 0) + 9999n) / 10000n);
     if ((scrape && classificationBound + BigInt(SCRAPE_NANODOLLARS) > BigInt(limits.paidRequest)) || quote > maxCredits) throw new SpendingError(402, "request_spending_limit", "This request exceeds the workspace request allowance. Split the batch.");
     const idempotencyHash = idem ? await fingerprint(env, `account-idempotency:${idem}`) : null;
+    const reserveStarted = Date.now();
     const result = await env.APP_DB.prepare(`WITH owner AS (
       SELECT a.id,a.balance,a.paid_balance,a.billing_plan,(a.paid_balance>0 OR (a.billing_plan IN ('pro','max','scale') AND a.reset_at::timestamptz>now())) AS funded,k.id AS agent_id FROM app_accounts a JOIN app_agents k ON k.account_id=a.id
       WHERE k.token_hash=? AND k.status IN ('pending','connected') AND NOT a.billing_hold FOR UPDATE OF a
@@ -167,7 +169,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     };
     ctx.waitUntil(settle());
     const headers = new Headers(response.headers);
-    if (systemOne && isImageRequest(body)) headers.append("server-timing", `account_admit;dur=${admissionMs}, api;dur=${Date.now() - requestStarted}`);
+    if (systemOne && isImageRequest(body)) headers.append("server-timing", `request_read;dur=${requestReadAt - requestStarted}, account_prepare;dur=${reserveStarted - requestReadAt}, account_reserve;dur=${started - reserveStarted}, account_admit;dur=${admissionMs}, api;dur=${Date.now() - requestStarted}`);
     if (charge) {
       headers.set("x-billed-input-tokens", String(inputTokens));
       headers.set("x-smart-escalations", String(escalations));
