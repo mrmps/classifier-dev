@@ -1,0 +1,10 @@
+{
+  "repository": "opensporks/Jeff-Fast-Qwen3.5-0.8B",
+  "revision": "9402f58fc1cda99ce55749ed443e14cd4e0cc03e",
+  "filename": "jeff-fast-serving-final.zip",
+  "sha256": "9c469853610264c2dc0469c97009ff6afb037993160740c5489af247a9deb8cd",
+  "model": "mstrasser/Jeff-Qwen3.5-0.8B",
+  "model_revision": "51552f39a943d62e8387c4ea5e17026a1408729f",
+  "source_revision": "d0173b4ee317a46dee031421b713f3fc5f868cfe",
+  "manifest_sha256": "e931b7cfaa047ed9048c8c648c9a38b8e8740e8621109eeb107101839735be20"
+}

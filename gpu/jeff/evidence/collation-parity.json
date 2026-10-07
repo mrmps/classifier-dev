@@ -1,0 +1,90 @@
+{
+  "status": "PASS",
+  "unique_requests": 5943,
+  "batch_comparisons": 1712,
+  "checks": [
+    {
+      "input_sha256": "1e7925d6e6fc5d9f8b1edc45cb5130207a08ed75be657f855015666db85a650e",
+      "profile": "original-8",
+      "requests": 4068,
+      "pass": true
+    },
+    {
+      "input_sha256": "1e7925d6e6fc5d9f8b1edc45cb5130207a08ed75be657f855015666db85a650e",
+      "profile": "length-8",
+      "requests": 4068,
+      "pass": true
+    },
+    {
+      "input_sha256": "1e7925d6e6fc5d9f8b1edc45cb5130207a08ed75be657f855015666db85a650e",
+      "profile": "mixed-sample-1",
+      "requests": 64,
+      "pass": true
+    },
+    {
+      "input_sha256": "1e7925d6e6fc5d9f8b1edc45cb5130207a08ed75be657f855015666db85a650e",
+      "profile": "mixed-sample-2",
+      "requests": 64,
+      "pass": true
+    },
+    {
+      "input_sha256": "1e7925d6e6fc5d9f8b1edc45cb5130207a08ed75be657f855015666db85a650e",
+      "profile": "mixed-sample-4",
+      "requests": 64,
+      "pass": true
+    },
+    {
+      "input_sha256": "78099814f271039e2aab4567f86c5b0a6bb49acf6920e763cd6877fdef8aa1e2",
+      "profile": "original-8",
+      "requests": 1875,
+      "pass": true
+    },
+    {
+      "input_sha256": "78099814f271039e2aab4567f86c5b0a6bb49acf6920e763cd6877fdef8aa1e2",
+      "profile": "length-8",
+      "requests": 1875,
+      "pass": true
+    },
+    {
+      "input_sha256": "78099814f271039e2aab4567f86c5b0a6bb49acf6920e763cd6877fdef8aa1e2",
+      "profile": "mixed-sample-1",
+      "requests": 64,
+      "pass": true
+    },
+    {
+      "input_sha256": "78099814f271039e2aab4567f86c5b0a6bb49acf6920e763cd6877fdef8aa1e2",
+      "profile": "mixed-sample-2",
+      "requests": 64,
+      "pass": true
+    },
+    {
+      "input_sha256": "78099814f271039e2aab4567f86c5b0a6bb49acf6920e763cd6877fdef8aa1e2",
+      "profile": "mixed-sample-4",
+      "requests": 64,
+      "pass": true
+    }
+  ],
+  "model": {
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.17.0",
+    "precision": "BF16",
+    "parameters": 855344192,
+    "model_revision": "51552f39a943d62e8387c4ea5e17026a1408729f",
+    "graphs": "static",
+    "compiler_options": {
+      "triton.cudagraphs": true,
+      "triton.cudagraph_skip_dynamic_graphs": true,
+      "graph_partition": false
+    }
+  },
+  "input_sha256": [
+    "1e7925d6e6fc5d9f8b1edc45cb5130207a08ed75be657f855015666db85a650e",
+    "78099814f271039e2aab4567f86c5b0a6bb49acf6920e763cd6877fdef8aa1e2"
+  ],
+  "engine_sha256": "a87c52dda58346344dee96b840a78f8923e4e95fc16ee3c5f240dfd092908e62",
+  "script_sha256": "49b5fb62f3c676d27cc7b63ab5485bff6065645cbffab64aa5152fc56abd4332",
+  "immutable_prepare_sha256": "02539e333f5a20f31f2f6b2f48d3ca39db0f989d740d4ac00748289eb22dea02",
+  "elapsed_seconds": 51.33097522100434,
+  "scope": "All input tensors, token counts, option counts, lengths and graft splits exactly equal immutable prepare. No model forward or probability comparison."
+}
