@@ -1,6 +1,8 @@
 import { addTokens, type Meter, type ModelTokenUsage } from "../cost";
 import { modelPrice, SpendingError, type Provider } from "./policy";
 
+type Transport = (input: RequestInfo | URL, init: RequestInit) => Promise<Response>;
+
 export class Permit {
   used = 0;
   tokens: ModelTokenUsage[] = [];
@@ -11,7 +13,7 @@ export class Permit {
   private pending = new Set<Promise<unknown>>();
   constructor(readonly amount: number, readonly expires: number) {}
   async drain() { while (this.pending.size) await Promise.allSettled([...this.pending]); }
-  async fetch(provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit, onAttempt?: () => void): Promise<Response> {
+  async fetch(provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit, onAttempt?: () => void, transport: Transport = fetch): Promise<Response> {
     let bound: number;
     try {
       if (this.closed) throw new SpendingError(402, "request_finished", "The request allowance has closed.");
@@ -34,7 +36,7 @@ export class Permit {
     const execute = async () => {
       try {
         onAttempt?.();
-        const response = await fetch(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
+        const response = await transport(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
         if (response.headers.get("content-type")?.includes("text/event-stream")) {
           // Streaming callers report usage at EOF; no reservation is released here.
           return response;
@@ -64,8 +66,8 @@ export class Permit {
     try { return await promise; } finally { this.pending.delete(promise); }
   }
 }
-export function providerFetch(meter: Meter | undefined, provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit): Promise<Response> {
-  if (meter?.permit) return meter.permit.fetch(provider, model, output, input, init, meter.onProviderAttempt);
+export function providerFetch(meter: Meter | undefined, provider: Provider, model: string, output: number, input: RequestInfo | URL, init: RequestInit, transport: Transport = fetch): Promise<Response> {
+  if (meter?.permit) return meter.permit.fetch(provider, model, output, input, init, meter.onProviderAttempt, transport);
   meter?.onProviderAttempt?.();
-  return fetch(input, init);
+  return transport(input, init);
 }

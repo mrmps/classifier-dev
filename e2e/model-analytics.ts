@@ -112,7 +112,8 @@ try {
     assert.deepEqual(data.unavailable, []);
     assert.equal(events.length, 7);
     assert.equal(providerCalls, 4);
-    assert.doesNotMatch(developers, /IMAGE CLASSIFICATION|dgemma|data:image\/png;base64/i);
+    assert.match(docs, /IMAGE CLASSIFICATION/);
+    assert.doesNotMatch(developers, /dgemma/i);
     assert.doesNotMatch(docs, /dgemma|data:image\/png;base64/i);
     const openapi = await (await originalFetch(`${origin}/openapi.json`)).text();
     assert.doesNotMatch(openapi, /dgemma|DiffusionGemma/);
@@ -123,7 +124,8 @@ try {
     assert.equal(jev.input_tokens, 42);
     assert.equal(jev.token_requests, 1);
     const unknown = data.byModel.find((r: any) => r.model === "Unknown model (TypeSafe route)");
-    assert.equal(unknown.requests, 5);
+    assert.equal(unknown.requests, 4);
+    assert.equal(data.byModel.find((r: any) => r.model === "imajev-4b").requests, 1);
     assert.equal(unknown.provider, "Not recorded");
     assert.ok(data.modelSeries.some((r: any) => r.model === unknown.model));
     assert.ok(data.modelFailures.some((r: any) => r.model === unknown.model && r.reason === "typesafe_503"));

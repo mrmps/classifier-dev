@@ -55,14 +55,14 @@ export function modelUsage(rows: Row[]) {
     grouped.set(model, row);
   }
   return [...grouped.values()].map(({providers, ms_sum, ...r}) => ({...r,
-    provider: [...new Set([...providers].map(provider => ({typesafe: "TypeSafe", beam: "Beam", vercel: "Vercel Gateway", openrouter: "OpenRouter", dgemma: "RunPod", chunklaya: "RunPod"})[provider] ?? provider))].join(", ") || "Not recorded",
+    provider: [...new Set([...providers].map(provider => ({typesafe: "TypeSafe", beam: "Beam", vercel: "Vercel Gateway", openrouter: "OpenRouter", dgemma: "RunPod", chunklaya: "RunPod", runpod: "RunPod"})[provider] ?? provider))].join(", ") || "Not recorded",
     avg_ms: r.ok + r.failures ? ms_sum / (r.ok + r.failures) : null,
     image_requests: r.modality_requests ? r.image_requests : null,
     images: r.modality_requests ? r.images : null,
     calls: r.modality_requests ? r.calls : null,
     input_tokens: r.token_requests || r.input_tokens ? r.input_tokens : null,
     output_tokens: r.token_requests || r.output_tokens ? r.output_tokens : null,
-    cost_basis: providers.has("dgemma") || providers.has("chunklaya") || /(^|,)(dgemma|chunklaya\/)/.test(r.model)
+    cost_basis: providers.has("dgemma") || providers.has("chunklaya") || providers.has("runpod") || /(^|,)(dgemma|chunklaya\/)/.test(r.model)
       ? "Hourly GPU excluded" : "Recorded API cost",
   })).sort((a, b) => b.requests - a.requests);
 }

@@ -1,0 +1,71 @@
+[
+  {
+    "id": "cat-on-chair",
+    "image": "cat-on-chair.jpg",
+    "questions": {
+      "object": {
+        "type": "choice",
+        "instructions": "What is the main subject of this photograph?",
+        "criteria": {
+          "cat": null,
+          "shoes": null,
+          "car": null,
+          "food": null
+        }
+      }
+    },
+    "expected": {
+      "object": "cat"
+    },
+    "source": "https://github.com/mohit67890/imajev/blob/ccf586d43d2a580319b6535c893668904d909eb9/scripts/playground/static/scenarios/assets/cat-on-chair.jpg",
+    "credit": "PD12M / Wikimedia Commons, CC0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d"
+  },
+  {
+    "id": "loafers",
+    "image": "loafers.jpg",
+    "questions": {
+      "object": {
+        "type": "choice",
+        "instructions": "What is the main subject of this photograph?",
+        "criteria": {
+          "cat": null,
+          "shoes": null,
+          "car": null,
+          "food": null
+        }
+      }
+    },
+    "expected": {
+      "object": "shoes"
+    },
+    "source": "https://github.com/mohit67890/imajev/blob/ccf586d43d2a580319b6535c893668904d909eb9/scripts/playground/static/scenarios/assets/loafers.jpg",
+    "credit": "Amazon Berkeley Objects, CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a"
+  },
+  {
+    "id": "slipon-listing",
+    "image": "slipon-listing.jpg",
+    "questions": {
+      "object": {
+        "type": "choice",
+        "instructions": "What is the main subject of this photograph?",
+        "criteria": {
+          "cat": null,
+          "shoes": null,
+          "car": null,
+          "food": null
+        }
+      }
+    },
+    "expected": {
+      "object": "shoes"
+    },
+    "source": "https://github.com/mohit67890/imajev/blob/ccf586d43d2a580319b6535c893668904d909eb9/scripts/playground/static/scenarios/assets/slipon-listing.jpg",
+    "credit": "Amazon Berkeley Objects, CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe"
+  }
+]

@@ -133,6 +133,11 @@ const TYPESAFE_QUESTION = {
   discriminator: { propertyName: "type" },
 };
 const TYPESAFE_ANSWER = {
+  type: "object",
+  properties: {
+    unknown_probability: { type: "number", minimum: 0, maximum: 1, description: "Imajev's calibrated probability that none of the options applies." },
+    abstained: { type: "boolean", description: "Imajev requests a handoff; do not act on the selected choice when true." },
+  },
   oneOf: [
     { type: "object", required: ["type", "noul"], properties: { type: { const: "noul" }, noul: { type: "number", minimum: 0, maximum: 1 } } },
     { type: "object", required: ["type", "choice", "confidence", "probabilities"], properties: {
@@ -577,22 +582,22 @@ export const OPENAPI = {
       post: {
         operationId: "typeSafeSystemOne",
         parameters: [{ $ref: "#/components/parameters/ShareData" }],
-        summary: "Run the TypeSafe System One contract through classifier.dev.",
+        summary: "Classify text or images with typed System One answers.",
         description:
           "Wire-compatible with TypeSafe's POST /v1/systemone. The official JavaScript and Python SDKs work unchanged when their base URL is https://classifier.dev. " +
           "Use any non-empty placeholder API key for anonymous per-IP limits, or a classifier_agent_ workspace key to use workspace quota, credits and usage history. Free workspaces have the public ceilings; Pro raises them 10x and Scale 100x. " +
-          "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. TypeSafe reference: https://docs.typesafe.ai/.",
+          "classifier.dev never forwards caller credentials to TypeSafe. Choice, Noul, Score, structured state, model aliases, usage, validation errors and request IDs retain TypeSafe's shapes. Quota is counted by named questions, not requests. Use imajev-4b with inline images for single-pass image decisions, including unknown_probability and abstained. Image requests are never retained for training. TypeSafe reference: https://docs.typesafe.ai/.",
         tags: ["classify"],
         security: [{ accountKey: [] }, {}],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneRequest" } } } },
         responses: {
           "200": {
-            description: "The native TypeSafe System One response.",
+            description: "Typed System One answers and token usage. Imajev also reports abstention and calibrated unknown probability.",
             headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS },
             content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeSystemOneResponse" } } },
           },
           "422": {
-            description: "TypeSafe request validation failed; body and request ID are preserved.",
+            description: "The model rejected an invalid request or image.",
             headers: { ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS },
             content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeValidationError" } } },
           },
@@ -600,9 +605,9 @@ export const OPENAPI = {
           "402": { description: "The workspace balance cannot cover the provider reservation; TypeSafe is not called.", content: { "application/json": { schema: { type: "object" } } } },
           "403": { description: "The workspace key is inactive or the workspace cannot authorize usage.", content: { "application/json": { schema: { type: "object" } } } },
           "413": { description: "The request body exceeds 1 MB.", content: { "application/json": { schema: { type: "object" } } } },
-          "400": { description: "Unsupported model (bad_model) or image input (images_unsupported).", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "429": { description: "classifier.dev or TypeSafe rate limit; Retry-After or Retry-After-Ms is preserved.", headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS }, content: { "application/json": { schema: { type: "object" } } } },
-          "502": { description: "TypeSafe could not be reached.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
+          "400": { description: "Unsupported model (bad_model), invalid inline image (bad_image), or disabled image serving (images_unsupported).", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Request quota or image model capacity reached; Retry-After or Retry-After-Ms is preserved.", headers: { ...RATE_LIMIT_HEADERS, ...TYPESAFE_REQUEST_ID_HEADER, ...ACCOUNT_BILLING_HEADERS }, content: { "application/json": { schema: { type: "object" } } } },
+          "502": { description: "The model could not be reached or returned an invalid response.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
           "503": { description: "The compatibility endpoint or workspace billing is temporarily unavailable.", headers: ACCOUNT_BILLING_HEADERS, content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } } } } } },
         },
       },
@@ -610,13 +615,13 @@ export const OPENAPI = {
     "/v1/models": {
       get: {
         operationId: "listTypeSafeModels",
-        summary: "List TypeSafe models and aliases in the official SDK shape.",
+        summary: "List available models and aliases in the official SDK shape.",
         description: "Wire-compatible with TypeSafe's GET /v1/models and consumed by client.models.list() / client.models.list().",
         tags: ["classify"],
         security: [],
         responses: {
           "200": {
-            description: "Models available through classifier.dev's TypeSafe account.",
+            description: "Available TypeSafe models and the configured Imajev image model.",
             headers: TYPESAFE_REQUEST_ID_HEADER,
             content: { "application/json": { schema: { $ref: "#/components/schemas/TypeSafeModelsResponse" } } },
           },
@@ -1067,7 +1072,10 @@ export const OPENAPI = {
         properties: {
           share_data: SHARING_SCHEMA,
           state: TYPESAFE_ENTRY,
-          model: { type: "string", description: "A name or alias returned by GET /v1/models." },
+          model: { type: "string", description: "A TypeSafe name or alias returned by GET /v1/models, or imajev-4b for image decisions." },
+          images: { type: "array", minItems: 1, maxItems: 2,
+            items: { type: "string", pattern: "^data:image/(jpeg|png|webp);base64," },
+            description: "Imajev-4B only: inline image bytes. Entire request is limited to 1 MB; no external URL fetches. Supports up to eight questions and 4096 processed tokens per question. Images and accompanying state are not retained for training." },
           questions: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_QUESTION },
         },
         example: {

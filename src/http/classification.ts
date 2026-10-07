@@ -1,3 +1,4 @@
+import { imajevEnabled } from "../imajev";
 import { withResponsePricing } from "../classification-usage";
 import { spendingClassification } from "./spending-classification";
 import worker, { type Env } from "../index";
@@ -44,7 +45,7 @@ export async function accountClassification(request: Request, env: AppEnv & Part
   let itemCount: number;
   if (typeSafe) {
     try {
-      const unsupported = unsupportedSystemOneInput(JSON.parse(text));
+      const unsupported = unsupportedSystemOneInput(JSON.parse(text), imajevEnabled(env));
       if (unsupported) return Response.json(unsupported, { status: 400 });
     } catch { /* TypeSafe owns validation of malformed requests. */ }
     itemCount = typeSafeDecisionCount(text);

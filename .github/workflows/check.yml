@@ -60,6 +60,13 @@ jobs:
         with:
           name: model-analytics-e2e
           path: captures/model-analytics-e2e.json
+      - name: Verify image admission, settlement, and privacy
+        run: bun e2e/image-billing.ts
+      - name: Save image billing evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-billing-e2e
+          path: captures/image-billing.json
       - name: Verify public chat and classification tools
         run: npm run test:e2e:chat
       - name: Save chat verification evidence
