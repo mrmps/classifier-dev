@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-24-dgemma-v1",
+  "version": "2026-10-07-imajev-v1",
   "models": [
     {
       "provider": "typesafe",
@@ -77,6 +77,13 @@
       "inputUsdPerMillion": "0.072",
       "outputUsdPerMillion": "0.300",
       "cachedInputUsdPerMillion": "0.072"
+    },
+    {
+      "provider": "runpod",
+      "model": "imajev-4b",
+      "inputUsdPerMillion": "0.042",
+      "outputUsdPerMillion": "0",
+      "cachedInputUsdPerMillion": "0.042"
     }
   ]
 }

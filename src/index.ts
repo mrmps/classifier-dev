@@ -1,3 +1,4 @@
+import { imajevResponse, imajevEnabled, isImageRequest, type ImajevEnv } from "./imajev";
 import { sharingPreference, requireSharingStorage, SharingError, SHARING_HINT, SHARING_NOTICE, saveTrainingData } from "./training-data";
 import { requestTokens } from "./model-analytics";
 import { classificationUsage, classificationPricing } from "./classification-usage";
@@ -42,7 +43,7 @@ import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
-export interface Env extends LayaEnv, SpendingEnv {
+export interface Env extends LayaEnv, SpendingEnv, ImajevEnv {
   TRAINING_DATA?: R2Bucket;
   QUOTAS?: DurableObjectNamespace;
   QUOTA_COORDINATOR_ENABLED?: string;
@@ -1558,7 +1559,7 @@ const worker = {
         } catch { /* Provider validation handles malformed JSON. */ }
         try {
           sharingChoice = sharingPreference(req, sdkBody);
-          sharing = sharingChoice ?? !!env.TRAINING_DATA;
+          sharing = !isImageRequest(sdkBody) && (sharingChoice ?? !!env.TRAINING_DATA);
           requireSharingStorage(env, sharing);
         } catch (error) {
           if (error instanceof SharingError) return json({ error: error.message, code: error.code }, error.status);
@@ -1578,7 +1579,7 @@ const worker = {
       try { const parsed = JSON.parse(body ?? ""); imageCount = Array.isArray(parsed?.images) ? parsed.images.length : 0; } catch {}
       let unsupported: ReturnType<typeof unsupportedSystemOneInput> = null;
       if (decisions) {
-        try { unsupported = unsupportedSystemOneInput(JSON.parse(body ?? "")); } catch {}
+        try { unsupported = unsupportedSystemOneInput(JSON.parse(body ?? ""), imajevEnabled(env)); } catch {}
       }
       const sdkRecord = (status: number, reason = "") => {
         if (path !== "v1/systemone" || req.method !== "POST") return;
@@ -1586,7 +1587,7 @@ const worker = {
           tier: "fast", n: status === 200 ? decisions : 0, ms: Date.now() - sdkStarted,
           labels: labelSets.length === 1 ? labelSets[0].labels : labelSets.map(set => JSON.stringify(set.labels)),
           mode: labelSets.length > 1 ? "dimensions" : "single",
-          ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : "typesafe",
+          ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : isImageRequest(sdkBody) ? "imajev-4b" : "typesafe",
           meter, images: imageCount, usd: meter.usd, reason, agent,
           attempted: decisions, escalationFailed: 0,
         });
@@ -1600,10 +1601,19 @@ const worker = {
       const rpm = TIERS.fast.rpm * multiplier;
       const daily = TIERS.fast.daily * multiplier;
       let remaining = -1;
+      let providerStarted = false;
+      meter.onProviderAttempt = () => { providerStarted = true; };
+      const imageAbort = new AbortController();
+      const imageRun = isImageRequest(sdkBody) && execution?.funded
+        ? imajevResponse(new Request(req.url, { signal: AbortSignal.any([req.signal, imageAbort.signal]) }), env, sdkBody!, meter)
+          .then(response => ({ response }), error => ({ error }))
+        : undefined;
       if (decisions && !enterprise) {
         const gate = await limited(env, "fast", quotaOwner, decisions, multiplier);
         remaining = gate.remaining;
         if (gate.limited) {
+          imageAbort.abort();
+          await imageRun;
           const retryAfter = gate.resetIn ?? 60;
           sdkRecord(429, "rate_limit");
           return json(
@@ -1626,19 +1636,33 @@ const worker = {
           return json({ error: refusal.message + (!sharing && env.TRAINING_DATA ? ` ${SHARING_HINT}` : ""), code: refusal.code }, refusal.status, refusal.headers);
         }
       }
-      let providerStarted = false;
-      meter.onProviderAttempt = () => { providerStarted = true; };
-      const response = await typeSafeCompatibleResponse(
+      const sdkAdmissionMs = Date.now() - sdkStarted;
+      const imageResult = await imageRun;
+      if (imageResult && "error" in imageResult) throw imageResult.error;
+      let response = isImageRequest(sdkBody)
+        ? imageResult?.response ?? await imajevResponse(req, env, sdkBody!, meter)
+        : await typeSafeCompatibleResponse(
         req,
         env.TYPESAFE_API_KEY,
         body,
         decisions ? meter : undefined,
       );
-      sdkRecord(response.status, response.ok ? "" : `typesafe_${response.status}`);
+      if (path === "v1/models" && response.ok && imajevEnabled(env)) {
+        const catalog = await response.clone().json() as { models?: { name: string }[] };
+        if (Array.isArray(catalog.models) && !catalog.models.some(model => model.name === "imajev-4b")) {
+          const headers = new Headers(response.headers);
+          headers.delete("content-length");
+          response = Response.json({ ...catalog, models: [...catalog.models, {
+            name: "imajev-4b", description: "Typed image decisions with calibrated abstention; inline JPEG, PNG or WebP.", release_date: "2026-09-26",
+          }] }, { headers });
+        }
+      }
+      sdkRecord(response.status, response.ok ? "" : `${isImageRequest(sdkBody) ? "imajev" : "typesafe"}_${response.status}`);
       const headers = new Headers(response.headers);
+      if (isImageRequest(sdkBody)) headers.append("server-timing", `quota;dur=${sdkAdmissionMs}`);
       headers.set("x-classifier-data-policy", SHARING_NOTICE);
       headers.set("x-classifier-data-sharing", "off");
-      if (sharing && sdkBody && decisions && providerStarted) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
+      if (sharing && sdkBody && !isImageRequest(sdkBody) && decisions && providerStarted) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
         endpoint: "systemone", status: response.status,
         request: Object.fromEntries(["state", "questions", "model", "context", "config"].filter(key => Object.hasOwn(sdkBody!, key)).map(key => [key, sdkBody![key]])),
         response: await response.clone().json().catch(() => ({ error: "Non-JSON model response" })),

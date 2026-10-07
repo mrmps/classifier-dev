@@ -33,7 +33,7 @@ export function classificationCharge(inputTokens: number, escalations: number) {
 
 export function classificationInputTokens(tokens: ModelTokenUsage[]): number | null {
   // Only answered primary calls count. Recovery and Smart provider costs are ours.
-  const primary = tokens.filter(row => row.provider === "typesafe" || row.provider === "vercel");
+  const primary = tokens.filter(row => row.provider === "typesafe" || row.provider === "vercel" || row.provider === "runpod");
   return primary.every(row => row.inputTokens !== null)
     ? primary.reduce((sum, row) => sum + row.inputTokens!, 0) : null;
 }

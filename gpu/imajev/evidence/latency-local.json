@@ -1,0 +1,2203 @@
+{
+  "summary": {
+    "url": "http://127.0.0.1:8765/v1/systemone",
+    "client": "Washington-RTX6000Ada-localhost",
+    "target_ms": 120,
+    "recorded_at": "2026-10-07T10:38:55.162007+00:00",
+    "connection": "reused",
+    "includes": [
+      "file-read",
+      "base64",
+      "json-encode",
+      "dns/connect-if-needed",
+      "upload",
+      "authentication",
+      "image-decode",
+      "inference",
+      "download",
+      "json-decode"
+    ],
+    "requests": 60,
+    "errors": 0,
+    "correct": 60,
+    "all_ms": {
+      "p50": 37.168,
+      "p95": 101.534,
+      "p99": 143.02,
+      "p100": 143.02
+    },
+    "first_request_ms": 143.020222,
+    "warm_ms": {
+      "p50": 37.168,
+      "p95": 101.534,
+      "p99": 102.483,
+      "p100": 102.483
+    },
+    "fixture_scope": "Three released upstream demo photographs, repeated sequentially; correctness is a serving smoke check, not held-out model accuracy.",
+    "gpu": "NVIDIA RTX 6000 Ada Generation",
+    "gpu_usd_per_hour": 0.84,
+    "pass_all_requests_under_target": false
+  },
+  "requests": [
+    {
+      "case": "cat-on-chair",
+      "round": 0,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 143.020222,
+      "encode_ms": 0.849433,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=13.953, infer;dur=112.071, total;dur=134.534",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 13.952590990811586,
+        "inference_ms": 112.07142425701022,
+        "total_ms": 134.5342230051756
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 0,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 39.202443,
+      "encode_ms": 0.277304,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.407, infer;dur=36.613, total;dur=37.516",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.40731579065322876,
+        "inference_ms": 36.61318402737379,
+        "total_ms": 37.515867967158556
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 0,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 34.100585,
+      "encode_ms": 0.288984,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.374, infer;dur=31.654, total;dur=32.431",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.37444569170475006,
+        "inference_ms": 31.654417980462313,
+        "total_ms": 32.43072098121047
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 1,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 99.024727,
+      "encode_ms": 1.056506,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.688, infer;dur=92.431, total;dur=96.334",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.6878807693719864,
+        "inference_ms": 92.43092685937881,
+        "total_ms": 96.33351629599929
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 1,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 39.903873,
+      "encode_ms": 0.270334,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.486, infer;dur=37.353, total;dur=38.273",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4858872853219509,
+        "inference_ms": 37.35336475074291,
+        "total_ms": 38.273238111287355
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 1,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 34.824956,
+      "encode_ms": 0.294174,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.497, infer;dur=32.317, total;dur=33.200",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.49726711586117744,
+        "inference_ms": 32.31724910438061,
+        "total_ms": 33.20049121975899
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 2,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 101.081778,
+      "encode_ms": 1.279559,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.694, infer;dur=94.142, total;dur=98.192",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.6935110799968243,
+        "inference_ms": 94.1421128809452,
+        "total_ms": 98.19245524704456
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 2,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.323179,
+      "encode_ms": 0.336305,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.381, infer;dur=33.646, total;dur=34.483",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3806459717452526,
+        "inference_ms": 33.64592930302024,
+        "total_ms": 34.48318084701896
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 2,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.051699,
+      "encode_ms": 0.285634,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.355, infer;dur=30.607, total;dur=31.395",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.35486510023474693,
+        "inference_ms": 30.60709312558174,
+        "total_ms": 31.39525419101119
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 3,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 102.465419,
+      "encode_ms": 1.259049,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.916, infer;dur=93.596, total;dur=97.869",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.9158336110413074,
+        "inference_ms": 93.59627403318882,
+        "total_ms": 97.86923881620169
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 3,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.189162,
+      "encode_ms": 0.328045,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.473, infer;dur=34.488, total;dur=35.416",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4728371277451515,
+        "inference_ms": 34.48758088052273,
+        "total_ms": 35.41603498160839
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 3,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.284963,
+      "encode_ms": 0.294625,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.434, infer;dur=30.699, total;dur=31.590",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4336768761277199,
+        "inference_ms": 30.699444003403187,
+        "total_ms": 31.590166967362165
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 4,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 99.148419,
+      "encode_ms": 1.242389,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.906, infer;dur=91.946, total;dur=96.204",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.906064037233591,
+        "inference_ms": 91.94571990519762,
+        "total_ms": 96.20377514511347
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 4,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.300829,
+      "encode_ms": 0.356165,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.381, infer;dur=33.612, total;dur=34.461",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.38081593811511993,
+        "inference_ms": 33.612127881497145,
+        "total_ms": 34.460560884326696
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 4,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.04743,
+      "encode_ms": 0.286795,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.342, infer;dur=30.625, total;dur=31.391",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3420459106564522,
+        "inference_ms": 30.625103041529655,
+        "total_ms": 31.391324009746313
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 5,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 100.519049,
+      "encode_ms": 1.259758,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.570, infer;dur=93.746, total;dur=97.644",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.569778822362423,
+        "inference_ms": 93.74565724283457,
+        "total_ms": 97.64416608959436
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 5,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.397315,
+      "encode_ms": 0.375056,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.466, infer;dur=34.680, total;dur=35.701",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.46611716970801353,
+        "inference_ms": 34.680303651839495,
+        "total_ms": 35.70132004097104
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 5,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 34.216907,
+      "encode_ms": 0.270374,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.461, infer;dur=31.256, total;dur=32.116",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4606270231306553,
+        "inference_ms": 31.255902256816626,
+        "total_ms": 32.11562614887953
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 6,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 96.58316,
+      "encode_ms": 1.271219,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.733, infer;dur=89.223, total;dur=93.358",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.732871100306511,
+        "inference_ms": 89.22289870679379,
+        "total_ms": 93.35751133039594
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 6,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 38.029405,
+      "encode_ms": 0.333285,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.384, infer;dur=35.367, total;dur=36.182",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3838357515633106,
+        "inference_ms": 35.366705153137445,
+        "total_ms": 36.182176787406206
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 6,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.07289,
+      "encode_ms": 0.272655,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.446, infer;dur=30.618, total;dur=31.450",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.44604670256376266,
+        "inference_ms": 30.617683194577694,
+        "total_ms": 31.44993493333459
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 7,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 100.985336,
+      "encode_ms": 1.238559,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.588, infer;dur=94.203, total;dur=98.138",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.5881887413561344,
+        "inference_ms": 94.20324396342039,
+        "total_ms": 98.13823318108916
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 7,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.625399,
+      "encode_ms": 0.390926,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.474, infer;dur=34.878, total;dur=35.809",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4738271236419678,
+        "inference_ms": 34.87773705273867,
+        "total_ms": 35.8086908236146
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 7,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.605988,
+      "encode_ms": 0.270934,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.454, infer;dur=31.197, total;dur=32.031",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4536472260951996,
+        "inference_ms": 31.197072006762028,
+        "total_ms": 32.03095402568579
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 8,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 95.605806,
+      "encode_ms": 1.27367,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.939, infer;dur=88.425, total;dur=92.716",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.9388139955699444,
+        "inference_ms": 88.42540718615055,
+        "total_ms": 92.71627105772495
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 8,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.904703,
+      "encode_ms": 0.372965,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.464, infer;dur=35.195, total;dur=36.228",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.46392716467380524,
+        "inference_ms": 35.19524214789271,
+        "total_ms": 36.227937787771225
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 8,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 34.279988,
+      "encode_ms": 0.286995,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.350, infer;dur=31.813, total;dur=32.596",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3495747223496437,
+        "inference_ms": 31.812941189855337,
+        "total_ms": 32.595683354884386
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 9,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 95.789908,
+      "encode_ms": 1.259199,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.935, infer;dur=88.661, total;dur=92.926",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.934874966740608,
+        "inference_ms": 88.66109000518918,
+        "total_ms": 92.92604494839907
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 9,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.857077,
+      "encode_ms": 0.338075,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.466, infer;dur=34.118, total;dur=35.020",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.46607665717601776,
+        "inference_ms": 34.118416253477335,
+        "total_ms": 35.02028016373515
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 9,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.169291,
+      "encode_ms": 0.269394,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.345, infer;dur=30.747, total;dur=31.521",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3446349874138832,
+        "inference_ms": 30.747365206480026,
+        "total_ms": 31.521087046712637
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 10,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 101.059068,
+      "encode_ms": 1.242359,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.939, infer;dur=93.884, total;dur=98.166",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.939073834568262,
+        "inference_ms": 93.88395911082625,
+        "total_ms": 98.16565411165357
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 10,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.35729,
+      "encode_ms": 0.333216,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.484, infer;dur=33.646, total;dur=34.559",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4837368614971638,
+        "inference_ms": 33.64560892805457,
+        "total_ms": 34.55923171713948
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 10,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.154701,
+      "encode_ms": 0.283484,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.466, infer;dur=30.569, total;dur=31.458",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4662969149649143,
+        "inference_ms": 30.569312162697315,
+        "total_ms": 31.45826607942581
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 11,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 100.292736,
+      "encode_ms": 1.233818,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.581, infer;dur=93.516, total;dur=97.429",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.5812992826104164,
+        "inference_ms": 93.51588366553187,
+        "total_ms": 97.42906223982573
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 11,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.600018,
+      "encode_ms": 0.334655,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.392, infer;dur=34.915, total;dur=35.755",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.39184605702757835,
+        "inference_ms": 34.915007185190916,
+        "total_ms": 35.75547970831394
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 11,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.199841,
+      "encode_ms": 0.297484,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.357, infer;dur=30.838, total;dur=31.580",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3567649982869625,
+        "inference_ms": 30.837745871394873,
+        "total_ms": 31.58024698495865
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 12,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 99.726638,
+      "encode_ms": 1.29156,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.597, infer;dur=92.714, total;dur=96.642",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.596799749881029,
+        "inference_ms": 92.71407127380371,
+        "total_ms": 96.64224134758115
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 12,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.195057,
+      "encode_ms": 0.332985,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.508, infer;dur=33.356, total;dur=34.329",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.5078976973891258,
+        "inference_ms": 33.35561417043209,
+        "total_ms": 34.328848123550415
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 12,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.07385,
+      "encode_ms": 0.271844,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.484, infer;dur=30.511, total;dur=31.407",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.48442790284752846,
+        "inference_ms": 30.5110109038651,
+        "total_ms": 31.407204922288656
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 13,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 100.762763,
+      "encode_ms": 1.262109,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.581, infer;dur=93.917, total;dur=97.887",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.5814888067543507,
+        "inference_ms": 93.91700010746717,
+        "total_ms": 97.88730973377824
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 13,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.652599,
+      "encode_ms": 0.379506,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.474, infer;dur=34.849, total;dur=35.776",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.47371676191687584,
+        "inference_ms": 34.849257208406925,
+        "total_ms": 35.77632084488869
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 13,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.282913,
+      "encode_ms": 0.273384,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.481, infer;dur=30.810, total;dur=31.683",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.48057688400149345,
+        "inference_ms": 30.810166150331497,
+        "total_ms": 31.683258712291718
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 14,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 99.561325,
+      "encode_ms": 1.269089,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.603, infer;dur=92.766, total;dur=96.687",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.602760214358568,
+        "inference_ms": 92.76597201824188,
+        "total_ms": 96.68704075738788
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 14,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.522322,
+      "encode_ms": 0.333055,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.479, infer;dur=33.851, total;dur=34.761",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4791668616235256,
+        "inference_ms": 33.85129198431969,
+        "total_ms": 34.76068517193198
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 14,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.13242,
+      "encode_ms": 0.266153,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.359, infer;dur=30.697, total;dur=31.483",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3594360314309597,
+        "inference_ms": 30.69677436724305,
+        "total_ms": 31.48290514945984
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 15,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 101.533995,
+      "encode_ms": 1.252939,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.619, infer;dur=94.679, total;dur=98.639",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.6194900274276733,
+        "inference_ms": 94.6786510758102,
+        "total_ms": 98.63893082365394
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 15,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.167992,
+      "encode_ms": 0.333865,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.379, infer;dur=34.546, total;dur=35.360",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3785258159041405,
+        "inference_ms": 34.545741975307465,
+        "total_ms": 35.36046436056495
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 15,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.470386,
+      "encode_ms": 0.269724,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.349, infer;dur=31.170, total;dur=31.899",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3491761162877083,
+        "inference_ms": 31.170071102678776,
+        "total_ms": 31.898842193186283
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 16,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 99.578846,
+      "encode_ms": 1.2627,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.891, infer;dur=92.480, total;dur=96.700",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.890694420784712,
+        "inference_ms": 92.48000662773848,
+        "total_ms": 96.69965133070946
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 16,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.747445,
+      "encode_ms": 0.349695,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.382, infer;dur=34.145, total;dur=35.060",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3822450526058674,
+        "inference_ms": 34.14530726149678,
+        "total_ms": 35.05966020748019
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 16,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.035779,
+      "encode_ms": 0.270894,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.441, infer;dur=30.605, total;dur=31.426",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4408569075167179,
+        "inference_ms": 30.605093110352755,
+        "total_ms": 31.425795052200556
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 17,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 102.482799,
+      "encode_ms": 1.262609,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.897, infer;dur=94.808, total;dur=99.117",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.896504011005163,
+        "inference_ms": 94.80829304084182,
+        "total_ms": 99.11725809797645
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 17,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.521732,
+      "encode_ms": 0.337545,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.381, infer;dur=33.885, total;dur=34.700",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.380735844373703,
+        "inference_ms": 33.88467198237777,
+        "total_ms": 34.70039367675781
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 17,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.306444,
+      "encode_ms": 0.269445,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.360, infer;dur=30.897, total;dur=31.646",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3604060038924217,
+        "inference_ms": 30.89690674096346,
+        "total_ms": 31.646047718822956
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 18,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 100.350657,
+      "encode_ms": 1.248859,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.919, infer;dur=93.207, total;dur=97.470",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.919154241681099,
+        "inference_ms": 93.20697886869311,
+        "total_ms": 97.47036267071962
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 18,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 37.622629,
+      "encode_ms": 0.332565,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.470, infer;dur=34.845, total;dur=35.772",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4704771563410759,
+        "inference_ms": 34.84454657882452,
+        "total_ms": 35.771979950368404
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 18,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.198622,
+      "encode_ms": 0.269604,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.443, infer;dur=30.763, total;dur=31.588",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.44261664152145386,
+        "inference_ms": 30.76253505423665,
+        "total_ms": 31.58828802406788
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "cat-on-chair",
+      "round": 19,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 101.250931,
+      "encode_ms": 1.259299,
+      "request_bytes": 158367,
+      "image_sha256": "638899c0cd691541558e3f7e8e2ab9a867c2ea88c10bc1971339a614b07b3e8d",
+      "server_timing": "decode;dur=2.579, infer;dur=94.477, total;dur=98.376",
+      "usage": {
+        "input_tokens": 908,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 2.5791688822209835,
+        "inference_ms": 94.47674779221416,
+        "total_ms": 98.37614698335528
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "cat",
+          "probabilities": {
+            "cat": 0.9947247151320551,
+            "shoes": 0.001956654924365511,
+            "car": 0.0019636182361111483,
+            "food": 0.0013550117074683484
+          },
+          "confidence": 0.9878575981731671,
+          "unknown_probability": 0.005144876253368829,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "loafers",
+      "round": 19,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 36.207037,
+      "encode_ms": 0.369315,
+      "request_bytes": 15179,
+      "image_sha256": "2c4a50ed988d9f740196605c76f9551dace9f98bf2ba78c26f9878e6f3dcf95a",
+      "server_timing": "decode;dur=0.379, infer;dur=33.536, total;dur=34.348",
+      "usage": {
+        "input_tokens": 188,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.3788960166275501,
+        "inference_ms": 33.53571565821767,
+        "total_ms": 34.3481688760221
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0008430650187233495,
+            "shoes": 0.9974522235350344,
+            "car": 0.0009464285884576859,
+            "food": 0.0007582828577846868
+          },
+          "confidence": 0.9941049484897521,
+          "unknown_probability": 0.0025065309978739066,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "slipon-listing",
+      "round": 19,
+      "status": 200,
+      "correct": true,
+      "e2e_ms": 33.151981,
+      "encode_ms": 0.264934,
+      "request_bytes": 12723,
+      "image_sha256": "f62000e563422d1ee3a0ddf3b176998fd527864e1600599f981bea31b5e33abe",
+      "server_timing": "decode;dur=0.465, infer;dur=30.697, total;dur=31.549",
+      "usage": {
+        "input_tokens": 172,
+        "output_tokens": 0,
+        "images": 1,
+        "decode_ms": 0.4652668721973896,
+        "inference_ms": 30.69691499695182,
+        "total_ms": 31.548996921628714
+      },
+      "answers": {
+        "object": {
+          "type": "choice",
+          "choice": "shoes",
+          "probabilities": {
+            "cat": 0.0009340297235313986,
+            "shoes": 0.9973102893530563,
+            "car": 0.0009407794490562522,
+            "food": 0.0008149014743560589
+          },
+          "confidence": 0.9932092352899718,
+          "unknown_probability": 0.0032160173890526675,
+          "abstained": false,
+          "calibration_version": "p3-r2-s000291-authored"
+        }
+      },
+      "error": null
+    }
+  ]
+}

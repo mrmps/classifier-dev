@@ -135,6 +135,53 @@ TYPESAFE SDK COMPATIBILITY
   credentials. GET /v1/models is public and does not spend quota or credits.
   The corresponding HTTP resources are POST /v1/systemone and GET /v1/models.
 
+IMAGE CLASSIFICATION
+
+  Use POST /v1/systemone with model: "imajev-4b", one or two images and
+  one to eight Choice, Noul or Score questions. Send images as JPEG, PNG or
+  WebP base64 data URLs. External image URLs are not fetched. The entire JSON
+  request must fit 1 MB; state is limited to 32 KB and each question's processed
+  input to 4,096 tokens. Oversized requests are refused, never truncated.
+
+    {
+      "model": "imajev-4b",
+      "images": ["data:image/jpeg;base64,..."],
+      "state": "",
+      "questions": {
+        "subject": {
+          "type": "choice",
+          "instructions": "What is the main subject?",
+          "criteria": {"cat": null, "dog": null, "other": null}
+        }
+      }
+    }
+
+  The TypeSafe JavaScript SDK forwards images on a request variable:
+
+    import { TypeSafeClient, choice } from "@typesafe-ai/sdk";
+    const client = new TypeSafeClient({
+      baseURL: "https://classifier.dev", apiKey: process.env.CLASSIFIER_API_KEY,
+      retry: { maxRetries: 0 }
+    });
+    const request = {
+      model: "imajev-4b", state: "", images: [imageDataUrl],
+      questions: { subject: choice("Main subject?", { cat: null, dog: null }) }
+    };
+    const { answers } = await client.systemOne(request);
+
+  Answers retain the typed System One shape and add unknown_probability and
+  abstained. Treat abstained: true as a handoff, even when a choice is present.
+  Inference uses the pinned, merged Imajev-4B adapter on our RunPod GPU, one option
+  order, its shipped calibration, and no generated explanation or fallback.
+  Image requests are not retained for training, including when share_data is
+  true. Workspace billing uses all processed input tokens at $0.042/M;
+  output is free. The hourly GPU charge is separate from provider token costs.
+
+  Reuse the client's HTTPS connection for interactive calls. Image encoding,
+  upload, image size, number of questions, network distance and concurrency
+  all affect end-to-end latency. Server-Timing separates admission, the GPU
+  request, image decoding and inference; it is not a client latency measure.
+
 LAYA AND KEV
 
   Calls with neither model nor processing use Jev. Two other models are

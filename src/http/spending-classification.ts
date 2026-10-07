@@ -1,3 +1,4 @@
+import { imajevEnabled, isImageRequest } from "../imajev";
 import { scrapeOptions, scrapeArticle, SCRAPE_NANODOLLARS, SCRAPE_PRICE, type Article } from "../scrape";
 import { classificationPricing, withResponsePricing } from "../classification-usage";
 import worker, { type Env } from "../index";
@@ -15,6 +16,7 @@ import { rateLimitMultiplier } from "../lib/billing";
 import { typeSafeDecisionCount, unsupportedSystemOneInput } from "../typesafe-compat";
 
 export async function spendingClassification(request: Request, env: AppEnv & Partial<Env>, source: "API" | "MCP", ctx: ExecutionContext): Promise<Response> {
+  const requestStarted = Date.now();
   try {
     if (env.APP_ACCOUNTS_ENABLED !== "true") throw new AppError(503, "Account credentials are disabled.");
     request = await boundedRequest(request);
@@ -23,7 +25,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     try { body = JSON.parse(text); } catch { throw new AppError(400, "Send valid JSON."); }
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new AppError(400, "Send a JSON object.");
     const systemOne = new URL(request.url).pathname === "/v1/systemone";
-    const unsupported = systemOne ? unsupportedSystemOneInput(body) : null;
+    const unsupported = systemOne ? unsupportedSystemOneInput(body, imajevEnabled(env)) : null;
     if (unsupported) throw new SpendingError(400, unsupported.code, unsupported.error);
     const scrape = scrapeOptions(body);
     if (scrape && new URL(request.url).pathname === "/v1/systemone") throw new SpendingError(400, "invalid_request", "Use /v1/classify for URL classification.");
@@ -106,6 +108,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     const permit = result.funded ? new Permit(limits.paidRequest - (scrape ? SCRAPE_NANODOLLARS : 0), Date.now() + 90000) : undefined;
     if (permit) { meter.permit = permit; meter.beforeCall = async () => {}; }
     const started = Date.now();
+    const admissionMs = started - requestStarted;
     let response: Response;
     let article: Article | undefined;
     let scrapeCharged = false;
@@ -143,7 +146,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
         ? tokens.reduce((sum, t) => sum + t.inputTokens!, 0) : null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          if (!scrapeCharged && (!response.ok || (!longContext && (!actual || actual.used === 0)))) await refundTokenReservation(env.APP_DB, id);
+          if (!scrapeCharged && (!response.ok || (!longContext && (!actual || (actual.used === 0 && !actual.tokens.some(row => row.provider === "runpod")))))) await refundTokenReservation(env.APP_DB, id);
           else await settleTokenReservation(env.APP_DB, id, charge, {
             inputTokens: longContext ? upstreamInputTokens : inputTokens,
             outputTokens: tokens.length && tokens.every(t => t.outputTokens !== null) ? tokens.reduce((sum, t) => sum + t.outputTokens!, 0) : null,
@@ -153,7 +156,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
             tier: body.tier === "smart" ? "smart" : "fast", status: response.ok ? "success" : "error", items,
             inputTokens: longContext ? upstreamInputTokens : inputTokens, longContext: meter.longContext,
             outputTokens: tokens.every(t => t.outputTokens !== null) ? tokens.reduce((sum, t) => sum + t.outputTokens!, 0) : null,
-            cachedInputTokens: null, model: tokens.map(t => t.model).join(","), providerCostUsd: actual?.unknown || scrapeCharged ? null : (actual?.used ?? 0) / 1e9,
+            cachedInputTokens: null, model: tokens.map(t => t.model).join(","), providerCostUsd: actual?.unknown || scrapeCharged || tokens.some(t => t.provider === "runpod") ? null : (actual?.used ?? 0) / 1e9,
             retailCostUsd: charge ? Number(charge.nanodollars) / 1e9 : response.ok ? null : 0, latencyMs: Date.now() - started, escalations: typeof escalations === "number" ? escalations : 0 });
           // The settled charge may have taken the balance below the owner's
           // auto top-up threshold; the claim statement enforces every limit.
@@ -164,6 +167,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     };
     ctx.waitUntil(settle());
     const headers = new Headers(response.headers);
+    if (systemOne && isImageRequest(body)) headers.append("server-timing", `account_admit;dur=${admissionMs}, api;dur=${Date.now() - requestStarted}`);
     if (charge) {
       headers.set("x-billed-input-tokens", String(inputTokens));
       headers.set("x-smart-escalations", String(escalations));
