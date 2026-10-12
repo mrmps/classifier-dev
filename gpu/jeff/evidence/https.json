@@ -1,0 +1,360 @@
+{
+  "url": "https://coast-caring-trailer-alexander.trycloudflare.com",
+  "transport": "Temporary Cloudflare Quick Tunnel over QUIC to the same GPU server; remote macOS client",
+  "cloudflared_version": "2026.9.3",
+  "binary_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-linux-amd64",
+  "binary_sha256": "77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2",
+  "official_limits_source": "https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/",
+  "max_gateway_inflight": 200,
+  "offered_rps": 100,
+  "load": {
+    "raw_sha256": "20515b860f83bb5aba096f15cb0bbfeeba5e5bed49021693c1749951da635aab",
+    "input_sha256": [
+      "1e7925d6e6fc5d9f8b1edc45cb5130207a08ed75be657f855015666db85a650e",
+      "78099814f271039e2aab4567f86c5b0a6bb49acf6920e763cd6877fdef8aa1e2"
+    ],
+    "runner_sha256": "4362449943ed06178b842ab5b5636b626b944aee905cfddb4887e7a5ac8e2c9c",
+    "server_source_sha256": {
+      "server.py": "704ae7e188362f59261e4dd97657742c689be15143aaefe4db8e5e99a2d58696",
+      "engine.py": "36ef302a5141ba7764fcf8b35af04978d18e354b520927570b776b14be5813a4",
+      "fetch.py": "5242138bd13d462e47fc44b93eb6f8e3d3a3582d0c0e24be00c9e10d13932a48",
+      "recipe.lock.json": "7e935224e8e4012636cb278b6aac8918289fe4f652d9b96591e5ab4d104c7513"
+    },
+    "elapsed_seconds": 60.51929733299767,
+    "all": {
+      "attempted": 6000,
+      "success": 6000,
+      "errors": {},
+      "success_requests_per_second": 99.14193099410868,
+      "real_input_tokens": 3172227,
+      "real_input_tokens_per_second": 52416.78505527473,
+      "all_completed_scheduled_latency_ms": {
+        "p50": 230.11708300327882,
+        "p95": 426.7547079944052,
+        "p99": 676.1308750137687,
+        "max": 1571.2058750214055
+      },
+      "success_scheduled_latency_ms": {
+        "p50": 230.11708300327882,
+        "p95": 426.7547079944052,
+        "p99": 676.1308750137687,
+        "max": 1571.2058750214055
+      },
+      "actual_request_start_latency_ms": {
+        "p50": 229.02437500306405,
+        "p95": 426.1251669959165,
+        "p99": 674.0720420202706,
+        "max": 1570.3549590252806
+      },
+      "client_dispatch_lag_ms": {
+        "p50": 1.1687499936670065,
+        "p95": 2.085749991238117,
+        "p99": 2.1293750032782555,
+        "max": 61.535665998235345
+      },
+      "server_timing_ms": {
+        "encode_ms": {
+          "p50": 1.7612092196941376,
+          "p95": 12.849594000726938,
+          "p99": 21.63897966966033,
+          "max": 209.7558663226664
+        },
+        "queue_ms": {
+          "p50": 16.315483022481203,
+          "p95": 76.79248508065939,
+          "p99": 163.45743602141738,
+          "max": 1311.444269027561
+        },
+        "inference_ms": {
+          "p50": 15.748112928122282,
+          "p95": 33.667635172605515,
+          "p99": 47.89694817736745,
+          "max": 71.89448783174157
+        },
+        "total_ms": {
+          "p50": 37.55628317594528,
+          "p95": 106.83682095259428,
+          "p99": 205.5783080868423,
+          "max": 1382.411447353661
+        }
+      },
+      "request_weighted_batch_sizes": {
+        "5": 395,
+        "3": 1278,
+        "2": 1760,
+        "1": 1270,
+        "6": 240,
+        "8": 192,
+        "4": 760,
+        "7": 105
+      }
+    },
+    "by_priority": {
+      "interactive": {
+        "attempted": 2945,
+        "success": 2945,
+        "errors": {},
+        "success_requests_per_second": 48.662164462941675,
+        "real_input_tokens": 1556614,
+        "real_input_tokens_per_second": 25720.95296207725,
+        "all_completed_scheduled_latency_ms": {
+          "p50": 224.09858301398344,
+          "p95": 390.7692909997422,
+          "p99": 639.5475000026636,
+          "max": 1430.7338750222698
+        },
+        "success_scheduled_latency_ms": {
+          "p50": 224.09858301398344,
+          "p95": 390.7692909997422,
+          "p99": 639.5475000026636,
+          "max": 1430.7338750222698
+        },
+        "actual_request_start_latency_ms": {
+          "p50": 222.9339159966912,
+          "p95": 390.6913750106469,
+          "p99": 637.7884999965318,
+          "max": 1429.1458340012468
+        },
+        "client_dispatch_lag_ms": {
+          "p50": 1.13329102168791,
+          "p95": 2.0858750212937593,
+          "p99": 2.1414579823613167,
+          "max": 61.535665998235345
+        },
+        "server_timing_ms": {
+          "encode_ms": {
+            "p50": 1.7207888886332512,
+            "p95": 12.822553981095552,
+            "p99": 21.302571054548025,
+            "max": 83.81518302485347
+          },
+          "queue_ms": {
+            "p50": 12.537733651697636,
+            "p95": 57.226235046982765,
+            "p99": 93.61471701413393,
+            "max": 165.95502477139235
+          },
+          "inference_ms": {
+            "p50": 15.63373301178217,
+            "p95": 31.7238662391901,
+            "p99": 47.48212918639183,
+            "max": 71.89448783174157
+          },
+          "total_ms": {
+            "p50": 33.12387503683567,
+            "p95": 86.4397413097322,
+            "p99": 129.7887722030282,
+            "max": 201.98120875284076
+          }
+        },
+        "request_weighted_batch_sizes": {
+          "5": 177,
+          "3": 565,
+          "2": 877,
+          "1": 781,
+          "6": 112,
+          "8": 86,
+          "4": 303,
+          "7": 44
+        }
+      },
+      "bulk": {
+        "attempted": 3055,
+        "success": 3055,
+        "errors": {},
+        "success_requests_per_second": 50.479766531167,
+        "real_input_tokens": 1615613,
+        "real_input_tokens_per_second": 26695.832093197485,
+        "all_completed_scheduled_latency_ms": {
+          "p50": 236.30704102106392,
+          "p95": 456.61262498470023,
+          "p99": 761.0461660078727,
+          "max": 1571.2058750214055
+        },
+        "success_scheduled_latency_ms": {
+          "p50": 236.30704102106392,
+          "p95": 456.61262498470023,
+          "p99": 761.0461660078727,
+          "max": 1571.2058750214055
+        },
+        "actual_request_start_latency_ms": {
+          "p50": 235.15537500497885,
+          "p95": 455.3627499844879,
+          "p99": 758.9712080080062,
+          "max": 1570.3549590252806
+        },
+        "client_dispatch_lag_ms": {
+          "p50": 1.204250002047047,
+          "p95": 2.0855829934589565,
+          "p99": 2.1216250024735928,
+          "max": 51.739791000727564
+        },
+        "server_timing_ms": {
+          "encode_ms": {
+            "p50": 1.7908792942762375,
+            "p95": 13.129883911460638,
+            "p99": 22.472030017524958,
+            "max": 209.7558663226664
+          },
+          "queue_ms": {
+            "p50": 21.68879099190235,
+            "p95": 96.6063467785716,
+            "p99": 220.81961994990706,
+            "max": 1311.444269027561
+          },
+          "inference_ms": {
+            "p50": 15.899462159723043,
+            "p95": 36.19200410321355,
+            "p99": 48.33803791552782,
+            "max": 63.316152431070805
+          },
+          "total_ms": {
+            "p50": 42.91875008493662,
+            "p95": 135.01644926145673,
+            "p99": 257.88257410749793,
+            "max": 1382.411447353661
+          }
+        },
+        "request_weighted_batch_sizes": {
+          "5": 218,
+          "3": 713,
+          "2": 883,
+          "6": 128,
+          "8": 106,
+          "4": 457,
+          "7": 61,
+          "1": 489
+        }
+      }
+    },
+    "batch_histogram": {
+      "2": 880,
+      "3": 426,
+      "1": 1340,
+      "6": 40,
+      "8": 24,
+      "7": 15,
+      "5": 79,
+      "4": 190
+    }
+  },
+  "e2e_probes": {
+    "e2e-https": {
+      "status": "FAIL",
+      "failure": "overload_429",
+      "configuration": {
+        "concurrent": 8,
+        "overload_requests": 256,
+        "min_observed_batch": 1
+      },
+      "checks": {
+        "public_health": true,
+        "ready": true,
+        "decide_requires_auth": true,
+        "metrics_requires_auth": true,
+        "malformed_json": true,
+        "deeply_nested_json": true,
+        "invalid_schema": true,
+        "images_rejected": true,
+        "body_limit": true,
+        "context_limit": true,
+        "metrics_before": true,
+        "concurrent_unique_option_mapping": true,
+        "invalid_neighbor_isolated": true,
+        "observed_batch_size": true,
+        "noul_probabilities": true,
+        "score_probabilities": true,
+        "deadline_504": true,
+        "deadline_recovery": true,
+        "overload_429": false
+      },
+      "overload_http_statuses": {
+        "200": 256
+      },
+      "elapsed_seconds": 13.067604832991492,
+      "raw_sha256": "c95351c42d2056d2460d408e3a8cceaf6d8e81ba1d8c022e3fdead69c9dfcf9f"
+    },
+    "e2e-https-heavy": {
+      "status": "FAIL",
+      "failure": "ClientOSError",
+      "configuration": {
+        "concurrent": 8,
+        "overload_requests": 256,
+        "overload_state_words": 4000,
+        "min_observed_batch": 1
+      },
+      "checks": {
+        "public_health": true,
+        "ready": true,
+        "decide_requires_auth": true,
+        "metrics_requires_auth": true,
+        "malformed_json": true,
+        "deeply_nested_json": true,
+        "invalid_schema": true,
+        "images_rejected": true,
+        "body_limit": true,
+        "context_limit": true,
+        "metrics_before": true,
+        "concurrent_unique_option_mapping": true,
+        "invalid_neighbor_isolated": true,
+        "observed_batch_size": true,
+        "noul_probabilities": true,
+        "score_probabilities": true,
+        "deadline_504": true,
+        "deadline_recovery": true
+      },
+      "overload_http_statuses": null,
+      "elapsed_seconds": 11.6721381249954,
+      "raw_sha256": "ef4b5dde6c8098b5ff2025edee02e2b84247ec3af76d584bf20b8a64fce48a80"
+    },
+    "e2e-https-bounded": {
+      "status": "PASS",
+      "failure": null,
+      "configuration": {
+        "concurrent": 8,
+        "overload_requests": 192,
+        "overload_state_words": 4000,
+        "min_observed_batch": 1
+      },
+      "checks": {
+        "public_health": true,
+        "ready": true,
+        "decide_requires_auth": true,
+        "metrics_requires_auth": true,
+        "malformed_json": true,
+        "deeply_nested_json": true,
+        "invalid_schema": true,
+        "images_rejected": true,
+        "body_limit": true,
+        "context_limit": true,
+        "metrics_before": true,
+        "concurrent_unique_option_mapping": true,
+        "invalid_neighbor_isolated": true,
+        "observed_batch_size": true,
+        "noul_probabilities": true,
+        "score_probabilities": true,
+        "deadline_504": true,
+        "deadline_recovery": true,
+        "overload_429": true,
+        "overload_no_server_errors": true,
+        "metrics_available": true,
+        "overload_recovery": true,
+        "metrics_contract": true,
+        "real_tokens_increased": true
+      },
+      "overload_http_statuses": {
+        "200": 159,
+        "429": 33
+      },
+      "elapsed_seconds": 16.668679583002813,
+      "raw_sha256": "c208bbd1490dafef31695999e81a3d9b19ea643db7247681b62d2d3515191b71"
+    }
+  },
+  "interpretation": [
+    "Normal mixed HTTPS load:6000/6000 successful; no retries.",
+    "Tiny256-request burst did not cause overload:all256 succeeded, so overload assertion failed.",
+    "Heavy256-request burst aborted with ClientOSError above documented200inflight gateway cap; retain as failed transport probe.",
+    "Heavy192-request burst stayed below gateway cap and passed admission429/deadline/recovery checks.",
+    "This is a temporary test endpoint without uptime guarantee, not a Salad production deployment."
+  ]
+}

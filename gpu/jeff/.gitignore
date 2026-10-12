@@ -1,0 +1,6 @@
+.env
+model/
+recipe/
+.cache/
+results/
+__pycache__/
