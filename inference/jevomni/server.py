@@ -33,11 +33,13 @@ import hmac
 import logging
 import os
 import re
+import subprocess
 import tempfile
 import threading
 import time
 from pathlib import Path
 
+import torch
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -48,6 +50,21 @@ MODEL_LABEL = "jev/omni"
 MAX_QUESTIONS = 32
 MAX_OPTIONS = 256
 MAX_STATE_ITEMS = 20
+# Text bounds come from latency, not memory. With no KV cache every question
+# re-reads its whole state, and a read grows superlinearly: measured on an A40,
+# 32K characters took 3.2s, 64K 11s, 128K 44s and 192K 97s, all without
+# running out of memory. 32,000 per item is the line the rest of the service
+# already draws between ordinary and long-context Jev; the total across every
+# forward pass keeps a full request inside ~13s, well under the 60s the Worker
+# waits.
+MAX_ITEM_CHARS = 32_000
+MAX_READ_CHARS = 128_000
+# The same ceiling the dgemma image door enforces, so neither door accepts
+# what the other refuses. Note what it means for audio: 16kHz mono WAV is
+# 32KB a second, so WAV fits only ~21s here; compressed audio fits the full 30.
+MAX_MEDIA_CHARS = 900_000
+# The loader's own ffmpeg call keeps the first 30 seconds and drops the rest.
+MAX_AUDIO_SECONDS = 30
 # The head is trained to 256 slots but the card establishes quality only to 20.
 QUALITY_OPTIONS = 20
 DATA_URL = re.compile(r"^data:(image/(?:png|jpeg|webp|gif)|audio/(?:wav|mpeg|mp4|webm)|video/(?:mp4|webm));base64,(.+)$", re.S)
@@ -135,6 +152,35 @@ def media_file(url: str) -> tuple[str, str] | None:
     return kind, handle.name
 
 
+def media_problem(kind: str, path: str) -> str | None:
+    """Why the model would answer about less than the caller sent, if it would.
+
+    The loader trims silently in two places: audio past 30 seconds is cut by its
+    ffmpeg call, and an animated GIF is opened as its first frame. Measured, a
+    refund request spoken at 32-38s of a clip scored P(refund)=0.012 against
+    0.977 for the same words unpadded - with a confident-looking answer and no
+    sign anything was dropped. Refuse instead, the way a second image is refused
+    rather than answered off the first.
+    """
+    if kind == "audio":
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+            capture_output=True, text=True)
+        try:
+            seconds = float(probe.stdout.strip())
+        except ValueError:
+            return "The audio could not be read"
+        if seconds > MAX_AUDIO_SECONDS:
+            return (f"audio must be at most {MAX_AUDIO_SECONDS:g} seconds; Jev-Omni hears only the "
+                    f"first {MAX_AUDIO_SECONDS:g} and would answer about less than was sent")
+    if kind == "image" and path.endswith(".gif"):
+        from PIL import Image
+        with Image.open(path) as gif:
+            if getattr(gif, "n_frames", 1) > 1:
+                return "An animated GIF is read as its first frame only; send it as video/mp4 or video/webm"
+    return None
+
+
 @app.on_event("startup")
 def warm() -> None:
     """Load once, then answer one throwaway question so the first caller does
@@ -172,31 +218,50 @@ def systemone(body: Body, request: Request):
     if not body.questions or len(body.questions) > MAX_QUESTIONS:
         return refuse("jevomni_input", f"questions must contain 1 to {MAX_QUESTIONS} named questions")
 
+    for item in body.state:
+        if len(item.text) + len(item.rubric or "") > MAX_ITEM_CHARS:
+            return refuse("jevomni_input", f"Each state item must be at most {MAX_ITEM_CHARS:,} characters including its rubric")
+
     supplied = (body.media or []) + (body.images or [])
     if len(supplied) > 1:
         return refuse("jevomni_input", "Jev-Omni reads at most one media file per request")
-    attached = None
-    if supplied:
-        attached = media_file(supplied[0])
-        if attached is None:
-            return refuse("jevomni_input", "media must be one base64 data URL of a supported image, audio or video type")
+    if supplied and len(supplied[0]) > MAX_MEDIA_CHARS:
+        return refuse("jevomni_input", f"media must be at most {MAX_MEDIA_CHARS:,} base64 characters")
 
-    plan = []
+    plan, read = [], 0
     for qid, question in body.questions.items():
         options = options_for(question)
         if options is None:
             return refuse("jevomni_input", f"Question {qid} must be a noul or a choice over 2 to {MAX_OPTIONS} criteria")
         if len(options) > QUALITY_OPTIONS:
             log.warning("question asks %d options, above the established %d", len(options), QUALITY_OPTIONS)
-        plan.append((qid, question, options))
+        state = state_for(question, body.state)
+        read += len(state) + len(question.instructions)
+        plan.append((qid, question, options, state))
+    if read > MAX_READ_CHARS:
+        return refuse("jevomni_input", f"The questions in one request may read at most {MAX_READ_CHARS:,} characters between them; split the request")
+
+    # Media is written to disk only after every check that can refuse the
+    # request has passed. Decoding it any earlier left the caller's file in
+    # /tmp whenever a later check refused, because only the inference block
+    # below removes it.
+    attached = None
+    if supplied:
+        attached = media_file(supplied[0])
+        if attached is None:
+            return refuse("jevomni_input", "media must be one base64 data URL of a supported image, audio or video type")
+        problem = media_problem(*attached)
+        if problem:
+            Path(attached[1]).unlink(missing_ok=True)
+            return refuse("jevomni_input", problem)
 
     modality, path = attached or ("text", None)
     answers, started = {}, time.monotonic()
     try:
         with _lock:
-            for qid, question, options in plan:
+            for qid, question, options, state in plan:
                 result = _model.predict(
-                    state=state_for(question, body.state),
+                    state=state,
                     question=question.instructions,
                     options=options,
                     media=path,
@@ -211,6 +276,13 @@ def systemone(body: Body, request: Request):
                         "confidence": result["confidence"],
                         "probabilities": probabilities,
                     }
+    except torch.cuda.OutOfMemoryError:
+        # Hand the allocator's cache back, or the memory a failed request
+        # reserved stays reserved and the next ordinary request fails too.
+        # Measured: one oversized request left 42.7GB of 46GB held.
+        torch.cuda.empty_cache()
+        log.error("jevomni ran out of GPU memory over %d questions (%s)", len(plan), modality)
+        return refuse("jevomni_input", "This request is too large for the model; send less media or less text", 413)
     except Exception as failure:
         # Deliberately not log.exception and deliberately not str(failure): a
         # traceback or an exception message can carry the state text, a file

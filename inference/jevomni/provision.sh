@@ -41,4 +41,20 @@ snapshot_download("akhilaaa3/Jev-Omni", revision=rev, allow_patterns=[
 print("weights ready")
 PY
 
+# 4. Upstream bug, patched here until it lands there. jev_omni.predict builds
+#    its ffmpeg output path with NamedTemporaryFile - which creates the file -
+#    and then runs ffmpeg without -y, so ffmpeg refuses to overwrite it, prints
+#    "Not overwriting - exiting", and soundfile fails on the empty result.
+#    Every audio request raises LibsndfileError without this; the audio path as
+#    shipped cannot ever have been run.
+#
+#    soundfile does that decoding, not torchaudio, which is why removing
+#    torchaudio in step 2 costs no functionality.
+before=$(md5sum /root/jev_omni.py | cut -d' ' -f1)
+sed -i 's|"ffmpeg", "-v", "error", "-i"|"ffmpeg", "-y", "-v", "error", "-i"|' /root/jev_omni.py
+if [ "$before" = "$(md5sum /root/jev_omni.py | cut -d' ' -f1)" ]; then
+  echo "WARNING: the ffmpeg -y patch did not apply; check whether upstream fixed it" >&2
+  grep -n ffmpeg /root/jev_omni.py >&2
+fi
+
 exec /root/restart.sh

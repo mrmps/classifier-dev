@@ -6,12 +6,12 @@
 set -euo pipefail
 : "${JEVOMNI_TOKEN:?set JEVOMNI_TOKEN in the environment}"
 
-# Kill by listening port, never with `pkill -f uvicorn`: that pattern also
-# matches the ssh command carrying it, so it kills the shell mid-restart and
-# leaves the pod with nothing serving.
-fuser -k 8000/tcp 2>/dev/null || true
-sleep 2
 cd /root
+./stop.sh
+
+# Drop any cached bytecode, so a patched jev_omni.py is actually the thing that
+# loads rather than a stale .pyc.
+rm -rf /root/__pycache__
 
 # --no-access-log is required, not a preference. Uvicorn's access log records
 # the client address of every request, which src/privacy.ts exists to keep out
