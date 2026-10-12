@@ -77,6 +77,13 @@ jobs:
         with:
           name: image-billing-e2e
           path: captures/image-billing.json
+      - name: Verify Jev-Omni admission, settlement, and privacy
+        run: bun e2e/jevomni-billing.ts
+      - name: Save Jev-Omni billing evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: jevomni-billing-e2e
+          path: captures/jevomni-billing.json
       - name: Verify public chat and classification tools
         run: npm run test:e2e:chat
       - name: Save chat verification evidence

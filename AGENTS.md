@@ -70,6 +70,19 @@ the plain text (`curl classifier.dev`), the HTML and the Markdown never drift.
   request; the service refuses rather than truncates, its 4xx become
   `chunklaya_input`, and there is no fallback to Jev or the LLM chain. It is
   billed by the hour, so no per-token provider cost is metered.
+- Jev-Omni (`jev-omni`) is our opt-in door for typed decisions over text plus
+  one image, audio clip or video: `src/jevomni.ts`, the service in
+  `inference/jevomni/` on our own RunPod pod, reached through `JEVOMNI_URL` and
+  `JEVOMNI_TOKEN` (repository secrets, written to the deploy's secrets file as
+  a pair). Only a body naming model "jev-omni" goes there - it is checked before
+  imajev, so it wins even when the body carries `images` - and images with no
+  model stay imajev-4b's; never route a default to it without asking. One media
+  file, at most eight Choice or Noul questions. The pod reports every position
+  it reads as input tokens and refuses, before running it, any pass that would
+  take a request past 65,536; that number is the reservation bound in
+  `token-reservation.ts` and `spending/policy.ts`, so change all three
+  together. Billed as imajev is, $0.042/M input. Media is never kept for
+  training. Run `bun e2e/jevomni-billing.ts` after touching any of it.
 - The updates roadmap is one constant, `ROADMAP` in `src/newsletter.ts`; the plain
   text, the signup form and the Markdown all render from it. Addresses go to the
   `subscriber` table in the shared application Neon database. Preserve consent,

@@ -1,0 +1,26 @@
+# Jev-Omni's own requirements, pinned as the model card pins them. transformers
+# 5.17.0 is not a floor but a pin: the loader reaches for
+# transformers.models.gemma4_unified by name and reads config.architectures[0]
+# off it, so a minor bump can move the class out from under it.
+#
+# torch is pinned to a CUDA 12.8 build, the toolkit the base image is built on.
+# Left as `torch>=2.10` PyPI hands out its newest build, 2.14 for CUDA 13.0,
+# which runs only on hosts whose driver supports CUDA 13: two EU A40s did, a US
+# L40S with driver 570 (CUDA 12.8) did not, and the server died at startup with
+# "The NVIDIA driver on your system is too old". 2.11 meets the card's >=2.10.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+transformers==5.17.0
+accelerate
+huggingface_hub
+safetensors
+numpy
+Pillow
+opencv-python-headless
+soundfile
+librosa
+# Ours: the System One door.
+fastapi==0.120.4
+uvicorn[standard]==0.38.0
+pydantic==2.12.3

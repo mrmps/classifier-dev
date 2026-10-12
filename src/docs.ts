@@ -182,6 +182,52 @@ IMAGE CLASSIFICATION
   all affect end-to-end latency. Server-Timing separates admission, the GPU
   request, image decoding and inference; it is not a client latency measure.
 
+JEV-OMNI
+
+  Use POST /v1/systemone with model: "jev-omni" to ask Choice or Noul
+  questions about text plus, optionally, one image, one audio clip or one
+  video. It is chosen only by name: images sent without a model still go to
+  imajev-4b. Send the file in media as a base64 data URL:
+
+    image  PNG, JPEG, WebP or a still GIF
+    audio  WAV, MP3, AAC or Opus, up to 30 seconds
+    video  MP4 or WebM; 16 frames are sampled across the whole clip
+
+    {
+      "model": "jev-omni",
+      "media": ["data:audio/mpeg;base64,..."],
+      "state": "A customer voicemail.",
+      "questions": {
+        "topic": {
+          "type": "choice",
+          "instructions": "What does the caller want?",
+          "criteria": {"refund": null, "bug_report": null, "other": null}
+        },
+        "urgent": {"type": "noul", "instructions": "Is the caller upset?"}
+      }
+    }
+
+  One media file and up to eight questions per request; Score questions are
+  not supported. State may be a string, an object whose keys questions can
+  name, or a list of {id, text} items, at most 32,000 characters each. The
+  whole request must fit 1 MB and media 900,000 base64 characters, so a WAV
+  fits about 21 seconds; compressed audio fits the full 30.
+
+  Input the model would silently cut is refused instead: audio over 30
+  seconds, and animated GIFs, which it would read as their first frame. Send
+  those as shorter audio or as video. A request that would read more than
+  65,536 tokens is refused with 413.
+
+  Each question is one pass over everything sent, so asking several questions
+  about one video costs several times one. Measured per question: text ~60ms,
+  an image ~100ms, a 5-second clip ~160ms, a video ~2.5-3.5s, before network.
+  An image reads ~330 tokens, 30 seconds of audio ~800, a video ~4,200.
+
+  Workspace billing uses all processed input tokens at $0.042/M; output is
+  free. Requests are not retained for training, including when share_data is
+  true. Answers keep the typed System One shape; Jev-Omni does not report
+  unknown_probability or abstained.
+
 LAYA AND KEV
 
   Calls with neither model nor processing use Jev. Two other models are

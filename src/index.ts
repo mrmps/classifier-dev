@@ -1,4 +1,5 @@
 import { imajevResponse, imajevEnabled, isImageRequest, type ImajevEnv } from "./imajev";
+import { jevomniResponse, jevomniEnabled, isJevomniRequest, JEVOMNI_MODEL, type JevomniEnv } from "./jevomni";
 import { sharingPreference, requireSharingStorage, SharingError, SHARING_HINT, SHARING_NOTICE, saveTrainingData } from "./training-data";
 import { requestTokens } from "./model-analytics";
 import { classificationUsage, classificationPricing } from "./classification-usage";
@@ -43,7 +44,7 @@ import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
-export interface Env extends LayaEnv, SpendingEnv, ImajevEnv {
+export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
   TRAINING_DATA?: R2Bucket;
   QUOTAS?: DurableObjectNamespace;
   QUOTA_COORDINATOR_ENABLED?: string;
@@ -1559,7 +1560,7 @@ const worker = {
         } catch { /* Provider validation handles malformed JSON. */ }
         try {
           sharingChoice = sharingPreference(req, sdkBody);
-          sharing = !isImageRequest(sdkBody) && (sharingChoice ?? !!env.TRAINING_DATA);
+          sharing = !isImageRequest(sdkBody) && !isJevomniRequest(sdkBody) && (sharingChoice ?? !!env.TRAINING_DATA);
           requireSharingStorage(env, sharing);
         } catch (error) {
           if (error instanceof SharingError) return json({ error: error.message, code: error.code }, error.status);
@@ -1587,7 +1588,7 @@ const worker = {
           tier: "fast", n: status === 200 ? decisions : 0, ms: Date.now() - sdkStarted,
           labels: labelSets.length === 1 ? labelSets[0].labels : labelSets.map(set => JSON.stringify(set.labels)),
           mode: labelSets.length > 1 ? "dimensions" : "single",
-          ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : isImageRequest(sdkBody) ? "imajev-4b" : "typesafe",
+          ip, country, client, status, model: meter.tokens.length ? [...new Set(meter.tokens.map(r => r.model))].sort().join(",") : isJevomniRequest(sdkBody) ? JEVOMNI_MODEL : isImageRequest(sdkBody) ? "imajev-4b" : "typesafe",
           meter, images: imageCount, usd: meter.usd, reason, agent,
           attempted: decisions, escalationFailed: 0,
         });
@@ -1603,9 +1604,12 @@ const worker = {
       let remaining = -1;
       let providerStarted = false;
       meter.onProviderAttempt = () => { providerStarted = true; };
+      // One GPU door per request. Jev-Omni is checked first so a body naming
+      // model "jev-omni" that also carries images never falls into imajev.
+      const gpuDoor = isJevomniRequest(sdkBody) ? jevomniResponse : isImageRequest(sdkBody) ? imajevResponse : undefined;
       const imageAbort = new AbortController();
-      const imageRun = isImageRequest(sdkBody) && execution?.funded
-        ? imajevResponse(new Request(req.url, { signal: AbortSignal.any([req.signal, imageAbort.signal]) }), env, sdkBody!, meter)
+      const imageRun = gpuDoor && execution?.funded
+        ? gpuDoor(new Request(req.url, { signal: AbortSignal.any([req.signal, imageAbort.signal]) }), env, sdkBody!, meter)
           .then(response => ({ response }), error => ({ error }))
         : undefined;
       if (decisions && !enterprise) {
@@ -1639,8 +1643,8 @@ const worker = {
       const sdkAdmissionMs = Date.now() - sdkStarted;
       const imageResult = await imageRun;
       if (imageResult && "error" in imageResult) throw imageResult.error;
-      let response = isImageRequest(sdkBody)
-        ? imageResult?.response ?? await imajevResponse(req, env, sdkBody!, meter)
+      let response = gpuDoor
+        ? imageResult?.response ?? await gpuDoor(req, env, sdkBody!, meter)
         : await typeSafeCompatibleResponse(
         req,
         env.TYPESAFE_API_KEY,
@@ -1657,12 +1661,22 @@ const worker = {
           }] }, { headers });
         }
       }
-      sdkRecord(response.status, response.ok ? "" : `${isImageRequest(sdkBody) ? "imajev" : "typesafe"}_${response.status}`);
+      if (path === "v1/models" && response.ok && jevomniEnabled(env)) {
+        const catalog = await response.clone().json() as { models?: { name: string }[] };
+        if (Array.isArray(catalog.models) && !catalog.models.some(model => model.name === JEVOMNI_MODEL)) {
+          const headers = new Headers(response.headers);
+          headers.delete("content-length");
+          response = Response.json({ ...catalog, models: [...catalog.models, {
+            name: JEVOMNI_MODEL, description: "Typed decisions over text, an image, speech or a video clip; one media file per request.", release_date: "2026-10-13",
+          }] }, { headers });
+        }
+      }
+      sdkRecord(response.status, response.ok ? "" : `${isJevomniRequest(sdkBody) ? "jevomni" : isImageRequest(sdkBody) ? "imajev" : "typesafe"}_${response.status}`);
       const headers = new Headers(response.headers);
-      if (isImageRequest(sdkBody)) headers.append("server-timing", `quota;dur=${sdkAdmissionMs}`);
+      if (gpuDoor) headers.append("server-timing", `quota;dur=${sdkAdmissionMs}`);
       headers.set("x-classifier-data-policy", SHARING_NOTICE);
       headers.set("x-classifier-data-sharing", "off");
-      if (sharing && sdkBody && !isImageRequest(sdkBody) && decisions && providerStarted) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
+      if (sharing && sdkBody && !isImageRequest(sdkBody) && !isJevomniRequest(sdkBody) && decisions && providerStarted) headers.set("x-classifier-data-sharing", await saveTrainingData(env, {
         endpoint: "systemone", status: response.status,
         request: Object.fromEntries(["state", "questions", "model", "context", "config"].filter(key => Object.hasOwn(sdkBody!, key)).map(key => [key, sdkBody![key]])),
         response: await response.clone().json().catch(() => ({ error: "Non-JSON model response" })),
