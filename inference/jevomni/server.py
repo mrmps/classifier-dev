@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
+import json
 import logging
 import os
 import re
@@ -97,7 +98,9 @@ class StateItem(BaseModel):
 class Question(BaseModel):
     type: str
     instructions: str
-    criteria: dict[str, None] | None = None
+    # System One lets a criterion carry a description - {"billing": "Payment
+    # issues"} - as well as null. Accept whatever the public contract does.
+    criteria: dict[str, object] | None = None
 
 
 class Body(BaseModel):
@@ -135,6 +138,23 @@ def options_for(question: Question) -> list[str] | None:
         return None
     options = list(question.criteria.keys())
     return options if 2 <= len(options) <= MAX_OPTIONS else None
+
+
+def question_text(question: Question) -> str:
+    """The question as the model reads it, with any criterion descriptions.
+
+    The option names stay the criteria keys, so the probabilities come back
+    keyed as the caller sent them. A description is what tells the model what
+    an option means; dropping it would answer a less specific question than
+    the one asked.
+    """
+    described = [(key, value) for key, value in (question.criteria or {}).items()
+                 if value is not None and value != ""]
+    if not described:
+        return question.instructions
+    lines = "\n".join(f"- {key}: {value if isinstance(value, str) else json.dumps(value)}"
+                      for key, value in described)
+    return f"{question.instructions}\n\nWhat the options mean:\n{lines}"
 
 
 def media_file(url: str) -> tuple[str, str] | None:
@@ -264,7 +284,7 @@ def systemone(body: Body, request: Request):
         if len(options) > QUALITY_OPTIONS:
             log.warning("question asks %d options, above the established %d", len(options), QUALITY_OPTIONS)
         state = state_for(question, body.state)
-        read += len(state) + len(question.instructions)
+        read += len(state) + len(question_text(question))
         plan.append((qid, question, options, state))
     if read > MAX_READ_CHARS:
         return refuse("jevomni_input", f"The questions in one request may read at most {MAX_READ_CHARS:,} characters between them; split the request")
@@ -278,7 +298,12 @@ def systemone(body: Body, request: Request):
         attached = media_file(supplied[0])
         if attached is None:
             return refuse("jevomni_input", "media must be one base64 data URL of a supported image, audio or video type")
-        problem = media_problem(*attached)
+        try:
+            problem = media_problem(*attached)
+        except Exception:
+            # Bytes that claim a type they are not - a "GIF" PIL cannot open -
+            # used to escape here as a 500 and leave the caller's file behind.
+            problem = "The media could not be read as the type it claims"
         if problem:
             Path(attached[1]).unlink(missing_ok=True)
             return refuse("jevomni_input", problem)
@@ -291,7 +316,7 @@ def systemone(body: Body, request: Request):
             for qid, question, options, state in plan:
                 result = _model.predict(
                     state=state,
-                    question=question.instructions,
+                    question=question_text(question),
                     options=options,
                     media=path,
                     modality=modality,

@@ -106,7 +106,9 @@ export async function jevomniResponse(request: Request, env: JevomniEnv, body: R
     const status = [429, 503].includes(response.status) ? response.status : 502;
     return Response.json({ error: "Jev-Omni is temporarily unavailable.", code: "jevomni_unavailable" }, { status, headers });
   }
-  const payload: unknown = await response.json();
+  // A 200 that is not JSON - an HTML page from a proxy - must fail as
+  // jevomni_response below, not escape as a SyntaxError.
+  const payload: unknown = await response.json().catch(() => null);
   if (!object(payload) || payload.model !== JEVOMNI_MODEL || !object(payload.answers) || !object(payload.usage) ||
       !Number.isSafeInteger(payload.usage.input_tokens) || Number(payload.usage.input_tokens) < 1 ||
       Number(payload.usage.input_tokens) > JEVOMNI_MAX_INPUT_TOKENS || payload.usage.output_tokens !== 0)

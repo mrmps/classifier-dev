@@ -167,6 +167,21 @@ test("an answer that is incomplete, mismatched or over the token ceiling is not 
   }
 });
 
+test("a 200 that is not JSON is jevomni_response, not an escaped SyntaxError", async () => {
+  mockPod(() => new Response("<html>proxy error</html>", { status: 200, headers: { "content-type": "text/html" } }));
+  const response = await send(body());
+  expect(response.status).toBe(502);
+  expect((await response.json() as any).code).toBe("jevomni_response");
+});
+
+test("criteria with descriptions cross to the pod intact", async () => {
+  const calls = mockPod();
+  const described = { type: "choice", instructions: "Which fits item `a`?", criteria: { billing: "Payment problems", technical: null } };
+  const response = await send(body({ questions: { a: described } }));
+  expect(response.status).toBe(200);
+  expect(calls[0].body.questions.a.criteria).toEqual({ billing: "Payment problems", technical: null });
+});
+
 test("a noul is answered as a probability", async () => {
   mockPod();
   const response = await send(body({ questions: { urgent: { type: "noul", instructions: "Is it urgent?" } } }));

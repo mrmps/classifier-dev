@@ -1,7 +1,7 @@
 #!/bin/bash
 # One-shot provisioning for a fresh Jev-Omni pod.
 #
-#   scp server.py requirements.txt provision.sh restart.sh root@<pod>:/root/
+#   scp server.py requirements.txt provision.sh restart.sh stop.sh root@<pod>:/root/
 #   ssh root@<pod> "JEVOMNI_TOKEN=... setsid /root/provision.sh > /root/provision.log 2>&1 &"
 #
 # Every step below is a fix for something the stock RunPod PyTorch image gets

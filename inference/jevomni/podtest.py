@@ -168,6 +168,18 @@ if len(sys.argv) == 3:
     else:
         check("3 questions over one audio clip", False, str(status))
 
+print("--- criteria descriptions are read, and keys come back unchanged")
+status, payload = post({"state": [{"id": "a", "text": "My card was charged twice for one order."}],
+                        "questions": {"a": {"type": "choice", "instructions": "Which category does item `a` belong to?",
+                                            "criteria": {"opt_one": "Problems with payments, charges or refunds",
+                                                         "opt_two": "The app crashing or misbehaving"}}}})
+if status == 200:
+    a = payload["answers"]["a"]
+    check("descriptions decide between opaque keys", a["choice"] == "opt_one" and set(a["probabilities"]) == {"opt_one", "opt_two"},
+          f"{a['choice']} @ {a['confidence']:.4f}")
+else:
+    check("descriptions decide between opaque keys", False, f"{status} {payload.get('error', {}).get('type')}")
+
 print("--- truncation is refused, not answered")
 frames = [Image.new("RGB", (128, 128), c) for c in [(220, 30, 30)] * 5 + [(30, 30, 220)]]
 frames[0].save(f"{FIXTURES}/animated.gif", save_all=True, append_images=frames[1:], duration=200, loop=0)
@@ -211,6 +223,14 @@ post({"media": [png], "state": [{"id": "a", "text": "An image."}],
       "questions": {"a": choice("What colour is the image?", ["red", "blue"])}})
 leaked = set(glob.glob("/tmp/tmp*")) - before
 check("answered media request leaves nothing in /tmp", not leaked, f"new files: {sorted(leaked) or 'none'}")
+# Bytes that claim to be a GIF but are not an image: the check that opens them
+# used to raise past the cleanup, answer 500 and leave the file in /tmp.
+before = set(glob.glob("/tmp/tmp*"))
+status, payload = post({"media": ["data:image/gif;base64," + base64.b64encode(b"not a gif at all").decode()],
+                        "state": [{"id": "a", "text": "x"}], "questions": {"a": choice("Colour?", ["red", "blue"])}})
+leaked = set(glob.glob("/tmp/tmp*")) - before
+check("unreadable 'GIF' refused, nothing in /tmp", status == 400 and not leaked,
+      f"{status} {payload.get('error', {}).get('type')}, new files: {sorted(leaked) or 'none'}")
 
 print(f"\n{sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)
