@@ -12,6 +12,9 @@
 | Pod | named `jevomni-systemone`; the id is in the RunPod account |
 | GPU | NVIDIA L40S 48GB, secure cloud, US (created with `countryCodes: ["US"]`) |
 | Cost | **$1.09/hr**, billed by the hour — $796/mo at 24/7 |
+| Endpoint | `https://<pod-id>-8000.proxy.runpod.net/v1/systemone` |
+| Credential | `JEVOMNI_TOKEN`, a bearer the server refuses to start without |
+| Revision | `5addda86ddee081a68fb067477ea100c221b8917`, pinned |
 
 The pod is in the US because that is where it measured best for US callers
 (109ms warm text, against 225ms from an EU pod; see below). An A40 at $0.59/hr
@@ -19,16 +22,30 @@ serves the same suite and is the cheaper choice where one is in stock — none
 was in the US when this pod was made, so the create fell through to the L40S.
 List the A40 first in `gpuTypeIds` with `gpuTypePriority: "custom"` to get it
 when it is there.
-| Endpoint | `https://<pod-id>-8000.proxy.runpod.net/v1/systemone` |
-| Credential | `JEVOMNI_TOKEN`, a bearer the server refuses to start without |
-| Revision | `5addda86ddee081a68fb067477ea100c221b8917`, pinned |
 
 The pod id is not written down here, and neither is the pod's public IP. The id
 *is* the proxy hostname, so committing it publishes a reachable door to a GPU
-that bills by the hour, and a bearer is the only thing behind it. It belongs in
-the `JEVOMNI_URL` Worker secret beside `DGEMMA_URL` and `CHUNKLAYA_URL`, the way
-every other service's endpoint here does. Read it from the account when needed:
-`GET rest.runpod.io/v1/pods`.
+that bills by the hour, and a bearer is the only thing behind it. It lives in
+the `JEVOMNI_URL` and `JEVOMNI_TOKEN` repository secrets, which the deploy
+writes into the Worker's secrets file as a pair, beside `CHUNKLAYA_URL`. Read
+the id from the account when needed: `GET rest.runpod.io/v1/pods`.
+
+## How classifier.dev reaches it
+
+`src/jevomni.ts` is the Worker's side. Only a `/v1/systemone` body naming
+`model: "jev-omni"` comes here; images with no model stay with imajev-4b. The
+Worker refuses what the pod would refuse before touching the GPU, normalizes
+System One `state` (a string, an object whose keys questions can name, or a
+list of items) into the pod's items, and checks every answer before passing it
+on.
+
+The pod reports every position it read as `usage.input_tokens`, counted from
+the model's own `input_ids` by a forward pre-hook — text, image, audio and
+video soft tokens alike — and the Worker bills that at $0.042/M, as it does
+imajev. The same hook refuses, before running it, any pass that would take a
+request past 65,536 tokens, which is the bound the Worker reserves credit
+against. Measured: an image reads ~330 tokens whatever its resolution, 30s of
+audio ~800, a video ~4,200 whatever its length (16 frames are sampled).
 
 `$0.59/hr` is what secure cloud actually charges. The GraphQL `lowestPrice`
 field advertises `$0.35` for the same card and does not match the rented rate;

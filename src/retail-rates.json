@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-07-imajev-v1",
+  "version": "2026-10-13-jev-omni-v1",
   "models": [
     {
       "provider": "typesafe",
@@ -81,6 +81,13 @@
     {
       "provider": "runpod",
       "model": "imajev-4b",
+      "inputUsdPerMillion": "0.042",
+      "outputUsdPerMillion": "0",
+      "cachedInputUsdPerMillion": "0.042"
+    },
+    {
+      "provider": "runpod",
+      "model": "jev-omni",
       "inputUsdPerMillion": "0.042",
       "outputUsdPerMillion": "0",
       "cachedInputUsdPerMillion": "0.042"

@@ -10,6 +10,9 @@ export function providerCallBound(card: TokenRateCard, provider: ModelTokenUsage
     : provider === "beam" && model === "jev/laya" ? 512
     : provider === "beam" && model === "jev/kev" ? 8_192
     : provider === "runpod" && model === "imajev-4b" ? 32_768
+    // The pod refuses any pass that would take a request past this, so it is a
+    // real ceiling rather than an estimate (JEVOMNI_MAX_INPUT_TOKENS).
+    : provider === "runpod" && model === "jev-omni" ? 65_536
     : provider === "chunklaya" && model === "chunklaya/multilingual" ? 1_048_576
     : provider === "openrouter" && model === "google/gemini-3.8-flash" ? 1_048_576 : null;
   const rate = card.models.find((row) => row.provider === provider && row.model === model);

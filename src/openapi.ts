@@ -1072,10 +1072,13 @@ export const OPENAPI = {
         properties: {
           share_data: SHARING_SCHEMA,
           state: TYPESAFE_ENTRY,
-          model: { type: "string", description: "A TypeSafe name or alias returned by GET /v1/models, or imajev-4b for image decisions." },
+          model: { type: "string", description: "A TypeSafe name or alias returned by GET /v1/models, imajev-4b for image decisions, or jev-omni for decisions over text, an image, audio or video." },
           images: { type: "array", minItems: 1, maxItems: 2,
             items: { type: "string", pattern: "^data:image/(jpeg|png|webp);base64," },
             description: "Imajev-4B only: inline image bytes. Entire request is limited to 1 MB; no external URL fetches. Supports up to eight questions and 4096 processed tokens per question. Images and accompanying state are not retained for training." },
+          media: { type: "array", minItems: 1, maxItems: 1,
+            items: { type: "string", maxLength: 900000, pattern: "^data:(image/(png|jpeg|webp|gif)|audio/(wav|mpeg|mp4|webm)|video/(mp4|webm));base64," },
+            description: "Jev-Omni only: one inline image, audio clip (at most 30 seconds) or video. Up to eight Choice or Noul questions; a request may read at most 65,536 tokens. Animated GIFs are refused; send video. Media and accompanying state are not retained for training." },
           questions: { type: "object", minProperties: 1, additionalProperties: TYPESAFE_QUESTION },
         },
         example: {

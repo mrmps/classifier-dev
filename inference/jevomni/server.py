@@ -46,7 +46,7 @@ from pydantic import BaseModel
 
 from jev_omni import load_jev_omni
 
-MODEL_LABEL = "jev/omni"
+MODEL_LABEL = "jev-omni"
 MAX_QUESTIONS = 32
 MAX_OPTIONS = 256
 MAX_STATE_ITEMS = 20
@@ -65,6 +65,10 @@ MAX_READ_CHARS = 128_000
 MAX_MEDIA_CHARS = 900_000
 # The loader's own ffmpeg call keeps the first 30 seconds and drops the rest.
 MAX_AUDIO_SECONDS = 30
+# Positions read across every forward pass in one request, counted from the
+# model's own input_ids and refused before a pass that would exceed it. The
+# Worker reserves credit for exactly this many, so it must never be exceeded.
+MAX_INPUT_TOKENS = 65_536
 # The head is trained to 256 slots but the card establishes quality only to 20.
 QUALITY_OPTIONS = 20
 DATA_URL = re.compile(r"^data:(image/(?:png|jpeg|webp|gif)|audio/(?:wav|mpeg|mp4|webm)|video/(?:mp4|webm));base64,(.+)$", re.S)
@@ -190,8 +194,32 @@ def warm() -> None:
         raise RuntimeError("JEVOMNI_TOKEN must be set")
     started = time.monotonic()
     _model = load_jev_omni()
+    # Count every position each forward pass reads - text, image, audio and
+    # video soft tokens alike - from the input_ids the model is handed. That is
+    # what the caller is billed for, and it costs nothing: the tensor is already
+    # there. The pre-hook also enforces the ceiling *before* a pass runs, so the
+    # Worker's reservation of MAX_INPUT_TOKENS is a true upper bound.
+    _model.model.register_forward_pre_hook(count_tokens, with_kwargs=True)
     _model.predict(state="ready", question="Is this service ready?", options=["Yes", "No"])
     log.warning("jevomni warm in %.1fs", time.monotonic() - started)
+
+
+class TokenCeiling(Exception):
+    """A request would read more than MAX_INPUT_TOKENS."""
+
+
+# One request runs at a time under _lock, so a single counter is enough.
+_tokens = {"read": 0}
+
+
+def count_tokens(module, args, kwargs):
+    ids = kwargs.get("input_ids")
+    if ids is None and args:
+        ids = args[0]
+    read = int(ids.shape[-1]) if ids is not None else 0
+    if _tokens["read"] + read > MAX_INPUT_TOKENS:
+        raise TokenCeiling()
+    _tokens["read"] += read
 
 
 @app.get("/health")
@@ -259,6 +287,7 @@ def systemone(body: Body, request: Request):
     answers, started = {}, time.monotonic()
     try:
         with _lock:
+            _tokens["read"] = 0
             for qid, question, options, state in plan:
                 result = _model.predict(
                     state=state,
@@ -269,13 +298,18 @@ def systemone(body: Body, request: Request):
                 )
                 probabilities = result["probabilities"]
                 if question.type == "noul":
-                    answers[qid] = {"noul": probabilities["Yes"]}
+                    answers[qid] = {"type": "noul", "noul": probabilities["Yes"]}
                 else:
                     answers[qid] = {
+                        "type": "choice",
                         "choice": result["prediction"],
                         "confidence": result["confidence"],
                         "probabilities": probabilities,
                     }
+            read = _tokens["read"]
+    except TokenCeiling:
+        return refuse("jevomni_input", f"This request would read more than {MAX_INPUT_TOKENS:,} tokens; "
+                      "ask fewer questions about the media, or send less text", 413)
     except torch.cuda.OutOfMemoryError:
         # Hand the allocator's cache back, or the memory a failed request
         # reserved stays reserved and the next ordinary request fails too.
@@ -299,7 +333,8 @@ def systemone(body: Body, request: Request):
     return {
         "model": MODEL_LABEL,
         "answers": answers,
-        # Billed by the hour, so this is for observability upstream, never a price.
-        "usage": {"input_tokens": 0, "output_tokens": 0, "forward_passes": len(plan),
+        # input_tokens is every position the model read, across all passes; the
+        # Worker bills it. No text is generated, so there are no output tokens.
+        "usage": {"input_tokens": read, "output_tokens": 0, "forward_passes": len(plan),
                   "inference_ms": round(elapsed * 1000)},
     }

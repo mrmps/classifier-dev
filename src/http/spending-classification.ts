@@ -1,4 +1,5 @@
 import { imajevEnabled, isImageRequest } from "../imajev";
+import { isJevomniRequest } from "../jevomni";
 import { scrapeOptions, scrapeArticle, SCRAPE_NANODOLLARS, SCRAPE_PRICE, type Article } from "../scrape";
 import { classificationPricing, withResponsePricing } from "../classification-usage";
 import worker, { type Env } from "../index";
@@ -169,7 +170,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
     };
     ctx.waitUntil(settle());
     const headers = new Headers(response.headers);
-    if (systemOne && isImageRequest(body)) headers.append("server-timing", `request_read;dur=${requestReadAt - requestStarted}, account_prepare;dur=${reserveStarted - requestReadAt}, account_reserve;dur=${started - reserveStarted}, account_admit;dur=${admissionMs}, api;dur=${Date.now() - requestStarted}`);
+    if (systemOne && (isImageRequest(body) || isJevomniRequest(body))) headers.append("server-timing", `request_read;dur=${requestReadAt - requestStarted}, account_prepare;dur=${reserveStarted - requestReadAt}, account_reserve;dur=${started - reserveStarted}, account_admit;dur=${admissionMs}, api;dur=${Date.now() - requestStarted}`);
     if (charge) {
       headers.set("x-billed-input-tokens", String(inputTokens));
       headers.set("x-smart-escalations", String(escalations));

@@ -42,6 +42,9 @@ export type Provider = ModelTokenUsage["provider"];
 // Full provider context windows bound input without relying on token estimates.
 const models: Record<string, { context: number; input: number; output: number }> = {
   "runpod:imajev-4b": { context: 32768, input: 0, output: 0 },
+  // Our own pod, billed by the hour. The context is the token ceiling the pod
+  // enforces before each forward pass (JEVOMNI_MAX_INPUT_TOKENS).
+  "runpod:jev-omni": { context: 65536, input: 0, output: 0 },
   "typesafe:jev-1.13.0": { context: 65536, input: 0.042, output: 0 },
   "beam:jev/laya": { context: 512, input: 0.021, output: 0 },
   "beam:jev/kev": { context: 8192, input: 0.021, output: 0 },
