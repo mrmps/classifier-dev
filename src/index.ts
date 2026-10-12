@@ -375,7 +375,7 @@ function notFound(req: Request, origin: string) {
 /** The plain-text pages and how each is described to browsers and crawlers. */
 const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = {
   developers: { doc: DEVELOPERS, title: "developers", desc: "Quickstart, every surface (REST, MCP, CLI, skill), limits, errors, versioning. No key needed." },
-  "mcp-setup": { doc: MCP_SETUP, title: "MCP setup", desc: "Connect classifier.dev to Claude, ChatGPT, Codex, Cursor or any MCP client, step by step." },
+  "mcp-setup": { doc: MCP_SETUP, title: "MCP setup", desc: "Install classifier.dev tools and skills in your AI agent, step by step." },
   pricing: { doc: PRICING, title: "pricing", desc: "Start free, then add a workspace plan for usage credits, API keys and billing." },
   about: { doc: ABOUT, title: "about", desc: "What classifier.dev is, why it exists, what it runs on, and who runs it." },
   contact: { doc: CONTACT, title: "contact", desc: "How to reach a person: issues, a call, email." },

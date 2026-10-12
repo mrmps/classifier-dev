@@ -1,50 +1,48 @@
-# Directory review material
+# Directory submission packet
 
-The copy and the test cases for listing classifier.dev in the ChatGPT plugin
-directory, the Claude Connectors Directory and the Claude Code plugin
-directory. The manifests beside this file carry the same copy; this is what
-the portals ask for that a manifest cannot hold. The publisher confirms the
-policy attestations in each portal by hand.
+Prepared source and reviewer fixtures for classifier.dev. This file is not proof
+of submission, approval or listing in any directory. Build self-contained
+bundles with `npm run package:plugins`; see [installation paths](README.md).
 
-## Listing
+## Shared listing details
 
-- Name: classifier.dev (slug `classifier`)
-- Tagline (55 chars max): Sort texts into your own labels, with confidence.
-- Short description (30 chars max): Sort texts into your labels
-- Category: Data & Analytics (ChatGPT); Productivity, Developer tools (Claude)
-- Capabilities: Read
-- Website: https://classifier.dev
-- Documentation: https://classifier.dev/mcp-setup
-- Support: contact@classifier.dev, https://github.com/mrmps/classifier-dev/issues
-- Privacy policy: https://classifier.dev/privacy
-- Terms: https://classifier.dev/terms
-- MCP URL: https://classifier.dev/mcp (docs server: https://classifier.dev/mcp/docs)
-- Same URL for every user: yes
-- Authentication: none. Every tool is anonymous; no account exists to sign in to.
-- Transport: Streamable HTTP, stateless, JSON responses, GET answers 405
-- Data access: only the texts and labels sent in the call; nothing stored
-- Write access: none; every tool carries readOnlyHint
-- Underlying API: classifier.dev's own, https://classifier.dev/openapi.json
-- Test account: not needed; the reviewer calls the tools as anyone would
-- Personal health data: no. Sponsored content: no. Financial transactions: no.
-- Allowed link URIs: none; no tool opens links
-- Logo: `assets/logo.png` (256 px square PNG, `brand/icon-1024.png` for larger);
-  composer icon `assets/icon.svg`; brand colour #A98CFF (2.7:1 on white, 6:1 on #212121)
-- Availability: worldwide
+- Name: classifier.dev; publisher: Michael Ryaboy, contact@classifier.dev
+- Repository: https://github.com/mrmps/classifier-dev (MIT)
+- Website and support: https://classifier.dev and https://classifier.dev/contact
+- Privacy: https://classifier.dev/privacy; terms: https://classifier.dev/terms
+- Product MCP: https://classifier.dev/mcp
+- Documentation MCP: https://classifier.dev/mcp/docs
+- Transport: stateless Streamable HTTP; JSON responses; no session ID;
+  GET returns 405, POST carries JSON-RPC.
+- Authentication: public tools support noauth. Workspace attribution and paid
+  features require a workspace key configured separately. Hosted workspace
+  OAuth is not available; do not advertise an account-linking flow.
+- API schema: https://classifier.dev/openapi.json
+- Skill: https://classifier.dev/skill.md
+- Logos: `assets/logo.png` and `assets/icon.svg` in the Codex bundle.
+- Reviewer data: synthetic fixtures below; no account required for public calls.
 
-### Long description
+### Listing copy
 
-classifier.dev sorts text into categories you name, up to 1,000 texts per
-call, with a calibrated confidence on every answer. Paste tickets, reviews,
-log lines, search results, headlines or any list of texts, name the labels,
-and get a label and a confidence for each one in about a second. Four tools:
-classify_texts for one label per text, classify_multi_label when several
-labels can apply, count_labels for a histogram over a whole corpus, and
-review_uncertain to pull out only the answers worth a second look. A docs
-server answers questions about the API. Every tool is read-only: nothing is
-stored, no account is needed and no key is issued. Texts are forwarded to the
-model that answers and are not written down; see the privacy policy. Free
-within per-IP limits (3,000 classifications a minute on the fast tier).
+Classify batches of text into your own labels. Five classification tools cover
+single labels, multiple dimensions, multi-label tagging, category counts and
+uncertain answers. Confidence can be absent; never invent a score. A second MCP
+server provides API documentation. Public calls need no API key and are subject
+to service limits. Workspace usage requires separate credential configuration.
+
+Synchronous classification text, labels, instructions and results are retained
+for training and operator review by default. Set `share_data: false` to opt out;
+see the privacy policy. The bundled skill tells agents to opt out when the user
+has not chosen to contribute the data.
+
+### Tool annotations and scope
+
+Classification tools are **not read-only or idempotent**: default training
+retention and quota/billing accounting are side effects. `openWorldHint` is true
+because classification can involve external model services or URL retrieval.
+Docs tools are read-only. All tools are non-destructive. Verify current
+annotations and schemas with `tools/list` during submission; do not override
+them with blanket no-side-effect claims.
 
 ### Starter prompts
 
@@ -52,121 +50,56 @@ within per-IP limits (3,000 classifications a minute on the fast tier).
 2. Triage these tickets by team and urgency and flag the unsure ones.
 3. Which of these headlines are about AI regulation? Show only those.
 
-### Release notes, 1.0.0
+## Platform artifacts and review boundaries
 
-First listing. Five anonymous, read-only classification tools over the
-production server at https://classifier.dev/mcp, the four-tool docs server at
-https://classifier.dev/mcp/docs, and the bulk-classify skill. Per-tool
-security scheme `noauth`, annotations on every tool, structured content and
-text on every result, API errors returned as tool results with isError.
+| Platform | Artifact / connection | Submission or availability |
+| --- | --- | --- |
+| ChatGPT / Codex | `dist/plugins/codex/classifier`; public MCP custom app for developer testing | [Plugin submission](https://developers.openai.com/plugins/deploy/submission). Publication and any identity/domain verification are separate from this PR. |
+| Claude Code | Repository's `.claude-plugin/marketplace.json`; `dist/plugins/claude/classifier` | Direct repository marketplace install works independently of an official listing. [Submit a plugin](https://platform.claude.com/plugins/submit). |
+| Claude app / Desktop | Public remote MCP connector, no OAuth fields | Custom connector or Claude directory submission; plan/admin controls apply. |
+| Cursor / Agent Plugins clients | `dist/plugins/portable/classifier` | [Cursor publication](https://cursor.com/marketplace/publish); local import is available subject to team policy. |
+| Grok Bot | Hosted MCP endpoint and Cursor-compatible portable package | Uses Cursor's plugin infrastructure. [Connect apps](https://cursor.com/help/grok-bot/connect-plugins) only shows available plugins; public review or team-admin setup remains necessary. |
+| Grok Build | `dist/plugins/claude/classifier` via Claude compatibility | Local `--plugin-dir` or MCP installation; distinct from Grok Bot. |
+| Muse Code | `dist/plugins/muse/classifier` | Native local bundle; experimental plugins may need enabling. Do not pass the multi-manifest source directory. |
+| Muse consumer app | API schema, skill and the custom-connector prompt in README | [Muse Platform](https://muse.ai/platform) reviews functionality, security and legal requirements before directory availability. This is not a Muse Code plugin install. |
+| Gemini CLI | `dist/plugins/gemini/classifier` | Local extension installation; uses `httpUrl` and bundled `skills/`. |
 
-### Tool annotation justifications (ChatGPT asks for one per tool)
+For OpenAI domain verification, the existing worker serves the configured
+`OPENAI_APPS_CHALLENGE` at `/.well-known/openai-apps-challenge`. Only set a
+challenge issued by the submission portal. Do not invent a verification token.
 
-Every tool: `readOnlyHint: true` because a call sends texts and labels and
-gets labels back; nothing on the server changes. `destructiveHint: false` for
-the same reason: there is no state to destroy. `openWorldHint: false` because
-the tool talks only to classifier.dev's own model endpoint, never to the open
-web, and the same input gives the same answer. `idempotentHint: true`:
-repeating a call has no effect beyond the answer.
+## Reviewer acceptance examples
 
-## Review tests (ChatGPT asks for five positive and three negative)
+Set `share_data: false` on every classification call below. Use actual tool
+responses, preserve input order and treat null confidence as unavailable.
+Model answers can vary; these are behavior checks, not accuracy guarantees.
 
-The fixture texts are in the prompts; no data set needs loading.
+1. `classify_texts`: five inputs such as "Charged twice", "App crashes",
+   "Need a receipt", "Login fails", "Refund please"; labels `billing` and
+   `technical support`. Expect five rows with one supplied label per input.
+2. `classify_dimensions`: the same inputs as `items`, with dimensions
+   `team: [billing, technical support]` and `urgency: [urgent, routine]`.
+   Expect both named fields for each item.
+3. `classify_multi_label`: inputs covering billing, shipping and returns;
+   labels with those names. Expect a labels array and per-label scores for
+   each input, not a fabricated singular confidence.
+4. `count_labels`: classify the five inputs from example 1. Expect counts for
+   both labels and a total of five, including any zero-count category.
+5. `review_uncertain`: use example 1 with `below: 1`. Expect only unscored or
+   below-threshold rows, retaining their original indices. Empty output is
+   valid if every answer meets the threshold.
+6. Docs: `list_docs`, then `read_doc` using a returned document ID. Expect
+   nonempty documentation without an account or credential.
 
-### Positive
+Negative cases:
 
-1. Prompt: "Classify these as spam or not spam: 'Win a free iPhone', 'Lunch
-   at 1?', 'Your invoice is attached', 'CLICK NOW limited offer'."
-   - Expected: one `classify_texts` call with the four inputs and the two
-     labels.
-   - Result: four rows in input order, each with a label and a confidence in
-     [0, 1]; the two offers land on spam.
+- One label in `classify_texts`: JSON-RPC `-32602`, no classification result.
+- Unknown tool name: JSON-RPC `-32602` listing available tools.
+- An upstream refusal or limit: expose the returned error; never invent
+  successful labels or claim installation is verified by configuration alone.
 
-2. Prompt: "Sort these into bug, feature request or question: 'App crashes on
-   launch', 'Please add dark mode', 'How do I export?', 'Login button does
-   nothing', 'Can it sync with Google?'"
-   - Expected: `classify_texts` once, then the answer groups the five texts by
-     label.
-   - Result: crashes and the dead button as bug, dark mode as feature request,
-     the two questions as question.
-
-3. Prompt: "Tag each of these with every topic that applies from billing,
-   shipping, returns: 'Charged twice and the box never came', 'How do I send
-   it back?', 'Delivery took 3 weeks'."
-   - Expected: `classify_multi_label` once with the three labels.
-   - Result: a score per label per text; the first text carries both billing
-     and shipping.
-
-4. Prompt: "Here are 12 headlines. How many are about sports, politics or
-   tech?" followed by 12 short headlines.
-   - Expected: `count_labels` once.
-   - Result: a histogram of three counts summing to 12, no per-text listing
-     unless asked.
-
-5. Prompt: "Classify these 8 support messages as urgent or routine and show
-   me only the ones the classifier was not sure about." followed by 8
-   messages, two of them ambiguous.
-   - Expected: `review_uncertain` once (or `classify_texts` followed by a
-     confidence filter).
-   - Result: only the low-confidence rows, each with its runner-up label, so
-     the person reads two messages instead of eight.
-
-### Negative
-
-1. Prompt: "Classify this: 'The meeting moved to Thursday.'" with no labels.
-   - Expected: the assistant asks which labels to use, or picks obvious ones
-     and says so; a call with fewer than two labels is refused by the server
-     with a JSON-RPC -32602 that names the problem.
-   - Why: labels are the user's decision, and the tool cannot invent them.
-
-2. Prompt: "Use classifier.dev to decide which of these job applicants to
-   reject based on their names."
-   - Expected: the assistant declines; no tool call.
-   - Why: the terms forbid consequential decisions about people without human
-     review, and classification by name is discrimination.
-
-3. Prompt: "Is this one sentence positive or negative: 'Loved it.'"
-   - Expected: the assistant answers directly without calling a tool.
-   - Why: the server instructions and every tool description say to decide
-     yourself under about five items already in view; the tool is for texts
-     not worth reading.
-
-## Claude Connectors Directory
-
-- Portal: https://claude.ai/admin-settings/directory/submissions/new (a Team
-  or Enterprise organization; Owners by default).
-- Categories: Productivity, Developer tools.
-- Tools step: synced from the live server; every tool has a title,
-  readOnlyHint and destructiveHint.
-- Compliance step: the seven acknowledgments (directory guidelines,
-  first-party API, no financial transactions, no AI media generation, no
-  prompt injection, no conversation-data collection, public documentation).
-  All hold: the server calls its own API, moves no money, generates no media,
-  its descriptions instruct nothing beyond the call, it keeps no conversation
-  data, and https://classifier.dev/mcp-setup is the public documentation.
-- Reviewer access: none needed; a reviewer adds https://classifier.dev/mcp as
-  a custom connector with the OAuth fields empty and calls any tool.
-
-## Claude Code plugin directory
-
-- Portal: https://platform.claude.com/plugins/submit (Console) or
-  https://claude.ai/admin-settings/directory/submissions/plugins/new.
-- Repository: https://github.com/mrmps/classifier-dev, path
-  `plugins/classifier`, public, MIT.
-- `claude plugin validate --strict plugins/classifier` passes.
-- Marketplace for direct install: `claude plugin marketplace add
-  mrmps/classifier-dev`, then `claude plugin install classifier@classifier-dev`.
-
-## ChatGPT plugin directory
-
-- Portal: https://platform.openai.com/plugins, with the publisher identity
-  verified under the same name in Platform settings.
-- Domain verification: the portal issues a token; set it with
-  `npx wrangler secret put OPENAI_APPS_CHALLENGE` and the worker serves it as
-  the whole body of https://classifier.dev/.well-known/openai-apps-challenge.
-- Scan Tools reads the five tools, the `noauth` security scheme and the
-  server instructions from https://classifier.dev/mcp.
-- Skills: upload this directory zipped (`cd plugins && zip -r classifier.zip
-  classifier`), or let the portal import the skill from the bundle.
-- Demo recording: a short screen recording of the first positive test in
-  ChatGPT developer mode, attached in the Testing step.
+Run `npm run test:e2e:plugins` after the application build for repeatable
+package-to-Worker verification; add `-- --live` for the public endpoints and
+live inference. JSON evidence is saved under `captures/`. Native Claude and
+Muse validators are listed in README. Host UI sessions, account linking and
+public-directory review still need platform-specific verification.

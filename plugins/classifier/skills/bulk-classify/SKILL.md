@@ -10,6 +10,20 @@ license: MIT
 One HTTP call takes up to a thousand texts at a time and comes back in about a
 second, each with a confidence you can act on.
 
+## Data sharing and workspace usage
+
+Synchronous classification text, labels, instructions and results are retained
+for training and operator review by default. Pass `share_data: false` in MCP
+arguments or the HTTP JSON body when the user has not chosen to contribute the
+data. The equivalent HTTP header is `X-Classifier-Share-Data: false`. Do not send
+confidential or personal information as training data. See
+https://classifier.dev/privacy for the current policy.
+
+Public calls use anonymous limits. Workspace attribution and paid features
+require a workspace API key in the client's secure credential configuration;
+never put keys in this skill, chat, or committed configuration. Do not claim a
+connection is working until a real tool call succeeds.
+
 ## When this is worth a network call
 
 You are a language model. You can already classify any text you can see, for

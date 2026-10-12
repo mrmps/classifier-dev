@@ -7,15 +7,15 @@
     "url": "https://classifier.dev"
   },
   "metadata": {
-    "description": "Plugins from classifier.dev: zero-shot text classification with a calibrated confidence per answer, no API key.",
-    "version": "1.0.1"
+    "description": "classifier.dev classification tools and skills for coding agents.",
+    "version": "1.1.0"
   },
   "plugins": [
     {
       "name": "classifier",
       "source": "./plugins/classifier",
-      "description": "Sort up to 1,000 texts into your own labels in one call, with a calibrated confidence per answer. No API key.",
-      "version": "1.0.1",
+      "description": "Classify batches of text into your labels, tag multiple topics, count categories and review uncertain results. Public access needs no API key.",
+      "version": "1.1.0",
       "author": { "name": "Michael Ryaboy", "email": "contact@classifier.dev", "url": "https://classifier.dev" },
       "homepage": "https://classifier.dev/mcp-setup",
       "repository": "https://github.com/mrmps/classifier-dev",

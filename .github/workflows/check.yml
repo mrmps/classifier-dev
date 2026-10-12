@@ -46,6 +46,16 @@ jobs:
         run: node .github/render-wrangler.mjs
       - name: Build application
         run: npm run build
+      - name: Package and verify agent plugins
+        run: npm run test:e2e:plugins
+      - name: Save plugin bundles and verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: classifier-plugins
+          include-hidden-files: true
+          path: |
+            dist/plugins/
+            captures/agent-plugins.json
       - name: Verify chat usage and authenticated analytics
         run: npm run test:e2e:chat-analytics
       - name: Save chat analytics evidence
