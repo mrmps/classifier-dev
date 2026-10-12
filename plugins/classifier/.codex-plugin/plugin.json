@@ -1,7 +1,7 @@
 {
   "name": "classifier",
-  "version": "1.0.1",
-  "description": "Sort up to 1,000 texts into your own labels in one call, with a calibrated confidence per answer. No API key.",
+  "version": "1.1.0",
+  "description": "Classify batches of text into your labels, tag multiple topics, count categories and review uncertain results. Public access needs no API key.",
   "author": {
     "name": "Michael Ryaboy",
     "email": "contact@classifier.dev",
@@ -23,11 +23,12 @@
   "interface": {
     "displayName": "classifier.dev",
     "shortDescription": "Sort texts into your labels",
-    "longDescription": "classifier.dev sorts text into categories you name, up to 1,000 texts per call, with a calibrated confidence on every answer. Paste tickets, reviews, log lines, search results, headlines or any list of texts, name the labels, and get a label and a confidence for each one in about a second. Four tools: classify_texts for one label per text, classify_multi_label when several labels can apply, count_labels for a histogram over a whole corpus, and review_uncertain to pull out only the answers worth a second look. A docs server answers questions about the API. Every tool is read-only: nothing is stored, no account is needed and no key is issued. Texts are forwarded to the model that answers and are not written down; see the privacy policy. Free within per-IP limits (3,000 classifications a minute on the fast tier).",
+    "longDescription": "Classify up to 1,000 texts per call using your labels. Five classification tools cover single labels, multiple dimensions, multi-label tagging, category counts and uncertain answers. Confidence can be absent; do not invent a score. A second MCP server provides API documentation. Public access is keyless and subject to service limits. Workspace usage requires a workspace API key configured separately. Synchronous classification text, labels, instructions and results are retained for training and operator review by default. Set share_data: false to opt out; see the privacy policy. Directory availability depends on platform approval.",
     "developerName": "Michael Ryaboy",
     "category": "Data & Analytics",
     "capabilities": [
-      "Read"
+      "Read",
+      "Write"
     ],
     "websiteURL": "https://classifier.dev",
     "privacyPolicyURL": "https://classifier.dev/privacy",

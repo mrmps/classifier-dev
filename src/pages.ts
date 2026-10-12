@@ -19,14 +19,45 @@ import { LONG_CONTEXT_JOB_MAX_TOKENS } from "./long-context";
 
 export const MCP_SETUP = `classifier.dev MCP
 
-Use classifier.dev as a tool inside Claude, ChatGPT, Codex, Cursor or any other
-MCP client. Two stateless Streamable HTTP servers are available for public,
-keyless use:
+Use classifier.dev inside ChatGPT, Claude, Claude Code, Codex, Cursor, Muse
+Code, Gemini CLI, Grok Build and other agents. Two stateless Streamable HTTP
+servers are available for public, keyless use:
 
   https://classifier.dev/mcp         tools: classify_texts, classify_dimensions, classify_multi_label,
                                      count_labels, review_uncertain
   https://classifier.dev/mcp/docs    tools: list_docs, read_doc, search_docs,
                                      get_examples
+
+QUICK INSTALL FOR CODING CLIENTS
+
+  Neon add-mcp detects supported clients and writes their MCP configuration.
+  Run these in your project and select the same clients for both servers:
+
+    npx add-mcp@2.4.1 https://classifier.dev/mcp --name classifier
+    npx add-mcp@2.4.1 https://classifier.dev/mcp/docs --name classifier-docs
+
+  This installs tools in Claude Code, Codex, Cursor, VS Code/Copilot, Gemini
+  CLI, Grok Build, Windsurf, Cline, Goose, Kiro, OpenCode, Zed and other
+  supported clients. It does not install cloud apps or the bundled skill.
+  Inspect the proposed scope before confirming: selecting a global-only client
+  makes every selected install global. Use the native Gemini bundle below.
+  Choose either MCP setup or a plugin in each client to avoid duplicate tools.
+  Source and supported clients: https://github.com/neon-solutions/add-mcp
+
+  For plugins with the bulk-classify skill, clone the repository and run:
+
+    npm run package:plugins
+
+  This produces separate Claude, Codex, Muse Code, Gemini CLI and portable
+  Agent Plugins bundles under dist/plugins. Install instructions and downloads:
+  https://github.com/mrmps/classifier-dev/tree/main/plugins/classifier
+
+  Classification requests are retained for training and operator review by
+  default. Set share_data: false in tool arguments to opt out. The plugin
+  skill explains this choice. See https://classifier.dev/privacy.
+
+
+WORKSPACE CONNECTIONS
 
   To attribute classification requests to your workspace, use a workspace API
   key in the Authorization: Bearer header on /mcp. The Default key and named
@@ -93,9 +124,9 @@ CHATGPT
   "No Authentication", and create. It appears under Drafts; toggle its tools
   on. In a chat pick Developer mode from the "+" menu and select the app.
 
-  Every tool here carries readOnlyHint, so ChatGPT will not ask you to confirm
-  each call. Deep research connectors need search and fetch tools; this is a
-  tool server for chat and developer mode, not a deep-research source.
+  Classification tools declare their data-sharing and external-service side
+  effects; the host controls approval prompts. This server exposes classification
+  tools, not the search/fetch interface used by deep-research connectors.
 
 
 CODEX
@@ -105,7 +136,7 @@ CODEX
   Or as a plugin, with the skill included:
 
     codex plugin marketplace add https://github.com/mrmps/classifier-dev
-    codex plugin add classifier
+    codex plugin add classifier@classifier-dev
 
   Or in ~/.codex/config.toml:
 
@@ -113,9 +144,63 @@ CODEX
     url = "https://classifier.dev/mcp"
 
 
+MUSE CODE
+
+  From the cloned repository, build and install the native Muse Code bundle:
+
+    npm run package:plugins
+    export MUSE_EXPERIMENTAL_PLUGINS=1
+    muse plugins install ./dist/plugins/muse/classifier --scope user
+    muse plugins approve classifier
+
+  Restart Muse Code and check /mcp. Install the generated directory: Muse
+  rejects plugin folders containing multiple supported manifests.
+
+
+GEMINI CLI
+
+  After npm run package:plugins in the cloned repository:
+
+    gemini extensions install ./dist/plugins/gemini/classifier
+
+  Restart Gemini CLI and check /mcp and /skills. Both servers use httpUrl for
+  Streamable HTTP, and the extension includes the shared bulk-classify skill.
+
+
+GROK BUILD AND GROK BOT
+
+  Grok Build reads Claude-compatible plugins. After packaging, run:
+
+    grok --plugin-dir ./dist/plugins/claude/classifier
+
+  Grok Bot is hosted and uses Cursor's plugin infrastructure. Its Connect apps
+  screen installs directory or team-available connectors. The local CLI bundle
+  does not install into Grok Bot. Our hosted MCP endpoint and plugin package
+  are prepared for submission; listing requires platform review or team setup.
+  https://cursor.com/help/grok-bot/connect-plugins
+
+
+MUSE APP
+
+  The consumer Muse app uses connectors separately from Muse Code plugins.
+  Ask Muse to create a custom connector using these public API resources:
+
+    https://classifier.dev/openapi.json
+    https://classifier.dev/skill.md
+
+  Use synthetic data and share_data: false for the first request. Confirm a
+  successful classification before treating the connector as ready. Public
+  directory distribution requires review at https://muse.ai/platform.
+
+
 CURSOR, VS CODE, WINDSURF, GOOSE, ANYTHING ELSE
 
-  Any client that takes a remote MCP URL takes this one. The usual JSON:
+  Cursor also accepts the portable Agent Plugins bundle: copy
+  dist/plugins/portable/classifier into ~/.cursor/plugins/local/classifier
+  after packaging, then reload Cursor and inspect Customize. Local imports
+  may be disabled by team policy. Review an existing folder before replacing it.
+
+  For clients with Streamable HTTP support, the usual MCP JSON:
 
     {"mcpServers": {"classifier": {"url": "https://classifier.dev/mcp"}}}
 
@@ -1027,7 +1112,7 @@ export const isPreBlock = (lines: string[]) =>
   lines.some((l) => /\S {2,}\S/.test(l) || /^\s*(curl|npm|npx|classify|claude|codex|GET|POST|\{|\[|\/)(?!:)/.test(l) || /^\s{4,}\S/.test(l));
 
 /** A block that starts with something you would paste into a shell. A line that is only a command's name and a colon ("curl:") is a caption, not a command. */
-export const isCommandBlock = (lines: string[]) => lines.some((l) => /^\s*(curl|npm|npx|pip|go|claude|codex|classify)\b(?!:)/.test(l));
+export const isCommandBlock = (lines: string[]) => lines.some((l) => /^\s*(curl|npm|npx|pip|go|claude|codex|muse|gemini|grok|classify)\b(?!:)/.test(l));
 
 // ---------------------------------------------------------------- markdown
 

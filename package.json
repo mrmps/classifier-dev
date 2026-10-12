@@ -32,7 +32,9 @@
     "test:e2e:long-context-job": "bun e2e/long-context-job.ts --full",
     "test:e2e:whole-document": "node e2e/whole-document.mjs --full",
     "test:e2e:model-analytics": "bun e2e/model-analytics.ts",
-    "test:e2e:url": "bun e2e/url-classification.ts"
+    "test:e2e:url": "bun e2e/url-classification.ts",
+    "package:plugins": "node scripts/package-plugins.mjs",
+    "test:e2e:plugins": "npm run package:plugins && node e2e/agent-plugins.mjs"
   },
   "keywords": [],
   "author": "Michael Ryaboy",
