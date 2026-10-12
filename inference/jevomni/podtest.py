@@ -229,7 +229,8 @@ before = set(glob.glob("/tmp/tmp*"))
 status, payload = post({"media": ["data:image/gif;base64," + base64.b64encode(b"not a gif at all").decode()],
                         "state": [{"id": "a", "text": "x"}], "questions": {"a": choice("Colour?", ["red", "blue"])}})
 leaked = set(glob.glob("/tmp/tmp*")) - before
-check("unreadable 'GIF' refused, nothing in /tmp", status == 400 and not leaked,
+check("unreadable 'GIF' refused, nothing in /tmp",
+      status == 400 and payload.get("error", {}).get("type") == "jevomni_input" and not leaked,
       f"{status} {payload.get('error', {}).get('type')}, new files: {sorted(leaked) or 'none'}")
 
 print(f"\n{sum(results)}/{len(results)} passed")
