@@ -232,14 +232,16 @@ TRY IT BY HAND
 
 WHAT THE TOOLS DO
 
-  classify_texts        one label per text, with a calibrated confidence; up to 1,000 texts
+  classify_texts        one label per text, with confidence when available; up to 1,000 texts
   classify_dimensions   one decision per named dimension, with per-field confidence
   classify_multi_label  every label that applies per text, a score per label
   count_labels          just the histogram — how many texts landed on each label
   review_uncertain      only the texts the model was unsure about, with the runner-up label
 
-  All four are read-only and idempotent (readOnlyHint, idempotentHint) and
-  return both text and structuredContent. Errors from the API come back as a
+  Confidence can be null when the model does not provide a score. All five
+  classification tools are neither read-only nor idempotent: calls consume
+  quota or billed usage and retain training data unless share_data is false.
+  They return both text and structuredContent. Errors from the API come back as a
   tool result with isError, so the model can read the message and try again;
   malformed arguments are JSON-RPC -32602 with the problem spelled out.
 

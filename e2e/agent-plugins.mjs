@@ -124,6 +124,9 @@ try {
       const text = await response.text();
       for (const term of ['add-mcp', 'Muse', 'Grok', 'Gemini', 'Agent Plugins']) assert.ok(text.includes(term), `${accept} missing ${term}`);
       assert.ok(!text.includes('Every tool here carries readOnlyHint'));
+      assert.ok(!text.includes('All four are read-only and idempotent'));
+      assert.ok(text.includes('Confidence can be null'));
+      assert.ok(text.includes('neither read-only nor idempotent'));
     }
     report.results.push({ name: 'HTML, plain text and Markdown install guides; opt-out requests retained no training data' });
   }
