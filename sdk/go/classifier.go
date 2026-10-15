@@ -180,3 +180,106 @@ func Classify(ctx context.Context, inputs, labels []string) ([]Result, error) {
 	}
 	return res.Results, nil
 }
+
+// Dimension configures one classification dimension. Labels is required;
+// Instructions is optional guidance for ambiguous labels.
+type Dimension struct {
+	Labels       []string `json:"labels"`
+	Instructions string   `json:"instructions,omitempty"`
+}
+
+// DimensionRequest is the body of POST /v1/classify with dimensions.
+type DimensionRequest struct {
+	Items      []string             `json:"items"`
+	Dimensions map[string]Dimension `json:"dimensions"`
+	Tier       string               `json:"tier,omitempty"`
+}
+
+// DimensionFieldResult is one field in a multi-dimensional classification.
+type DimensionFieldResult struct {
+	Label      string             `json:"label"`
+	Confidence *float64           `json:"confidence"`
+	Scores     map[string]float64 `json:"scores"`
+	Model      string             `json:"model"`
+	MS         int                `json:"ms"`
+	Escalated  bool               `json:"escalated"`
+	Unscored   string             `json:"unscored,omitempty"`
+}
+
+// DimensionResult is one item's classification across all requested dimensions.
+type DimensionResult struct {
+	Dimensions map[string]DimensionFieldResult `json:"dimensions"`
+}
+
+// DimensionResponse is the body of a successful dimensions call.
+type DimensionResponse struct {
+	Tier       string   `json:"tier"`
+	Model      string   `json:"model"`
+	ModelsUsed []string `json:"modelsUsed"`
+	Results    []DimensionResult `json:"results"`
+	Usage      struct {
+		Items           int `json:"items"`
+		Dimensions      int `json:"dimensions"`
+		Classifications int `json:"classifications"`
+		Fallback        int `json:"fallback"`
+		Escalated       int `json:"escalated"`
+		MS              int `json:"ms"`
+	} `json:"usage"`
+}
+
+// ClassifyDimensions classifies items across multiple independent dimensions
+// in one call. Up to 20 dimensions and 1,000 item × dimension decisions.
+func (c *Client) ClassifyDimensions(ctx context.Context, req DimensionRequest) (*DimensionResponse, error) {
+	if len(req.Items) == 0 || len(req.Items) > 1000 {
+		return nil, errors.New("classifier.dev: items must hold 1 to 1,000 texts")
+	}
+	if len(req.Dimensions) == 0 || len(req.Dimensions) > 20 {
+		return nil, errors.New("classifier.dev: dimensions must hold 1 to 20 entries")
+	}
+	base := c.BaseURL
+	if base == "" {
+		base = "https://classifier.dev"
+	}
+	hc := c.HTTPClient
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/classify", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "classifier-dev-go/0.1.0")
+	if c.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	res, err := hc.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != http.StatusOK {
+		e := &Error{Status: res.StatusCode, Message: fmt.Sprintf("HTTP %d", res.StatusCode), Code: "http_" + strconv.Itoa(res.StatusCode)}
+		_ = json.Unmarshal(raw, e)
+		if s, err := strconv.Atoi(res.Header.Get("Retry-After")); err == nil {
+			e.RetryAfter = time.Duration(s) * time.Second
+		}
+		return nil, e
+	}
+	var out DimensionResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("classifier.dev: bad response: %w", err)
+	}
+	if len(out.Results) != len(req.Items) {
+		return nil, fmt.Errorf("classifier.dev: %d results for %d items", len(out.Results), len(req.Items))
+	}
+	return &out, nil
+}
