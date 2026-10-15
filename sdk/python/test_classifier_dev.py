@@ -1,7 +1,7 @@
 """Tests for the Python client against a stand-in server. `python3 test_classifier_dev.py` or pytest."""
 import json, os, subprocess, sys, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from classifier_dev import Client, ClassifierError, classify
+from classifier_dev import Client, ClassifierError, classify, classify_dimensions, DimensionResult
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REQUESTS = []
@@ -11,6 +11,18 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["content-length"])))
         REQUESTS.append((self.path, {k.lower(): v for k, v in self.headers.items()}, body))
+        if "dimensions" in body:
+            items = body.get("items") or body.get("inputs") or ([body["input"]] if "input" in body else [])
+            dims = body["dimensions"]
+            results = []
+            for _ in items:
+                row = {}
+                for name, dim in dims.items():
+                    labels = dim if isinstance(dim, list) else dim["labels"]
+                    row[name] = {"label": labels[0], "confidence": 0.85, "scores": {l: (0.85 if l == labels[0] else 0.15 / max(len(labels) - 1, 1)) for l in labels}, "model": "jev-test", "ms": 50}
+                results.append({"dimensions": row})
+            out = {"tier": body.get("tier", "fast"), "model": "jev-test", "modelsUsed": ["jev-test"], "results": results, "usage": {"items": len(items), "dimensions": len(dims), "classifications": len(items) * len(dims)}}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode()); return
         if "boom" in body["labels"]:
             self.send_response(429); self.send_header("Retry-After", "7"); self.send_header("content-type", "application/json"); self.end_headers()
             self.wfile.write(b'{"error":"Rate limit","code":"rate_limit_minute"}'); return
@@ -184,5 +196,50 @@ def test_structured_response_and_options():
         srv.shutdown()
 
 
+def test_dimensions():
+    srv, url = serve()
+    try:
+        c = Client(base_url=url)
+        dims = {"team": ["billing", "platform"], "kind": {"labels": ["bug", "request"], "instructions": "be strict"}}
+        res = c.classify_dimensions(["checkout broke"], dims)
+        assert len(res.results) == 1
+        assert "team" in res.results[0] and "kind" in res.results[0]
+        assert res.results[0]["team"].label == "billing"
+        assert res.results[0]["kind"].label == "bug"
+        assert isinstance(res.results[0]["team"], DimensionResult)
+        assert res.results[0]["team"].confidence == 0.85
+        assert isinstance(res.results[0]["team"].scores, dict)
+        assert res.usage["dimensions"] == 2
+
+        # Wire body check
+        _, _, body = REQUESTS[-1]
+        assert body["items"] == ["checkout broke"]
+        assert "dimensions" in body
+        assert "labels" not in body, "dimensions and labels must not be combined"
+
+        # Tier reaches the wire
+        c.classify_dimensions(["x"], {"a": ["x", "y"]}, tier="smart")
+        _, _, body = REQUESTS[-1]
+        assert body["tier"] == "smart"
+
+        # Batch: multiple items
+        res = c.classify_dimensions(["a", "b", "c"], {"team": ["billing", "platform"]})
+        assert len(res.results) == 3
+
+        # Validation
+        for bad_items, bad_dims in [
+            ("string", {"a": ["x", "y"]}),        # items is a string
+            ([], {"a": ["x", "y"]}),               # empty items
+            (["x"], {}),                            # empty dimensions
+            (["x"], "not a dict"),                  # dimensions not a dict
+        ]:
+            try:
+                c.classify_dimensions(bad_items, bad_dims); assert False, f"should reject {bad_items!r}, {bad_dims!r}"
+            except (ValueError, TypeError):
+                pass
+    finally:
+        srv.shutdown()
+
+
 if __name__ == "__main__":
-    test_roundtrip_and_error(); test_options_reach_the_wire(); test_every_failure_is_a_classifier_error(); test_cli(); test_structured_response_and_options(); print("ok")
+    test_roundtrip_and_error(); test_options_reach_the_wire(); test_every_failure_is_a_classifier_error(); test_cli(); test_structured_response_and_options(); test_dimensions(); print("ok")
