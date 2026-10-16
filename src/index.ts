@@ -42,7 +42,7 @@ export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
-import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
+import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeFailureReason,typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
   TRAINING_DATA?: R2Bucket;
@@ -1643,14 +1643,23 @@ const worker = {
       const sdkAdmissionMs = Date.now() - sdkStarted;
       const imageResult = await imageRun;
       if (imageResult && "error" in imageResult) throw imageResult.error;
-      let response = gpuDoor
-        ? imageResult?.response ?? await gpuDoor(req, env, sdkBody!, meter)
-        : await typeSafeCompatibleResponse(
-        req,
-        env.TYPESAFE_API_KEY,
-        body,
-        decisions ? meter : undefined,
-      );
+      let response: Response;
+      try {
+        response = gpuDoor
+          ? imageResult?.response ?? await gpuDoor(req, env, sdkBody!, meter)
+          : await typeSafeCompatibleResponse(
+          req,
+          env.TYPESAFE_API_KEY,
+          body,
+          decisions ? meter : undefined,
+        );
+      } catch (error) {
+        if (!gpuDoor && error instanceof SpendingError) {
+          sdkRecord(error.status, error.code);
+          return errorResponse(error);
+        }
+        throw error;
+      }
       if (path === "v1/models" && response.ok && imajevEnabled(env)) {
         const catalog = await response.clone().json() as { models?: { name: string }[] };
         if (Array.isArray(catalog.models) && !catalog.models.some(model => model.name === "imajev-4b")) {
@@ -1671,7 +1680,7 @@ const worker = {
           }] }, { headers });
         }
       }
-      sdkRecord(response.status, response.ok ? "" : `${isJevomniRequest(sdkBody) ? "jevomni" : isImageRequest(sdkBody) ? "imajev" : "typesafe"}_${response.status}`);
+      sdkRecord(response.status, response.ok ? "" : isJevomniRequest(sdkBody) ? `jevomni_${response.status}` : isImageRequest(sdkBody) ? `imajev_${response.status}` : typeSafeFailureReason(response));
       const headers = new Headers(response.headers);
       if (gpuDoor) headers.append("server-timing", `quota;dur=${sdkAdmissionMs}`);
       headers.set("x-classifier-data-policy", SHARING_NOTICE);
