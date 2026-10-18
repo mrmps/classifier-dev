@@ -37,7 +37,7 @@ const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'long-con
   },
 }] }));
 const filler = 'The meeting concerned routine office supplies and calendar arrangements.\n\n';
-const document = `DECISIVE START: This contract renews automatically.\n\n${filler.repeat(900)}DECISIVE END: The renewal clause remains in force.`;
+const document = `DECISIVE START: This contract renews automatically.\n\n${filler.repeat(1500)}DECISIVE END: The renewal clause remains in force.`;
 const body = { input: document, labels: ['renewing', 'not-renewing'], instructions: 'Determine whether the contract renews automatically.' };
 const send = (payload = body, funded = true) => mf.dispatchFetch('https://classifier.dev/v1/classify', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.99', ...(funded ? { authorization: 'Bearer long-fixture' } : {}) }, body: JSON.stringify(payload) });
 try {
@@ -47,6 +47,24 @@ try {
   assert.equal((await free.json()).code, 'long_context_payment_required');
   assert.equal(calls.length, 0);
   report.results.push({ name: 'free refusal before provider work', status: 402, calls: 0 });
+  const fullDocument = `DECISIVE START\n${filler.repeat(500)}DECISIVE END`;
+  assert.ok(fullDocument.length > 32000);
+  for (const extra of [{}, { multi: true }, { dimensions: { renewal: ['yes', 'no'], type: ['contract', 'other'] }, labels: undefined }]) {
+    const start = calls.length;
+    const fullResponse = await send({ ...body, input: fullDocument, ...extra });
+    assert.equal(fullResponse.status, 200, await fullResponse.clone().text());
+    const full = await fullResponse.json();
+    const fullCalls = calls.slice(start);
+    assert.ok(fullCalls.length > 0 && fullCalls.every(call => !call.screening));
+    assert.ok(fullCalls.every(call => call.body.state.every(state => state.text === fullDocument)));
+    assert.equal(full.usage.long_context.full_input_passes, extra.dimensions ? 2 : 1);
+    assert.equal(full.usage.long_context.screening_calls, 0);
+    assert.equal(full.usage.long_context.omitted_chunks, 0);
+    assert.equal(full.pricing.input_tokens, countTokens(fullDocument));
+    assert.equal(full.pricing.estimated_usd, countTokens(fullDocument) * 84 / 1e9);
+    report.results.push({ name: 'fitting original reaches final intact without screening', mode: extra.dimensions ? 'dimensions' : extra.multi ? 'multi' : 'single', usage: full.usage, pricing: full.pricing });
+  }
+  const screenedStart = calls.length;
   const response = await send();
   assert.equal(response.status, 200, await response.clone().text());
   const result = await response.json();
@@ -57,9 +75,9 @@ try {
   assert.equal(result.pricing.input_tokens, countTokens(document));
   assert.equal(result.pricing.input_usd_per_million, 0.084);
   assert.equal(result.pricing.estimated_usd, countTokens(document) * 84 / 1e9);
-  assert.equal(result.usage.input_tokens, calls.length * measuredTokens);
-  assert.equal(calls.filter(c => c.screening).flatMap(c => c.body.state.map(s => s.text)).join(''), document);
-  const finalText = calls.filter(c => !c.screening).flatMap(c => c.body.state.map(s => s.text)).join('\n');
+  assert.equal(result.usage.input_tokens, (calls.length - screenedStart) * measuredTokens);
+  assert.equal(calls.slice(screenedStart).filter(c => c.screening).flatMap(c => c.body.state.map(s => s.text)).join(''), document);
+  const finalText = calls.slice(screenedStart).filter(c => !c.screening).flatMap(c => c.body.state.map(s => s.text)).join('\n');
   assert.ok(finalText.includes('DECISIVE START') && finalText.includes('DECISIVE END'));
   assert.ok(finalText.indexOf('DECISIVE START') < finalText.indexOf('DECISIVE END'));
   report.results.push({ name: 'all chunks screened, evidence ordered, exact original-context price', response: result });
@@ -92,6 +110,8 @@ try {
   mode = 'fail-final';
   const failed = await send();
   assert.equal(failed.status, 503, await failed.clone().text());
+  const failedFull = await send({ ...body, input: fullDocument });
+  assert.equal(failedFull.status, 503, await failedFull.clone().text());
   report.results.push({ name: 'failed final does not fall back', status: failed.status });
   mode = 'normal';
   const previous = calls.length;

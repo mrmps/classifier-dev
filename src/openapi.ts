@@ -1179,7 +1179,7 @@ export const OPENAPI = {
       },
       LongContextUsage: {
         type: "object",
-        description: "Jev long-context processing totals. Documents/context tokens count original inputs once; chunk and selection counts and phase usage accumulate across dimension passes, not necessarily unique passages. Calls count answered provider calls, not attempts. Unknown provider token counts remain null. Final Jev sees selected evidence; eligible whole chunks may be omitted when the final context budget fills. No guarantee of full-document final reading or universal accuracy.",
+        description: "Jev long-context processing totals. Documents/context tokens count original inputs once; chunk and selection counts and phase usage accumulate across dimension passes, not necessarily unique passages. Calls count answered provider calls, not attempts. Unknown provider token counts remain null. Fitting originals reach final Jev in full, counted by full_input_passes. Otherwise final Jev sees selected evidence; eligible whole chunks may be omitted when the final context budget fills. No guarantee of universal accuracy.",
         properties: {
           context_tokens: { type: "integer", minimum: 0, description: "Original input cl100k_base tokens summed once across inputs, independent of dimensions. Retail basis at $0.084/M, not actual screening/final usage." },
           documents: { type: "integer", minimum: 0 },
@@ -1188,6 +1188,7 @@ export const OPENAPI = {
           eligible_chunks: { type: "integer", minimum: 0, description: "Relevant or uncertain chunks eligible for final classification, including opposing evidence and exceptions." },
           selected_chunks: { type: "integer", minimum: 0 },
           omitted_chunks: { type: "integer", minimum: 0, description: "Eligible chunks omitted from final evidence due to context limits." },
+          full_input_passes: { type: "integer", minimum: 0, description: "Successful final passes over complete original documents that fit the Jev wire budget including rubric and labels. Counts document × dimension passes; these passes skip screening and omit no text. Original-context pricing is unchanged." },
           screening_input_tokens: { type: ["integer", "null"], minimum: 0 },
           final_input_tokens: { type: ["integer", "null"], minimum: 0 },
           screening_calls: { type: "integer", minimum: 0 },

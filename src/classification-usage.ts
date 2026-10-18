@@ -21,6 +21,7 @@ export function classificationUsage(meter: Meter) {
       eligible_chunks: meter.longContext.eligibleChunks,
       selected_chunks: meter.longContext.selectedChunks,
       omitted_chunks: meter.longContext.omittedChunks,
+      full_input_passes: meter.longContext.fullInputPasses ?? 0,
       screening_input_tokens: meter.longContext.screeningInputTokens,
       final_input_tokens: meter.longContext.finalInputTokens,
       screening_calls: meter.longContext.screeningCalls,

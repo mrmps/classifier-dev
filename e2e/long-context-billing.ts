@@ -89,7 +89,7 @@ const env = appEnvironment({ APP_DB: db, APP_ACCOUNTS_ENABLED: "true", SPENDING_
   ACCOUNT_AE: { writeDataPoint(point: { doubles: number[] }) { events.push(point); } },
   LONG_CONTEXT_AE: { writeDataPoint(point: AnalyticsPoint) { longEvents.push(point); } },
 } as unknown as Env & { APP_DB: typeof db });
-const document = "This contract renews annually. 文書の更新条件.\n\n".repeat(850);
+const document = "This contract renews annually. 文書の更新条件.\n\n".repeat(1500);
 const contextTokens = countTokens(document);
 const nano = contextTokens * 84;
 const body = { input: document, labels: ["renewing", "not-renewing"] };
@@ -120,7 +120,7 @@ async function send(payload: Record<string, unknown> = body, idem?: string) {
       stats.screening_input_tokens ?? 0, stats.final_input_tokens ?? 0,
       Number(stats.screening_input_tokens === null), Number(stats.final_input_tokens === null),
       stats.screening_calls, stats.final_calls, stats.screening_ms, stats.final_ms]);
-    assert.ok(stats.screening_calls > 0 && stats.final_calls > 0);
+    assert.ok((stats.screening_calls > 0 || stats.full_input_passes > 0) && stats.final_calls > 0);
     assert.equal(stats.screening_input_tokens + stats.final_input_tokens, result.usage.input_tokens);
   }
   assert.ok(points.length <= 1, "no duplicate dedicated analytics");
@@ -172,7 +172,8 @@ try {
       assert.equal(row?.nano, String(tokens * 84));
       assert.equal(row?.input_tokens, payload.usage.input_tokens);
       assert.ok(payload.usage.input_tokens > 0);
-      assert.ok(payload.usage.long_context.screening_calls > 0);
+      assert.equal(payload.usage.long_context.screening_calls, 0);
+      assert.equal(payload.usage.long_context.full_input_passes, 1);
       assert.ok(payload.usage.long_context.final_calls > 0);
     }
   } else for (const spending of ["true", "false"]) {
@@ -204,6 +205,19 @@ try {
     assert.equal(row?.escalations, 0);
     assert.equal(events.at(-1)?.doubles[2], payload.usage.input_tokens);
     report.results.push({ spending, name: "paid credits on free plan settle original tokens once", pricing: payload.pricing, usage: payload.usage, ledger: row });
+
+    const fullDocument = "The contract renews automatically each year.\n".repeat(900);
+    const full = await send({ ...body, input: fullDocument });
+    assert.equal(full.status, 200, await full.clone().text());
+    const fullPayload = await full.json();
+    const fullLedger = await ledger(full);
+    assert.equal(fullPayload.usage.long_context.full_input_passes, 1);
+    assert.equal(fullPayload.usage.long_context.screening_calls, 0);
+    assert.equal(fullPayload.usage.long_context.omitted_chunks, 0);
+    assert.equal(fullPayload.pricing.total_usd, countTokens(fullDocument) * 84 / 1e9);
+    assert.equal(fullLedger?.nano, String(countTokens(fullDocument) * 84));
+    assert.equal(fullLedger?.status, "completed");
+    report.results.push({ spending, name: "complete input skips screening and settles original context price", usage: fullPayload.usage, pricing: fullPayload.pricing, ledger: fullLedger });
 
     before = providerCalls;
     const paidBalance = await balance();
