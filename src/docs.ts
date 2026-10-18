@@ -306,7 +306,13 @@ LONG DOCUMENTS
   Existing dedicated enterprise/operator access remains a trusted operational
   exception to the public funding requirement.
 
-  Chonkie's RecursiveChunker splits each document into 600-token chunks using
+  When every original document plus its rubric and labels fits Jev's provider
+  context budget, final Jev reads the complete originals without screening.
+  usage.long_context.full_input_passes counts successful document × dimension
+  passes on this path; no source text is omitted. Original-context pricing
+  and the paid admission requirements are unchanged.
+
+  Otherwise Chonkie's RecursiveChunker splits each document into 600-token chunks using
   cl100k_base. Parallel Jev calls screen for relevant or uncertain evidence,
   including opposing evidence and exceptions. Eligible whole chunks are
   packed in source order for final Jev classification within a 20,000-token

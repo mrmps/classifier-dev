@@ -45,6 +45,7 @@ export type Meter = {
     eligibleChunks: number;
     selectedChunks: number;
     omittedChunks: number;
+    fullInputPasses?: number;
     screeningInputTokens: number | null;
     finalInputTokens: number | null;
     screeningCalls: number;
