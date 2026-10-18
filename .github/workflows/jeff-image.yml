@@ -1,0 +1,36 @@
+name: Jeff serving image
+on:
+  push:
+    branches: [codex/jeff-adaptive-serving, main]
+    paths: [gpu/jeff/Dockerfile, gpu/jeff/.dockerignore, gpu/jeff/requirements.txt, gpu/jeff/recipe.lock.json, gpu/jeff/fetch.py, gpu/jeff/engine.py, gpu/jeff/server.py, gpu/jeff/entrypoint.sh, .github/workflows/jeff-image.yml]
+  pull_request:
+    paths: [gpu/jeff/Dockerfile, gpu/jeff/.dockerignore, gpu/jeff/requirements.txt, gpu/jeff/recipe.lock.json, gpu/jeff/fetch.py, gpu/jeff/engine.py, gpu/jeff/server.py, gpu/jeff/entrypoint.sh, .github/workflows/jeff-image.yml]
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: jeff-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Make room for CUDA dependencies and pinned weights
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+      - name: Build and verify portable runtime
+        run: |
+          docker build --tag jeff-serving:check gpu/jeff
+          docker run --rm --entrypoint python jeff-serving:check -c 'import torch, transformers, fla, aiohttp; print(torch.__version__, transformers.__version__)'
+          docker run --rm --entrypoint python jeff-serving:check fetch.py --recipe /app/recipe --checkpoint /opt/model
+      - name: Publish immutable image
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/jeff-serving:${GITHUB_SHA}"
+          docker tag jeff-serving:check "$image"
+          docker push "$image"
+          docker inspect --format='{{index .RepoDigests 0}}' "$image" >> "$GITHUB_STEP_SUMMARY"
