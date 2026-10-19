@@ -26,11 +26,13 @@ const pg = new PGlite({ parsers: { 20: parseCreditInteger, 1700: parseCreditInte
 const originalFetch = globalThis.fetch;
 let providerCalls = 0;
 let reportedTokens = 123;
-let mode: "normal" | "none" | "fail-final" = "normal";
+let mode: "normal" | "none" | "fail-final" | "reject-full" = "normal";
 const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   providerCalls++;
-  const body = await request.json() as { model: string; questions: Record<string, { criteria: Record<string, unknown> }> };
+  const body = await request.json() as { model: string; state: { text: string }[]; questions: Record<string, { criteria: Record<string, unknown> }> };
   const screening = Object.values(body.questions).some(q => Object.hasOwn(q.criteria, "irrelevant"));
+  if (!screening && mode === "reject-full" && body.state.some(state => state.text.startsWith("The contract") && state.text.length > 32000))
+    return Response.json({ detail: { error_type: "max_tokens_exceeded" } }, { status: 400 });
   if (!screening && mode === "fail-final")
     return Response.json({ detail: { error_type: "invalid_request" } }, { status: 400 });
   return Response.json({ model: body.model, usage: { input_tokens: reportedTokens, output_tokens: 0 },
@@ -218,6 +220,19 @@ try {
     assert.equal(fullLedger?.nano, String(countTokens(fullDocument) * 84));
     assert.equal(fullLedger?.status, "completed");
     report.results.push({ spending, name: "complete input skips screening and settles original context price", usage: fullPayload.usage, pricing: fullPayload.pricing, ledger: fullLedger });
+
+    mode = "reject-full";
+    const recovered = await send({ ...body, input: fullDocument });
+    assert.equal(recovered.status, 200, await recovered.clone().text());
+    const recoveryPayload = await recovered.json();
+    const recoveryLedger = await ledger(recovered);
+    assert.equal(recoveryPayload.usage.long_context.full_input_passes, 0);
+    assert.ok(recoveryPayload.usage.long_context.screening_calls > 0);
+    assert.equal(recoveryPayload.pricing.total_usd, countTokens(fullDocument) * 84 / 1e9);
+    assert.equal(recoveryLedger?.nano, String(countTokens(fullDocument) * 84));
+    assert.equal(recoveryLedger?.status, "completed");
+    report.results.push({ spending, name: "provider context refusal recovers and settles original context once", usage: recoveryPayload.usage, pricing: recoveryPayload.pricing, ledger: recoveryLedger });
+    mode = "normal";
 
     before = providerCalls;
     const paidBalance = await balance();

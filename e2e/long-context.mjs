@@ -25,6 +25,7 @@ const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'long-con
     const screening = Object.values(body.questions).some(q => Object.hasOwn(q.criteria ?? {}, 'irrelevant'));
     calls.push({ screening, body });
     if (screening && mode === 'slow') await new Promise(resolve => setTimeout(resolve, 11000));
+    if (!screening && mode === 'reject-full' && body.state.some(state => state.text.startsWith('DECISIVE START') && state.text.includes('DECISIVE END'))) return WorkerResponse.json({ detail: { error_type: 'max_tokens_exceeded' } }, { status: 400 });
     if (!screening && mode === 'fail-final') return WorkerResponse.json({ detail: { error_type: 'invalid_request' } }, { status: 400 });
     const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => {
       if (q.type === 'noul') return [id, { noul: 0.9 }];
@@ -64,6 +65,20 @@ try {
     assert.equal(full.pricing.estimated_usd, countTokens(fullDocument) * 84 / 1e9);
     report.results.push({ name: 'fitting original reaches final intact without screening', mode: extra.dimensions ? 'dimensions' : extra.multi ? 'multi' : 'single', usage: full.usage, pricing: full.pricing });
   }
+  mode = 'reject-full';
+  for (const extra of [{}, { dimensions: { renewal: ['yes', 'no'], type: ['contract', 'other'] }, labels: undefined }]) {
+    const start = calls.length;
+    const recovered = await send({ ...body, input: fullDocument, ...extra });
+    assert.equal(recovered.status, 200, await recovered.clone().text());
+    const payload = await recovered.json();
+    const recoveryCalls = calls.slice(start);
+    assert.equal(payload.usage.long_context.full_input_passes, 0);
+    assert.ok(payload.usage.long_context.screening_calls > 0);
+    assert.equal(recoveryCalls.filter(call => call.screening).flatMap(call => call.body.state.map(state => state.text)).join(''), fullDocument.repeat(extra.dimensions ? 2 : 1));
+    assert.equal(payload.pricing.estimated_usd, countTokens(fullDocument) * 84 / 1e9);
+    report.results.push({ name: 'provider context refusal recovers through honest screening', mode: extra.dimensions ? 'dimensions' : 'single', usage: payload.usage, pricing: payload.pricing });
+  }
+  mode = 'normal';
   const screenedStart = calls.length;
   const response = await send();
   assert.equal(response.status, 200, await response.clone().text());
