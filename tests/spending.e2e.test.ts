@@ -640,3 +640,48 @@ test("plan rate limits scale with the plan: Pro answers with 10x limits and Scal
     expect(response?.headers.get("ratelimit-limit")).toBe(limit);
   }
 });
+
+
+test("funded HTTP settlement survives three database failures and replays once", async () => {
+  const s = setup();
+  const db = database();
+  const env = { ...s.env, APP_DB: db, APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
+  await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+  await db.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
+  const enrolled = await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
+  providers();
+  let unavailable = true;
+  env.APP_DB = {
+    prepare(sql) {
+      const statement = db.prepare(sql);
+      if (sql.includes("settle_token_reservation") || sql.includes("refund_token_reservation")) {
+        const bind = statement.bind.bind(statement);
+        statement.bind = (...args) => {
+          if (unavailable) throw new Error("fixture settlement connection unavailable");
+          return bind(...args);
+        };
+      }
+      return statement;
+    },
+    batch: statements => db.batch(statements),
+  };
+  const response = await accountClassification(request(undefined, undefined, undefined, { authorization: `Bearer ${enrolled.secret}` }), env, "API", s.ctx);
+  expect(response!.status).toBe(200);
+  await s.flush();
+  const id = response!.headers.get("x-request-id")!;
+  expect(await db.prepare("SELECT status,reporting_status FROM app_usage WHERE id=?").bind(id).first()).toEqual({ status: "pending", reporting_status: "not_ready" });
+  expect(await db.prepare("SELECT count(*) AS n FROM app_usage_settlements WHERE request_id=?").bind(id).first()).toEqual({ n: 1 });
+  unavailable = false;
+  const { recoverTokenSettlements } = await import("../src/server/token-settlement-recovery");
+  const batch = env.APP_DB.batch;
+  env.APP_DB.batch = statements => db.batch([...statements, db.prepare("SELECT 1/0")]);
+  await expect(recoverTokenSettlements(env.APP_DB)).rejects.toThrow("remain queued");
+  expect(await db.prepare("SELECT status FROM app_usage WHERE id=?").bind(id).first()).toEqual({ status: "pending" });
+  expect(await db.prepare("SELECT count(*) AS n FROM app_usage_settlements WHERE request_id=?").bind(id).first()).toEqual({ n: 1 });
+  env.APP_DB.batch = batch;
+  await recoverTokenSettlements(env.APP_DB);
+  await recoverTokenSettlements(env.APP_DB);
+  expect(await db.prepare("SELECT status,credits,input_tokens FROM app_usage WHERE id=?").bind(id).first()).toEqual({ status: "completed", credits: 1, input_tokens: 100 });
+  expect(await db.prepare("SELECT balance,paid_balance FROM app_accounts WHERE id='local-demo'").first()).toEqual({ balance: 499999, paid_balance: 499999 });
+  expect(await db.prepare("SELECT count(*) AS n FROM app_usage_settlements").first()).toEqual({ n: 0 });
+});

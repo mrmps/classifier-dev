@@ -131,3 +131,37 @@ test.skipIf(process.env.LIVE_TOKEN_BILLING !== "true")("real TypeSafe response s
     await refundTokenReservation(env.APP_DB, reservation!.id);
   }
 }, 30000);
+
+
+test("durable settlement recovery refunds failures and preserves unknown charges for review", async () => {
+  const { queueTokenSettlement, recoverTokenSettlements } = await import("../src/server/token-settlement-recovery");
+  const failed = await authorizeAndReserve(request(), env, 276, 1, { meteringMode: "tokens" });
+  const unknown = await authorizeAndReserve(request(), env, 276, 1, { meteringMode: "tokens" });
+  const orphan = await authorizeAndReserve(request(), env, 276, 1, { meteringMode: "tokens" });
+  await env.APP_DB.prepare("UPDATE app_usage SET created_at='2026-10-12T20:06:35.038Z' WHERE id=?").bind(orphan!.id).run();
+  await queueTokenSettlement(env.APP_DB, failed!.id, { refund: true, charge: null, inputTokens: null, outputTokens: null, escalations: 0 });
+  await queueTokenSettlement(env.APP_DB, unknown!.id, { refund: false, charge: null, inputTokens: null, outputTokens: null, escalations: 0 });
+  await recoverTokenSettlements(env.APP_DB);
+  await recoverTokenSettlements(env.APP_DB);
+  expect(await env.APP_DB.prepare("SELECT status FROM app_usage WHERE id=?").bind(failed!.id).first()).toEqual({ status: "refunded" });
+  expect(await env.APP_DB.prepare("SELECT status,reporting_status FROM app_usage WHERE id=?").bind(unknown!.id).first()).toEqual({ status: "pending", reporting_status: "review" });
+  expect(await env.APP_DB.prepare("SELECT status FROM app_usage WHERE id=?").bind(orphan!.id).first()).toEqual({ status: "pending" });
+  expect((await getSnapshot("local-demo", env)).credits.balance).toBe(500000 - 552);
+});
+
+test("legacy hold reconciliation previews by default and refunds only an explicit stale unknown reservation once", async () => {
+  const { reconcileTokenReservations } = await import("../scripts/reconcile-token-reservations");
+  await env.APP_DB.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
+  const stale = await authorizeAndReserve(request(), env, 276, 1, { meteringMode: "tokens" });
+  const recent = await authorizeAndReserve(request(), env, 276, 1, { meteringMode: "tokens" });
+  await env.APP_DB.prepare("UPDATE app_usage SET created_at='2020-01-01T00:00:00.000Z' WHERE id=?").bind(stale!.id).run();
+  expect((await reconcileTokenReservations(env.APP_DB)).candidates.map(row => row.id)).toEqual([stale!.id]);
+  expect((await getSnapshot("local-demo", env)).credits.balance).toBe(499448);
+  expect((await reconcileTokenReservations(env.APP_DB, recent!.id)).refunded).toBe(false);
+  expect((await reconcileTokenReservations(env.APP_DB, stale!.id)).refunded).toBe(true);
+  expect((await reconcileTokenReservations(env.APP_DB, stale!.id)).refunded).toBe(false);
+  expect(await env.APP_DB.prepare("SELECT balance,paid_balance FROM app_accounts WHERE id='local-demo'").first()).toEqual({ balance: 499724, paid_balance: 499724 });
+  await env.APP_DB.prepare("UPDATE app_usage SET created_at='2020-01-01T00:00:00.000Z' WHERE id=?").bind(recent!.id).run();
+  await settleTokenReservation(env.APP_DB, recent!.id, null);
+  expect((await reconcileTokenReservations(env.APP_DB, recent!.id)).refunded).toBe(false);
+});
