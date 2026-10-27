@@ -133,9 +133,9 @@ test("System One recovers one transient provider failure and settles one custome
     expect(response!.status).toBe(200);
     expect((await response!.json()).answers.category.choice).toBe("billing");
     expect(calls).toBe(2);
-    const { results } = await env.APP_DB.prepare("SELECT status,credits,input_tokens FROM app_usage").all();
+    const { results } = await env.APP_DB.prepare("SELECT status,credits::integer AS credits,input_tokens::integer AS input_tokens FROM app_usage").all();
     expect(results).toEqual([{ status: "completed", credits: 1, input_tokens: 100 }]);
-    expect(await env.APP_DB.prepare("SELECT balance,paid_balance FROM app_accounts WHERE id='local-demo'").first()).toEqual({ balance: 499999, paid_balance: 499999 });
+    expect(await env.APP_DB.prepare("SELECT balance::integer AS balance,paid_balance::integer AS paid_balance FROM app_accounts WHERE id='local-demo'").first()).toEqual({ balance: 499999, paid_balance: 499999 });
   }
 });
 
