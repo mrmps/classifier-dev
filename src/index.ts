@@ -1999,8 +1999,8 @@ const worker = {
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
     if (req.method === "GET" && path === "chat") {
-      // The home page; its chat panel opens itself at /chat.
-      if (wantsHtml) return html(siteHomeHtml({ signedIn }), 200, { link: LINKS(origin) }, origin);
+      // The home page with its chat panel open.
+      if (wantsHtml) return html(siteHomeHtml({ signedIn, chat: true }), 200, { link: LINKS(origin) }, origin);
       return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
     }
 

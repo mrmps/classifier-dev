@@ -765,6 +765,29 @@ print(res.json()["results"])</pre>
 <script src="/site/motion.js" defer></script>
 <script src="/site/uses.js" defer></script>
 <script type="module" src="/site/signal.js"></script>
+<!--chat-->
+<button type="button" class="chat-fab" aria-expanded="false" aria-controls="chat" data-chat-open><svg class="i chat-fab__open" aria-hidden="true"><use href="#i-message-square"/></svg><svg class="chat-fab__close" width="14" height="14" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span class="sr">Chat</span></button>
+<section class="chat" role="dialog" aria-modal="false" id="chat" aria-label="Chat" hidden>
+  <header class="chat__head">
+    <div><h2 class="chat__title" id="chat-title">Chat</h2><p class="chat__sub">Answers by calling the API</p></div>
+    <button type="button" class="ghost-btn chat__clear" data-chat-clear hidden>Clear</button>
+    <button type="button" class="x" data-chat-close aria-label="Close chat"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+  </header>
+  <div class="chat__body" data-lenis-prevent>
+    <div class="chat__empty">
+      <div class="chat__sugs" role="group" aria-label="Try one"><button type="button" class="csug" data-ask="Read https://news.ycombinator.com, then classify every story title there into ai, security, business, hardware, other. Show the counts and the least confident three." title="Read https://news.ycombinator.com, then classify every story title there into ai, security, business, hardware, other. Show the counts and the least confident three.">Sort today’s Hacker News by topic</button><button type="button" class="csug" data-ask="Search for this week’s headlines about the Federal Reserve, classify each as hawkish, dovish or neutral, and tell me the split." title="Search for this week’s headlines about the Federal Reserve, classify each as hawkish, dovish or neutral, and tell me the split.">Is the Fed hawkish this week?</button><button type="button" class="csug" data-ask="Read the Rust changelog at https://github.com/rust-lang/rust/blob/master/RELEASES.md and tag the first 40 entries with every label that applies: language, compiler, library, tooling, platform." title="Read the Rust changelog at https://github.com/rust-lang/rust/blob/master/RELEASES.md and tag the first 40 entries with every label that applies: language, compiler, library, tooling, platform.">Tag the latest Rust release notes</button><button type="button" class="csug" data-ask="Invent 15 realistic customer support emails, sort them into billing, bug, feature, other, and show me which ones a human should double-check." title="Invent 15 realistic customer support emails, sort them into billing, bug, feature, other, and show me which ones a human should double-check.">Triage 15 made-up support emails</button></div>
+    </div>
+    <ol class="cmsgs" aria-live="polite" aria-label="Conversation"></ol>
+  </div>
+  <form class="chat__form">
+    <div class="chat__field">
+      <textarea rows="1" placeholder="Ask, or paste texts to sort" aria-label="Message" required></textarea>
+      <button type="submit" class="btn btn--ink btn--sm chat__send" aria-label="Send" disabled><svg class="i chat__go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chat__stop" aria-hidden="true"></span></button>
+    </div>
+    <p class="chat__note">Enter sends, Shift+Enter for a new line.</p>
+  </form>
+</section>
+<!--/chat-->
 <script src="/site/chat.js" defer></script>
 <script src="/site/brand.js" defer></script>
 </body>

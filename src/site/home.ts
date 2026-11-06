@@ -89,7 +89,7 @@ const ROADMAP_SLOT = "<!--@roadmap-->";
 let pages: { out: string; in: string } | null = null;
 function build() {
   // Checked here, on the first request, so a broken template fails the page and not the Worker.
-  for (const marker of [LOGIN, MENU_LOGIN, ROADMAP_SLOT])
+  for (const marker of [LOGIN, MENU_LOGIN, ROADMAP_SLOT, CHAT_CLOSED])
     if (!HOME_TEMPLATE.includes(marker)) throw new Error(`site/home: the template lost ${marker}`);
   const page = fillValues(HOME_TEMPLATE)
     // The setup prompt the page copies and deep-links is the site's own, the one curl prints.
@@ -100,9 +100,13 @@ function build() {
   return { out: page, in: page.replace(LOGIN, DASHBOARD).replace(MENU_LOGIN, MENU_DASHBOARD) };
 }
 
-export function siteHomeHtml(o: { signedIn?: boolean } = {}): string {
+const CHAT_CLOSED = 'id="chat" aria-label="Chat" hidden>';
+
+/** The home page; at /chat its chat panel is sent open. */
+export function siteHomeHtml(o: { signedIn?: boolean; chat?: boolean } = {}): string {
   pages ??= build();
-  return o.signedIn ? pages.in : pages.out;
+  const html = o.signedIn ? pages.in : pages.out;
+  return o.chat ? html.replace(CHAT_CLOSED, 'id="chat" aria-label="Chat">') : html;
 }
 
 /**
