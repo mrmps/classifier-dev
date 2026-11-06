@@ -6,12 +6,19 @@ import { SHELL_FOOT, SHELL_HEAD, SHELL_NAV, SHELL_SCRIPTS } from "./shell-templa
 
 const LOGIN = /<a class="nav__login" href="\/login">Log in<\/a>/;
 const MENU_LOGIN = '<a class="menu__row" href="/login">Log in</a>';
-for (const [ok, what] of [[LOGIN.test(SHELL_NAV), "nav login"], [SHELL_NAV.includes(MENU_LOGIN), "menu login"], [SHELL_FOOT.includes('href="/index.md"'), "footer Markdown link"]] as const)
-  if (!ok) throw new Error(`site/pages: the shell lost its ${what}`);
+// Checked when the first page is built, not at import: a broken template fails that page, not the Worker.
+let checked = false;
+function check() {
+  if (checked) return;
+  for (const [ok, what] of [[LOGIN.test(SHELL_NAV), "nav login"], [SHELL_NAV.includes(MENU_LOGIN), "menu login"], [SHELL_FOOT.includes('href="/index.md"'), "footer Markdown link"]] as const)
+    if (!ok) throw new Error(`site/shell: the shell lost its ${what}`);
+  checked = true;
+}
 
 /** A whole page in the shell. `path` names the page's Markdown alternate (path + ".md"). */
 export function sitePage(o: { title: string; desc: string; path: string; kind: string; body: string; signedIn?: boolean }): string {
-  const md = `${o.path}.md`;
+  check();
+  const md = o.path === "/" ? "/index.md" : `${o.path}.md`;
   const head = SHELL_HEAD
     .replace(/<title>[^<]*<\/title>/, `<title>${esc(o.title)}</title>`)
     .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(o.desc)}">\n<link rel="alternate" type="text/markdown" href="${md}" title="This page as Markdown">`);
@@ -23,13 +30,13 @@ export function sitePage(o: { title: string; desc: string; path: string; kind: s
 
 // ---------------------------------------------------------------- short pages (the updates sign-up's answers)
 
-/** A page that says one thing: a heading, the message and a way on. `form` is optional markup under it. */
+/** A page that says one thing: a heading, the message (plain text, escaped here) and a way on. `form` is optional markup under it. */
 export function messagePage(o: { title: string; heading: string; message: string; ok?: boolean; form?: string; signedIn?: boolean }): string {
   const body = `<section class="sec pg-head pg-msg${o.ok === false ? " is-bad" : ""}">
   <div class="rail">
     <div class="pg-head__copy">
       <h1 class="t-title">${esc(o.heading)}</h1>
-      <p class="pg-head__lede">${o.message}</p>
+      <p class="pg-head__lede">${esc(o.message)}</p>
       ${o.form ?? `<p class="pg-msg__acts"><a class="btn btn--soft btn--sm" href="/">Back to classifier.dev</a></p>`}
     </div>
   </div>

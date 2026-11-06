@@ -134,8 +134,8 @@ export function blocks(body: string[]): string {
 
 export type Section = { title: string; id: string; body: string[] };
 
-/** An UPPERCASE heading, also with a lowercase aside in brackets ("ESCALATION (the smart tier)"). */
-const isHead = (l: string) => isHeading(l) || (/^[A-Z][A-Z0-9 ,/'-]{2,} \([a-z0-9 ,'-]+\)$/.test(l) && l.trim() === l);
+/** An UPPERCASE heading (src/pages.ts isHeading, which also takes a lowercase aside in brackets). */
+const isHead = isHeading;
 
 /** A document's title line, its lead (the text before the first heading) and its sections. */
 export function parse(doc: string): { title: string; lede: string[]; sections: Section[] } {

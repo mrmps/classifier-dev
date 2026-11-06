@@ -14,7 +14,6 @@ import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
-import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
 import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, TERMS, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
@@ -41,7 +40,6 @@ import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } 
 export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
-import { pricingHtml } from "./pricingui";
 import { siteHomeHtml, sitePolicy } from "./site/home";
 import { benchmarkPage, docPage, pricingPage, rowsPage } from "./site/pages";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";

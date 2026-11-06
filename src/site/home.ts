@@ -84,18 +84,19 @@ const DASHBOARD = '<a class="btn btn--soft btn--sm nav__login" href="/app">Dashb
 const MENU_DASHBOARD = '<a class="menu__row" href="/app">Dashboard</a>';
 const ROADMAP_SLOT = "<!--@roadmap-->";
 
-for (const marker of [LOGIN, MENU_LOGIN, ROADMAP_SLOT])
-  if (!HOME_TEMPLATE.includes(marker)) throw new Error(`site/home: the template lost ${marker}`);
 
 // Built on first use, not at import: the constants come from modules that import this one.
 let pages: { out: string; in: string } | null = null;
 function build() {
+  // Checked here, on the first request, so a broken template fails the page and not the Worker.
+  for (const marker of [LOGIN, MENU_LOGIN, ROADMAP_SLOT])
+    if (!HOME_TEMPLATE.includes(marker)) throw new Error(`site/home: the template lost ${marker}`);
   const page = fillValues(HOME_TEMPLATE)
     // The setup prompt the page copies and deep-links is the site's own, the one curl prints.
-    .replace(/data-agent-prompt="[^"]*"/, `data-agent-prompt="${esc(AGENT_PROMPT)}"`)
-    .replace(ROADMAP_SLOT, roadmapFields())
+    .replace(/data-agent-prompt="[^"]*"/, () => `data-agent-prompt="${esc(AGENT_PROMPT)}"`)
+    .replace(ROADMAP_SLOT, () => roadmapFields())
     // Search engines get the same structured data as before: the FAQ quotes the measured accuracies.
-    .replace("</head>", `${JSON_LD()}\n</head>`);
+    .replace("</head>", () => `${JSON_LD()}\n</head>`);
   return { out: page, in: page.replace(LOGIN, DASHBOARD).replace(MENU_LOGIN, MENU_DASHBOARD) };
 }
 
@@ -117,7 +118,7 @@ export function sitePolicy(origin: string, inlineScriptHashes: string[]): string
     `style-src ${site} 'unsafe-inline'`,
     `font-src ${site}`,
     `media-src ${site}`,
-    "img-src 'self' data: blob:",
+    "img-src 'self' data:",
     "connect-src 'self' https://classifier.dev",
     `manifest-src ${site}`,
     "form-action 'self'",

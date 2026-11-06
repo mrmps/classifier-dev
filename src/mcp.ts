@@ -1,3 +1,4 @@
+import { isHeading as isPlainHeading } from "./pages";
 import { SHARING_SCHEMA } from "./training-data";
 import { DIMENSIONS_SCHEMA } from "./dimensions";
 
@@ -480,8 +481,7 @@ function sections(doc: Doc): { heading: string; text: string }[] {
   const out: { heading: string; text: string }[] = [];
   let cur = { heading: doc.title, text: "" };
   for (const line of doc.text.split("\n")) {
-    const isHeading = /^#{1,3} /.test(line) || (/^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(line) && line.trim() === line);
-    if (isHeading) {
+    if (/^#{1,3} /.test(line) || isPlainHeading(line)) {
       if (cur.text.trim()) out.push(cur);
       cur = { heading: line.replace(/^#+ /, "").trim(), text: "" };
     } else cur.text += line + "\n";

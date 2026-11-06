@@ -278,7 +278,7 @@ export async function subscribe(
 export function confirmationPage(token: string, wants: ReadonlyArray<string> = [], desiredLatencyMs: number | null = null): string {
   const names = wantedNames(wants);
   const picked = [
-    names.length ? `You ticked: ${esc(names.join(", "))}.` : "",
+    names.length ? `You ticked: ${names.join(", ")}.` : "",
     desiredLatencyMs !== null ? `Desired latency: ${desiredLatencyMs} ms.` : "",
   ].filter(Boolean).join(" ");
   return messagePage({
@@ -341,5 +341,5 @@ export async function notify(
  * in that case, so the answer has to be a page rather than a JSON body.
  */
 export function resultPage(ok: boolean, message: string): string {
-  return messagePage({ title: "classifier.dev updates", heading: "classifier.dev updates", message: esc(message), ok });
+  return messagePage({ title: "classifier.dev updates", heading: "classifier.dev updates", message, ok });
 }

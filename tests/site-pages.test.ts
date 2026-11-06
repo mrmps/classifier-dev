@@ -53,3 +53,16 @@ test("the benchmark page charts what /benchmark publishes, section by section", 
   expect(b.html).not.toContain('class="codeblock"');
   for (const figure of ["87.7%", "91.6%", "82.0%", "43.4%", "0.887"]) expect(b.html).toContain(figure);
 });
+
+test("the pricing page keeps every term the text states, not only the ones the plans show", async () => {
+  const html = await page("/pricing");
+  for (const s of ["Auto recharge", "https://classifier.dev/app/credits", "whole dollars", "long_context_no_evidence"]) expect(html).toContain(s);
+});
+
+test("a message page names the home page's Markdown, which exists", async () => {
+  const { messagePage } = await import("../src/site/shell");
+  const html = messagePage({ title: "t", heading: "h", message: "<b>x</b>" });
+  expect(html).toContain('href="/index.md"');
+  expect(html).not.toContain('href="/.md"');
+  expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+});

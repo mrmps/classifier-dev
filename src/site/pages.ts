@@ -20,7 +20,18 @@ const SIDE: { group: string; pages: [string, string][] }[] = [
 ];
 const CHEV = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-export function docPage(o: { path: string; heading: string; title: string; desc: string; doc: string; signedIn?: boolean }): string {
+/** Pages are built from constants, so each (page, signed in) is rendered once per isolate. */
+const built = new Map<string, string>();
+const once = (key: string, make: () => string) => {
+  let html = built.get(key);
+  if (html === undefined) { html = make(); if (built.size < 64) built.set(key, html); }
+  return html;
+};
+
+export const docPage = (o: Parameters<typeof renderDocPage>[0]) => once(`doc|${o.path}|${!!o.signedIn}`, () => renderDocPage(o));
+export const rowsPage = (o: Parameters<typeof renderRowsPage>[0]) => once(`rows|${o.path}|${!!o.signedIn}`, () => renderRowsPage(o));
+
+function renderDocPage(o: { path: string; heading: string; title: string; desc: string; doc: string; signedIn?: boolean }): string {
   const d = parse(o.doc);
   const lede = ledeHtml(d.lede);
   const side = SIDE.map((g) => `<p class="dside__group">${esc(g.group)}</p><ul>${g.pages
@@ -78,7 +89,7 @@ function linkList(body: string[]): string | null {
   return `<ul class="plinks">${items.join("")}</ul>`;
 }
 
-export function rowsPage(o: { path: string; heading: string; title: string; desc: string; doc: string; signedIn?: boolean }): string {
+function renderRowsPage(o: { path: string; heading: string; title: string; desc: string; doc: string; signedIn?: boolean }): string {
   const d = parse(o.doc);
   const lede = ledeHtml(d.lede);
   const rows = d.sections.map((s) => {
@@ -187,7 +198,8 @@ export function benchmarkSections(doc: string) {
   return { title: d.title, lede: ledeHtml(d.lede).text, html: out.join("\n") };
 }
 
-export function benchmarkPage(doc: string, signedIn = false): string {
+export const benchmarkPage = (doc: string, signedIn = false) => once(`benchmark|${signedIn}`, () => renderBenchmarkPage(doc, signedIn));
+function renderBenchmarkPage(doc: string, signedIn = false): string {
   const b = benchmarkSections(doc);
   const body = `${headBlock("Benchmark", b.lede, `<p class="pg-head__meta"><a class="inline" href="https://github.com/mrmps/classifier-dev/tree/main/eval">eval/ on GitHub</a></p>`)}\n${b.html}`;
   return sitePage({ title: "Benchmark, classifier.dev", desc: "classifier.dev measured on public test sets: accuracy, calibration, escalation, multi-label and speed.", path: "/benchmark", kind: "benchmark", body, signedIn });
@@ -210,13 +222,18 @@ function prose(body: string[]): string[] {
   return out;
 }
 
-export function pricingPage(doc: string, signedIn = false): string {
+export const pricingPage = (doc: string, signedIn = false) => once(`pricing|${signedIn}`, () => renderPricingPage(doc, signedIn));
+function renderPricingPage(doc: string, signedIn = false): string {
   const d = parse(doc);
+  // Sections whose aligned figures the designed blocks above already show keep only their prose;
+  // the rest (pay as you go, for one) render whole, tables included.
+  const SHOWN = new Set(["free", "pro", "scale", "enterprise", "usage-prices", "rate-limits"]);
   const rows = [{ title: "Before you start", id: "before-you-start", body: d.lede }, ...d.sections]
-    .map((s) => ({ ...s, paras: prose(s.body) })).filter((s) => s.paras.length)
+    .map((s) => ({ ...s, html: SHOWN.has(s.id) || s.id === "before-you-start" ? prose(s.body).map((p) => `<p>${p}</p>`).join("") : blocks(s.body) }))
+    .filter((s) => s.html)
     .map((s) => `    <div class="cells prow" id="${s.id}">
       <div class="cell prow__head"><h2 class="prow__title">${esc(s.title)}</h2></div>
-      <div class="cell prow__body">${s.paras.map((p) => `<p>${p}</p>`).join("")}</div>
+      <div class="cell prow__body">${s.html}</div>
     </div>`).join("\n");
   const body = [
     headBlock("Pricing", "Try it without an API key, account or card. Create a workspace when you want usage credits, named API keys, shared billing and usage by connection."),

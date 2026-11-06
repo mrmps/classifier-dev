@@ -951,9 +951,6 @@ IF YOU ASK FOR UPDATES
   no IP, user agent, request id or workspace ID. Your IP gates the form as it
   gates the API and is not stored beside the address.
 
-  The updates bar on the home page keeps one flag in your browser's local
-  storage: that you closed it. It never leaves the browser.
-
   The address gets the updates and nothing else: never sold, shared or passed
   to an advertiser. Unsubscribe by replying to any mail, or ask at
   ${SITE.email} and the row is deleted, not flagged.
@@ -962,8 +959,9 @@ IF YOU ASK FOR UPDATES
 COOKIES AND BROWSER STORAGE
 
   Public classification needs no account. There are no advertising trackers.
-  The public pages load a syntax highlighter from
-  cdnjs.cloudflare.com; Content-Security-Policy restricts other sources.
+  The public pages load nothing from other sites; Content-Security-Policy
+  restricts them to this one. The chat keeps the conversation in the tab's
+  session storage, so it is gone when the tab closes.
   Signed-in dashboard access uses an HttpOnly session cookie managed by
   WorkOS AuthKit and a cookie for your selected workspace. Signing out clears
   dashboard session access and the selected workspace.
@@ -1094,7 +1092,7 @@ CHANGES, TERMINATION AND CONTACT
 // the copies drifted: the HTML page said "vs code" where the Markdown said "VS
 // code", and a block the Markdown fenced could have re-flowed as prose in HTML.
 
-/** A section heading: an UPPERCASE line, flush left, with at most a lowercase aside in brackets ("ESCALATION (the smart tier)"). */
+/** A section heading: an UPPERCASE line, flush left, with at most a lowercase aside in brackets ("ESCALATION (the smart tier)"). The docs MCP server (src/mcp.ts) splits on the same rule. */
 export const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}( \([a-z0-9 ,'-]+\))?$/.test(l) && l.trim() === l;
 
 /** The heading in sentence case, keeping the acronyms and product names the docs use. */
