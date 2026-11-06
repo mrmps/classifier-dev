@@ -582,7 +582,7 @@ print(res.json()["results"])</pre>
         <div class="plan__head"><h3 class="cell__title plan__name">Free</h3><p class="cell__body">For trying the API and shipping a first integration</p></div>
         <p class="plan__price"><span class="t-figure"><data value="plan.free.price">$0</data></span><span>always free</span></p>
         <a class="btn btn--soft plan__btn" href="/auth/sign-up">Start for free</a>
-        <ul class="plan__list"><li><svg class="i" aria-hidden="true"><use href="#i-coins"/></svg><span><data value="plan.free.credit">$5</data> signup credit</span></li><li><svg class="i" aria-hidden="true"><use href="#i-user"/></svg><span><data value="plan.free.seats">1</data> workspace seat</span></li><li><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg>Public access without an account</li><li><svg class="i" aria-hidden="true"><use href="#i-zap"/></svg>Fast and Smart classification</li></ul>
+        <ul class="plan__list"><li><svg class="i" aria-hidden="true"><use href="#i-coins"/></svg><span><data value="plan.free.credit">$5</data> credit, once at personal signup</span></li><li><svg class="i" aria-hidden="true"><use href="#i-user"/></svg><span><data value="plan.free.seats">1</data> workspace seat</span></li><li><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg>Public access without an account</li><li><svg class="i" aria-hidden="true"><use href="#i-zap"/></svg>Fast and Smart classification</li></ul>
       </div>
       <div class="cell plan plan--pick" data-rise>
         <div class="plan__head"><h3 class="cell__title plan__name">Pro</h3><p class="cell__body">For developers and personal agents in production</p></div>
@@ -779,7 +779,7 @@ print(res.json()["results"])</pre>
     </div>
     <ol class="cmsgs" aria-live="polite" aria-label="Conversation"></ol>
   </div>
-  <form class="chat__form">
+  <form class="chat__form" novalidate>
     <div class="chat__field">
       <textarea rows="1" placeholder="Ask, or paste texts to sort" aria-label="Message" required></textarea>
       <button type="submit" class="btn btn--ink btn--sm chat__send" aria-label="Send" disabled><svg class="i chat__go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chat__stop" aria-hidden="true"></span></button>

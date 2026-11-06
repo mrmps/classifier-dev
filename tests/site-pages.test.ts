@@ -66,3 +66,8 @@ test("a message page names the home page's Markdown, which exists", async () => 
   expect(html).not.toContain('href="/.md"');
   expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
 });
+
+test("a command's printed output is marked so Copy leaves it out", async () => {
+  const html = await page("/developers");
+  expect(html).toMatch(/<code class="language-bash">curl <a [^>]*>https:\/\/classifier\.dev\/spam[^<]*<\/a><\/code>\n<span class="out">spam<\/span>/);
+});

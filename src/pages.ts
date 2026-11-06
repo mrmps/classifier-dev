@@ -959,9 +959,9 @@ IF YOU ASK FOR UPDATES
 COOKIES AND BROWSER STORAGE
 
   Public classification needs no account. There are no advertising trackers.
-  The public pages load nothing from other sites; Content-Security-Policy
-  restricts them to this one. The chat keeps the conversation in the tab's
-  session storage, so it is gone when the tab closes.
+  The public pages load nothing from other sites. The chat keeps the
+  conversation in the tab's session storage, so it is gone when the tab
+  closes.
   Signed-in dashboard access uses an HttpOnly session cookie managed by
   WorkOS AuthKit and a cookie for your selected workspace. Signing out clears
   dashboard session access and the selected workspace.

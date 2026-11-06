@@ -6,7 +6,7 @@ export const PRICING_TOP = String.raw`<section class="sec" id="plans" aria-label
         <div class="plan__head"><h3 class="cell__title plan__name">Free</h3><p class="cell__body">For trying the API and shipping a first integration</p></div>
         <p class="plan__price"><span class="t-figure"><data value="plan.free.price">$0</data></span><span>always free</span></p>
         <a class="btn btn--soft plan__btn" href="/auth/sign-up">Start for free</a>
-        <ul class="plan__list"><li><svg class="i" aria-hidden="true"><use href="#i-coins"/></svg><span><data value="plan.free.credit">$5</data> signup credit</span></li><li><svg class="i" aria-hidden="true"><use href="#i-user"/></svg><span><data value="plan.free.seats">1</data> workspace seat</span></li><li><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg>Public access without an account</li><li><svg class="i" aria-hidden="true"><use href="#i-zap"/></svg>Fast and Smart classification</li></ul>
+        <ul class="plan__list"><li><svg class="i" aria-hidden="true"><use href="#i-coins"/></svg><span><data value="plan.free.credit">$5</data> credit, once at personal signup</span></li><li><svg class="i" aria-hidden="true"><use href="#i-user"/></svg><span><data value="plan.free.seats">1</data> workspace seat</span></li><li><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg>Public access without an account</li><li><svg class="i" aria-hidden="true"><use href="#i-zap"/></svg>Fast and Smart classification</li></ul>
       </div>
       <div class="cell plan plan--pick">
         <div class="plan__head"><h3 class="cell__title plan__name">Pro</h3><p class="cell__body">For developers and personal agents in production</p></div>

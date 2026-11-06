@@ -43,7 +43,7 @@ vec3 apply(vec2 uv, vec3 c) {
   float n = uA.x - 1.0;
   return floor(clamp(c, 0.0, 1.0) * n + 0.5 + t) / n;
 }`},posterize:{params:{levels:[5,2,16]},glsl:`
-vec3 apply(vec2 uv, vec3 c) { return floor(clamp(c, 0.0, 1.0) * uA.x) / max(uA.x - 1.0, 1.0); }`},threshold:{params:{level:[.5,0,1],softness:[.02,0,.3]},glsl:`
+vec3 apply(vec2 uv, vec3 c) { return min(floor(clamp(c, 0.0, 1.0) * uA.x), uA.x - 1.0) / max(uA.x - 1.0, 1.0); }`},threshold:{params:{level:[.5,0,1],softness:[.02,0,.3]},glsl:`
 vec3 apply(vec2 uv, vec3 c) { return vec3(smoothstep(uA.x - uA.y, uA.x + uA.y, luma(c))); }`},invert:{params:{},glsl:`
 vec3 apply(vec2 uv, vec3 c) { return 1.0 - clamp(c, 0.0, 1.0); }`},rgbShift:{params:{distance:[3,0,24],angle:[0,0,6.28]},glsl:`
 vec3 apply(vec2 uv, vec3 c) {

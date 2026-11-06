@@ -32,6 +32,25 @@ function linkUrls(text: string): string {
   }).join("");
 }
 
+/**
+ * A command block is what you type and what comes back. Commands are code; what they print is a dim
+ * .out span, which Copy leaves out (docs.js). A command runs on while a quote is open or a line ends in "\\".
+ */
+function commandCode(lines: string[]): string {
+  const parts: string[] = [];
+  let cmd: string[] = [], inCmd = false, open = false;
+  const flush = () => { if (cmd.length) parts.push(`<code class="language-bash">${linkUrls(cmd.join("\n"))}</code>`); cmd = []; };
+  for (const l of lines) {
+    if (!inCmd && isCommandBlock([l])) inCmd = true;
+    if (!inCmd) { flush(); parts.push(`<span class="out">${linkUrls(l)}</span>`); continue; }
+    cmd.push(l);
+    if ((l.match(/'/g) ?? []).length % 2) open = !open;
+    if (!open && !/\\$/.test(l)) inCmd = false;
+  }
+  flush();
+  return parts.join("\n");
+}
+
 const COPY = '<button type="button" class="copy" aria-label="Copy"><span class="swap"><span>Copy</span><span>Copied</span></span></button>';
 
 /** Column starts of an aligned line: 0, then wherever text resumes after two or more spaces. */
@@ -121,7 +140,7 @@ export function blocks(body: string[]): string {
     const text = lines.map((l) => l.slice(indent)).join("\n");
     // Marked by language like the plain-text pages' blocks: commands as bash, code by what it looks like.
     const lang = isCommandBlock(lines) ? "bash" : codeLang(lines);
-    const code = lang ? `<code class="language-${lang}">${linkUrls(text)}</code>` : linkUrls(text);
+    const code = lang === "bash" ? commandCode(text.split("\n")) : lang ? `<code class="language-${lang}">${linkUrls(text)}</code>` : linkUrls(text);
     out.push(`<div class="codeblock"><pre tabindex="0">${code}</pre>${COPY}</div>`);
   };
   for (const line of body) {

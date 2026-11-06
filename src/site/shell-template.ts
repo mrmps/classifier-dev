@@ -111,7 +111,7 @@ export const SHELL_SCRIPTS = String.raw`<!--chat-->
     </div>
     <ol class="cmsgs" aria-live="polite" aria-label="Conversation"></ol>
   </div>
-  <form class="chat__form">
+  <form class="chat__form" novalidate>
     <div class="chat__field">
       <textarea rows="1" placeholder="Ask, or paste texts to sort" aria-label="Message" required></textarea>
       <button type="submit" class="btn btn--ink btn--sm chat__send" aria-label="Send" disabled><svg class="i chat__go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chat__stop" aria-hidden="true"></span></button>
