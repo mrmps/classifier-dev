@@ -1,0 +1,2 @@
+BIZ UDPMincho (Morisawa) and Funnel Sans (NORD ID) are licensed under the SIL Open Font License 1.1.
+https://openfontlicense.org — sources: github.com/googlefonts/morisawa-biz-ud-mincho, github.com/Dicotype/Funnel

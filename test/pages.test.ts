@@ -40,11 +40,15 @@ describe("the HTML and the Markdown of a page agree", () => {
     for (const path of PAGES) {
       const fromHtml = htmlHeadings(await html(path));
       const fromMd = mdHeadings(await markdown(path === "/" ? "/index.md" : `${path}.md`));
-      // The home page adds its own sections, swaps UPDATES for the form, and
-      // keeps the agent-only feedback instructions out of the browser page.
-      const expected = path === "/" ? fromMd.filter((h) => !["Updates", "Agent feedback"].includes(h)) : fromMd;
-      for (const h of expected) expect(fromHtml).toContain(h);
-      if (path !== "/") expect(fromHtml).toEqual(fromMd);
+      // The home page is a designed page, not the document rendered: it names the
+      // document (the same text curl gets) as its Markdown alternate instead.
+      if (path === "/") {
+        const page = await html(path);
+        expect(page).toContain('<link rel="alternate" type="text/markdown" href="/index.md"');
+        expect(fromMd.length).toBeGreaterThan(3);
+        continue;
+      }
+      expect(fromHtml).toEqual(fromMd);
     }
   });
 
@@ -75,7 +79,7 @@ describe("agent feedback on the landing page", () => {
     const page = await html("/");
     expect(page).not.toContain('<a class="site-link" href="/.well-known/agent-feedback.json">Agent feedback</a>');
     expect(page).not.toContain("<h2><span class=\"syn\">## </span>Agent feedback</h2>");
-    expect(page).toContain('<a class="inline" href="/.well-known/agent-feedback.json">agent feedback</a>');
+    expect(page).toContain('<a href="/.well-known/agent-feedback.json">Agent feedback</a>');
   });
 });
 

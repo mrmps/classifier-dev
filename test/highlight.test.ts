@@ -41,7 +41,8 @@ describe("code blocks", () => {
   });
 
   test("the policy lets in highlight.js by its directory and nothing else from that host", async () => {
-    for (const path of ["/", "/developers", "/benchmark"]) {
+    // The home page loads no highlight.js; see "the home page's own policy" below.
+    for (const path of ["/developers", "/benchmark"]) {
       const csp = (await fetchPage(path)).headers.get("content-security-policy")!;
       const scriptSrc = csp.split("; ").find((d) => d.startsWith("script-src "))!;
       expect(scriptSrc).toContain(HL_ORIGIN);

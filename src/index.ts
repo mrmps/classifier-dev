@@ -42,6 +42,7 @@ export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
+import { siteHomeHtml, sitePolicy } from "./site/home";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
@@ -116,7 +117,7 @@ export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 // Jev packs a thousand short inputs into one upstream request; see jev.ts.
-const MAX_INPUTS = 1000;
+export const MAX_INPUTS = 1000;
 const MAX_LABELS = 100;
 // The LLM fallback answers single-label with one letter token, which caps it at
 // 26; past that it runs the multi-label prompt and keeps the top pick.
@@ -131,7 +132,7 @@ const CHUNKLAYA_MAX_INPUTS = 20;
 /** The schedule that runs the alert check rather than the digest. */
 const ALERT_CRON = "*/15 * * * *";
 // Smart tier: a fast answer below this confidence is re-asked of the reasoning chain.
-const ESCALATE_BELOW = 0.7;
+export const ESCALATE_BELOW = 0.7;
 
 /**
  * Each tier is a chain, not a single model. The primary is the cheapest thing
@@ -151,7 +152,7 @@ const ESCALATE_BELOW = 0.7;
  * deepseek-v4-flash do, of everything benchmarked. Multi-label answers carry no
  * confidence anyway, so that chain is free to pick on F1 and price alone.
  */
-const TIERS = {
+export const TIERS = {
   fast: {
     // A full 1,000-input batch must not lock the caller out for the rest of
     // the minute; the daily cap is the real ceiling.
@@ -248,9 +249,10 @@ const SECURITY = {
 const SCRIPT = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
 const policies = new Map<string, string>();
 
-async function pagePolicy(body: string): Promise<string> {
+async function pagePolicy(body: string, siteOrigin?: string): Promise<string> {
   const scripts = [...body.matchAll(SCRIPT)].map((m) => m[1]);
-  const cached = policies.get(scripts.join("\u0000"));
+  const key = (siteOrigin ? `site:${siteOrigin}\u0000` : "") + scripts.join("\u0000");
+  const cached = policies.get(key);
   if (cached) return cached;
   const hashes = await Promise.all(
     scripts.map(async (src) => {
@@ -258,6 +260,12 @@ async function pagePolicy(body: string): Promise<string> {
       return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
     }),
   );
+  // The redesigned home page loads its own files from /site/ (src/site/home.ts says which).
+  if (siteOrigin) {
+    const policy = sitePolicy(siteOrigin, hashes);
+    if (policies.size < 64) policies.set(key, policy);
+    return policy;
+  }
   const policy = [
     "default-src 'none'",
     // Our own scripts by hash, and highlight.js by its one directory on cdnjs
@@ -273,7 +281,7 @@ async function pagePolicy(body: string): Promise<string> {
     "frame-ancestors 'self'",
   ].join("; ");
   // Bounded by the number of distinct pages, which is a handful.
-  if (policies.size < 64) policies.set(scripts.join("\u0000"), policy);
+  if (policies.size < 64) policies.set(key, policy);
   return policy;
 }
 
@@ -466,7 +474,7 @@ const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
   });
 
 /** The rendered site. Same document as text(), for clients that asked for HTML. */
-const html = async (body: string, status = 200, extra: Record<string, string> = {}) =>
+const html = async (body: string, status = 200, extra: Record<string, string> = {}, siteOrigin?: string) =>
   new Response(body, {
     status,
     headers: {
@@ -474,7 +482,7 @@ const html = async (body: string, status = 200, extra: Record<string, string> = 
       "cache-control": "public, max-age=300",
       // Representations depend on Accept and agent-specific User-Agent handling.
       vary: "accept, user-agent, cookie",
-      "content-security-policy": await pagePolicy(body),
+      "content-security-policy": await pagePolicy(body, siteOrigin),
       ...CORS,
       ...SECURITY,
       ...extra,
@@ -1991,7 +1999,7 @@ const worker = {
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
         return html(unfurlHtml(), 200, { "cache-control": "public, max-age=3600", ...link });
       }
-      if (wantsHtml) return html(homeHtml({ signedIn }), 200, link);
+      if (wantsHtml) return html(siteHomeHtml({ signedIn }), 200, link, origin);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
     if (req.method === "GET" && path === "chat") {

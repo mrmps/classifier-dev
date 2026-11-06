@@ -522,7 +522,7 @@ export const META = (title: string, desc: string, path = "/") => `<meta name="de
  * it, and the three questions agents ask first. JSON-LD is how crawlers and
  * answer engines read identity without parsing prose.
  */
-const JSON_LD = () => {
+export const JSON_LD = () => {
   const graph = [
     {
       "@type": "SoftwareApplication",
