@@ -51,7 +51,7 @@ const cellsOf = (l: string) => l.trim().split(/\s{2,}/).reduce<string[]>((out, c
 }, []);
 
 /** A table whose header is underlined with dashes: rows split at runs of two or more spaces. */
-export function ruledTable(lines: string[]): { head: string[]; rows: string[][]; group: string; notes: string[] } | null {
+export function ruledTable(lines: string[]): { head: string[]; rows: string[][]; groups: string[]; notes: string[] } | null {
   const rows = lines.filter((l) => l.trim());
   const r = rows.findIndex((l) => RULE.test(l));
   if (r < 1) return null;
@@ -60,10 +60,10 @@ export function ruledTable(lines: string[]): { head: string[]; rows: string[][];
   const body = all.filter((c) => c.length === head.length);
   if (!body.length || body.length < all.length / 2) return null;
   // A row that does not fit the columns ("0.43 (parse failures)") is kept as a note under the table.
-  const notes = rows.slice(r + 1).filter((_, i) => all[i].length !== head.length).map((l) => l.trim().replace(/\s{2,}/g, " "));
+  const notes = all.filter((c) => c.length !== head.length).map((c) => c.join(" · "));
   // A second header line above names the column groups ("AG News", "emotion").
-  const group = r >= 2 ? cellsOf(rows[r - 2]).join(" · ") : "";
-  return { head, rows: body, group, notes };
+  const groups = r >= 2 ? cellsOf(rows[r - 2]) : [];
+  return { head, rows: body, groups, notes };
 }
 
 const tableHtml = (head: string[] | null, rows: string[][]) =>

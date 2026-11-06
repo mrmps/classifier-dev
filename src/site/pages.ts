@@ -15,7 +15,7 @@ const sections = (list: Section[]) => list.map((s) => `<h2 id="${s.id}">${esc(s.
 // ---------------------------------------------------------------- docs layout
 
 const SIDE: { group: string; pages: [string, string][] }[] = [
-  { group: "Developers", pages: [["/developers", "Developers"], ["/mcp-setup", "MCP setup"], ["/benchmark", "Benchmark"]] },
+  { group: "Docs", pages: [["/developers", "Developers"], ["/mcp-setup", "MCP setup"], ["/benchmark", "Benchmark"]] },
   { group: "Company", pages: [["/about", "About"], ["/contact", "Contact"], ["/privacy", "Privacy"], ["/terms", "Terms"]] },
 ];
 const CHEV = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -70,6 +70,11 @@ function actions(body: string[]): string {
     else if (/cal\.com\//.test(u)) out.set(u, "Book a call");
     else if (/^https:\/\/x\.com\/(\w+)/.test(u)) out.set(u, `@${u.split("/")[3]} on X`);
     else if (u.includes("@") && !u.startsWith("http")) out.set(`mailto:${u}`, u);
+    else if (/^https:\/\/github\.com\/[^/]+\/[^/]+$/.test(u)) out.set(u, "Source on GitHub");
+    else if (/^https:\/\/classifier\.dev\/(benchmark|mcp-setup|pricing|developers)$/.test(u)) {
+      const page = u.split("/").pop()!;
+      out.set(`/${page}`, { benchmark: "Benchmark", "mcp-setup": "MCP setup", pricing: "Pricing", developers: "Developers" }[page]!);
+    }
   }
   return [...out].slice(0, 3)
     .map(([href, label]) => `<a class="btn btn--soft btn--sm" href="${esc(href)}"${href.startsWith("http") ? ' target="_blank" rel="noopener"' : ""}>${esc(label)}</a>`).join("");
@@ -113,7 +118,7 @@ function bars(list: Bar[], label: string): string {
   return `<div class="bars" role="img" aria-label="${esc(label)}">${list.map((b) =>
     `<div class="bars__row${b.us ? " is-us" : ""}"><span class="bars__name">${esc(b.name)}${b.sub ? `<small>${esc(b.sub)}</small>` : ""}</span><span class="bars__track"><span class="bars__bar" style="--v:${(b.v / 100).toFixed(4)}"></span></span><span class="bars__num">${fmt(b.v)}</span></div>`).join("")}</div>`;
 }
-const card = (title: string, body: string, wide = false) => `<div class="cell bcard${wide ? " bcard--wide" : ""}"><h3 class="cell__title">${esc(title)}</h3>${body}</div>`;
+const card = (title: string, body: string, wide = false) => `<div class="cell bcard${wide ? " bcard--wide" : ""}">${title ? `<h3 class="cell__title">${esc(title)}</h3>` : ""}${body}</div>`;
 
 /** Prose paragraphs of a section (indented or not), and its preformatted blocks, apart. */
 function split(body: string[]) {
@@ -188,11 +193,17 @@ export function benchmarkSections(doc: string) {
       out.push(bsec(s, cards, foot));
       continue;
     }
-    // Everything else: its tables as tables, the rest as prose.
-    const cards = tables.map(({ p, t }) => t
-      ? card(t.group || s.title, `<div class="dtable btable"><table><thead><tr>${t.head.map((h, i) => `<th scope="col"${i ? ' class="n"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${t.rows
-        .map((r) => `<tr>${r.map((c, i) => `<td${i ? ' class="n"' : ""}>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.notes.map((n) => `<p class="cell__body bcard__note">${inline(n)}</p>`).join("")}`, true)
-      : card(s.title, blocks(p), true)).join("");
+    // Everything else: its tables as tables, the rest as prose. Column groups ("emotion, 122 uncertain")
+    // head the columns under them; the row for what the service runs is marked, as on the charts.
+    const cards = tables.map(({ p, t }) => {
+      if (!t) return card("", blocks(p), true);
+      const span = t.groups.length && (t.head.length - 1) % t.groups.length === 0 ? (t.head.length - 1) / t.groups.length : 0;
+      const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+      const groupRow = span ? `<tr><td></td>${t.groups.map((g) => `<th scope="colgroup" colspan="${span}" class="n">${esc(cap(g))}</th>`).join("")}</tr>` : "";
+      const ours = (r: string[], k: number) => /\((smart|fast)\)|classifier[-.]/.test(r[0]) || (key === "multi-label" && k === 0);
+      return card("", `<div class="dtable btable"><table><thead>${groupRow}<tr>${t.head.map((h, i) => `<th scope="col"${i ? ' class="n"' : ""}>${esc(cap(h))}</th>`).join("")}</tr></thead><tbody>${t.rows
+        .map((r, k) => `<tr${ours(r, k) ? ' class="is-us"' : ""}>${r.map((c, i) => `<td${i ? ' class="n"' : ""}>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.notes.map((n) => `<p class="cell__body bcard__note">${inline(n)}</p>`).join("")}`, true);
+    }).join("");
     out.push(bsec(s, cards, foot));
   }
   return { title: d.title, lede: ledeHtml(d.lede).text, html: out.join("\n") };
