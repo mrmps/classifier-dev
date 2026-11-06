@@ -15,7 +15,11 @@ const markdown = (path: string) => get(path, { accept: "text/markdown" });
 const PAGES = ["/", "/developers", "/benchmark", "/mcp-setup", "/pricing", "/privacy", "/terms", "/about", "/contact"];
 
 const hrefs = (page: string) => [...page.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
-const htmlHeadings = (page: string) => [...page.matchAll(/<h2>(?:<span class="syn">## <\/span>)?([^<]+)<\/h2>/g)].map((m) => m[1]);
+// The page's own headings: those in <main>, not the footer's column titles.
+const htmlHeadings = (page: string) => {
+  const main = page.includes("<main") ? page.slice(page.indexOf("<main"), page.indexOf("</main>")) : page;
+  return [...main.matchAll(/<h2(?: [^>]*)?>(?:<span class="syn">## <\/span>)?([^<]+)<\/h2>/g)].map((m) => m[1].replace(/&amp;/g, "&"));
+};
 const mdHeadings = (doc: string) => [...doc.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
 
 test("removed billing routes return not found", async () => {
@@ -120,10 +124,11 @@ describe("links in a rendered document", () => {
 /** A block a reader would paste into a shell gets a copy control, whatever the shell tool. */
 test("command blocks carry a copy button", async () => {
   const setup = await html("/mcp-setup");
-  expect(setup).toMatch(/<pre>(?:<code[^>]*>)?claude mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
-  expect(setup).toMatch(/<pre>(?:<code[^>]*>)?codex mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
+  // The redesigned pages: a code block is a <pre> followed by its copy button.
+  expect(setup).toMatch(/<pre[^>]*>(?:<code[^>]*>)?claude mcp add[^]*?<\/pre><button type="button" class="copy"/);
+  expect(setup).toMatch(/<pre[^>]*>(?:<code[^>]*>)?codex mcp add[^]*?<\/pre><button type="button" class="copy"/);
   const dev = await html("/developers");
-  expect(dev).toMatch(/<pre>(?:<code[^>]*>)?curl <a class="inline" href="https:\/\/classifier\.dev\/spam[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
+  expect(dev).toMatch(/<pre[^>]*>(?:<code[^>]*>)?curl <a class="inline" href="https:\/\/classifier\.dev\/spam[^]*?<\/pre><button type="button" class="copy"/);
 });
 
 /**

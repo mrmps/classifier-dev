@@ -1,0 +1,211 @@
+// The redesigned pages besides the home page: the shared shell (head, nav, art band, footer, scripts from
+// src/site/shell-template.ts) around the plain-text documents, rendered by src/site/doc.ts.
+//   docPage      developers, mcp-setup, privacy, terms: a sidebar of pages, the article, its contents
+//   rowsPage     about, contact: a row per section, its title and links on the left, the text on the right
+//   benchmarkPage  /benchmark: charts and tables from BENCHMARK and vs-jev.json
+import { esc } from "../ui";
+import { SHELL_FOOT, SHELL_HEAD, SHELL_NAV, SHELL_SCRIPTS } from "./shell-template";
+import { blocks, inline, ledeHtml, parse, ruledTable, slug, type Section } from "./doc";
+import VS_JEV from "../vs-jev.json";
+
+const LOGIN = /<a class="nav__login" href="\/login">Log in<\/a>/;
+const MENU_LOGIN = '<a class="menu__row" href="/login">Log in</a>';
+for (const [ok, what] of [[LOGIN.test(SHELL_NAV), "nav login"], [SHELL_NAV.includes(MENU_LOGIN), "menu login"], [SHELL_FOOT.includes('href="/index.md"'), "footer Markdown link"]] as const)
+  if (!ok) throw new Error(`site/pages: the shell lost its ${what}`);
+
+/** A whole page in the shell. `path` names the page's Markdown alternate (path + ".md"). */
+export function sitePage(o: { title: string; desc: string; path: string; kind: string; body: string; signedIn?: boolean }): string {
+  const md = `${o.path}.md`;
+  const head = SHELL_HEAD
+    .replace(/<title>[^<]*<\/title>/, `<title>${esc(o.title)}</title>`)
+    .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(o.desc)}">\n<link rel="alternate" type="text/markdown" href="${md}" title="This page as Markdown">`);
+  const nav = o.signedIn
+    ? SHELL_NAV.replace(LOGIN, '<a class="nav__login" href="/app">Dashboard</a>').replace(MENU_LOGIN, '<a class="menu__row" href="/app">Dashboard</a>')
+    : SHELL_NAV;
+  return `${head}</head>\n<body class="docs-page sub-page sub-page--${o.kind}">\n${nav}\n<main id="main">\n<div class="dband" aria-hidden="true"></div>\n${o.body}\n</main>\n\n${SHELL_FOOT.replace('href="/index.md"', `href="${md}"`)}\n\n${SHELL_SCRIPTS}\n</body>\n</html>\n`;
+}
+
+const sections = (list: Section[]) => list.map((s) => `<h2 id="${s.id}">${esc(s.title)}</h2>${blocks(s.body)}`).join("");
+
+// ---------------------------------------------------------------- docs layout
+
+const SIDE: { group: string; pages: [string, string][] }[] = [
+  { group: "Developers", pages: [["/developers", "Developers"], ["/mcp-setup", "MCP setup"], ["/benchmark", "Benchmark"]] },
+  { group: "Company", pages: [["/about", "About"], ["/contact", "Contact"], ["/privacy", "Privacy"], ["/terms", "Terms"]] },
+];
+const CHEV = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+export function docPage(o: { path: string; heading: string; title: string; desc: string; doc: string; signedIn?: boolean }): string {
+  const d = parse(o.doc);
+  const lede = ledeHtml(d.lede);
+  const side = SIDE.map((g) => `<p class="dside__group">${esc(g.group)}</p><ul>${g.pages
+    .map(([href, name]) => `<li><a href="${href}"${href === o.path ? ' aria-current="page"' : ""}>${esc(name)}</a></li>`).join("")}</ul>`).join("");
+  const body = `<div class="rail docs">
+  <aside class="dside" aria-label="Pages">
+    <button type="button" class="dside__toggle" id="dside-toggle" aria-expanded="false" aria-controls="dside-list"><span id="dside-current">${esc(o.heading)}</span>${CHEV}</button>
+    <div class="dside__list" id="dside-list"><nav aria-label="Pages">${side}</nav></div>
+  </aside>
+  <div class="dmain">
+<article class="darticle" data-title="${esc(o.heading)}"><header><h1 class="t-title" tabindex="-1">${esc(o.heading)}</h1>${lede.text ? `<p class="t-lede">${lede.text}</p>` : ""}</header>${lede.rest}${sections(d.sections)}</article>
+  </div>
+  <nav class="dtoc" id="dtoc" aria-label="On this page"></nav>
+</div>`;
+  return sitePage({ title: o.title, desc: o.desc, path: o.path, kind: "doc", body, signedIn: o.signedIn });
+}
+
+// ---------------------------------------------------------------- rows layout (about, contact)
+
+const headBlock = (title: string, lede: string, extra = "") => `<section class="sec pg-head">
+  <div class="rail">
+    <div class="pg-head__copy">
+      <h1 class="t-hero pg-head__title">${title}</h1>
+      ${lede ? `<p class="pg-head__lede">${lede}</p>` : ""}${extra}
+    </div>
+  </div>
+</section>`;
+
+/** The links a section mentions, as buttons beside its title. */
+function actions(body: string[]): string {
+  const text = body.join(" ");
+  const out = new Map<string, string>();
+  for (const m of text.matchAll(/https?:\/\/[^\s<>()"'`]+|[\w.+-]+@[\w-]+\.[\w.]+/g)) {
+    const u = m[0].replace(/[.,;:]+$/, "");
+    if (/github\.com\/[^/]+\/[^/]+\/issues/.test(u)) out.set(u, "Open an issue");
+    else if (/cal\.com\//.test(u)) out.set(u, "Book a call");
+    else if (/^https:\/\/x\.com\/(\w+)/.test(u)) out.set(u, `@${u.split("/")[3]} on X`);
+    else if (u.includes("@") && !u.startsWith("http")) out.set(`mailto:${u}`, u);
+  }
+  return [...out].slice(0, 3)
+    .map(([href, label]) => `<a class="btn btn--soft btn--sm" href="${esc(href)}"${href.startsWith("http") ? ' target="_blank" rel="noopener"' : ""}>${esc(label)}</a>`).join("");
+}
+
+/** A section whose every line starts with a link becomes a list of links: the page's name, then what it is for. */
+function linkList(body: string[]): string | null {
+  const lines = body.map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 2 || !lines.every((l) => /^https?:\/\//.test(l))) return null;
+  const items = lines.map((l) => {
+    const [url, ...rest] = l.split(/\s+/);
+    const href = url.replace(/^https:\/\/classifier\.dev/, "") || "/";
+    const name = href.replace(/^\//, "").replace(/[-/]/g, " ");
+    const what = rest.join(" ").replace(/^for /, "").replace(/[,.]$/, "");
+    return `<li><a href="${esc(href)}"><b>${esc(name.charAt(0).toUpperCase() + name.slice(1))}</b><span>${esc(what.charAt(0).toUpperCase() + what.slice(1))}</span><svg class="i" aria-hidden="true"><use href="#i-arrow-right"/></svg></a></li>`;
+  });
+  return `<ul class="plinks">${items.join("")}</ul>`;
+}
+
+export function rowsPage(o: { path: string; heading: string; title: string; desc: string; doc: string; signedIn?: boolean }): string {
+  const d = parse(o.doc);
+  const lede = ledeHtml(d.lede);
+  const rows = d.sections.map((s) => {
+    const list = linkList(s.body);
+    const acts = list ? "" : actions(s.body);
+    return `    <div class="cells prow" id="${s.id}">
+      <div class="cell prow__head"><h2 class="prow__title">${esc(s.title)}</h2>${acts ? `<div class="prow__acts">${acts}</div>` : ""}</div>
+      <div class="cell prow__body">${list ?? blocks(s.body)}</div>
+    </div>`;
+  }).join("\n");
+  const body = `${headBlock(esc(o.heading), lede.text)}\n<section class="sec prows">\n  <div class="rail">\n${rows}\n  </div>\n</section>`;
+  return sitePage({ title: o.title, desc: o.desc, path: o.path, kind: "rows", body, signedIn: o.signedIn });
+}
+
+// ---------------------------------------------------------------- benchmark
+
+type Bar = { name: string; sub?: string; v: number; us?: boolean };
+const pctOf = (s: string) => (/^~?\d+(\.\d+)?%$/.test(s) ? Number(s.replace(/[~%]/g, "")) : NaN);
+const fmt = (v: number) => `${v.toFixed(1)}%`;
+function bars(list: Bar[], label: string): string {
+  return `<div class="bars" role="img" aria-label="${esc(label)}">${list.map((b) =>
+    `<div class="bars__row${b.us ? " is-us" : ""}"><span class="bars__name">${esc(b.name)}${b.sub ? `<small>${esc(b.sub)}</small>` : ""}</span><span class="bars__track"><span class="bars__bar" style="--v:${(b.v / 100).toFixed(4)}"></span></span><span class="bars__num">${fmt(b.v)}</span></div>`).join("")}</div>`;
+}
+const card = (title: string, body: string, wide = false) => `<div class="cell bcard${wide ? " bcard--wide" : ""}"><h3 class="cell__title">${esc(title)}</h3>${body}</div>`;
+
+/** Prose paragraphs of a section (indented or not), and its preformatted blocks, apart. */
+function split(body: string[]) {
+  const paras: string[] = [], pres: string[][] = [];
+  let buf: string[] = [];
+  const flush = () => {
+    if (!buf.length) return;
+    if (buf.some((l) => /^\s*-{5,}\s*$/.test(l)) || buf.every((l) => /^\s{3,}/.test(l))) pres.push(buf);
+    else paras.push(inline(buf.map((l) => l.trim()).join(" ")));
+    buf = [];
+  };
+  for (const l of body) { if (!l.trim()) flush(); else buf.push(l); }
+  flush();
+  return { paras, pres };
+}
+
+function bsec(s: Section, cards: string, foot: string[]): string {
+  const { paras } = split(s.body);
+  const lede = paras[0] ?? "";
+  return `<section class="sec bsec" id="${s.id}" aria-labelledby="${s.id}-t">
+  <div class="rail">
+    <div class="sec-head"><div class="sec-head__copy"><h2 class="t-title" id="${s.id}-t">${esc(s.title)}</h2>${lede ? `<p class="t-body">${lede}</p>` : ""}</div></div>
+    ${cards ? `<div class="cells cells--2">${cards}</div>` : ""}${foot.map((f) => `<p class="bsec__foot">${f}</p>`).join("")}
+  </div>
+</section>`;
+}
+
+type Summary = { n: number; unsure: number; rows: Record<string, { acc: number; acc_unsure: number }> };
+const SETS: Record<string, string> = { ag_news: "AG News", emotion: "Emotion" };
+
+export function benchmarkSections(doc: string) {
+  const d = parse(doc);
+  const out: string[] = [];
+  for (const s of d.sections) {
+    const { paras, pres } = split(s.body);
+    // The sign-off ("Built by …") is the footer's job on this page.
+    const foot = paras.slice(1).filter((p) => !/^Built by /.test(p));
+    const key = s.id.replace(/-the-smart-tier$/, "");
+    if (key === "against-the-model-it-runs-on") {
+      const summary = VS_JEV.summary as unknown as Record<string, Summary>;
+      const cards = Object.entries(summary).filter(([k]) => SETS[k]).map(([k, x]) => card(SETS[k], bars([
+        { name: "Fast", sub: `all ${x.n}`, v: x.rows.jev.acc * 100 },
+        { name: "Smart", sub: `all ${x.n}`, v: x.rows.smart.acc * 100, us: true },
+        { name: "Fast", sub: `the ${x.unsure} Jev was unsure about`, v: x.rows.jev.acc_unsure * 100 },
+        { name: "Smart", sub: `the ${x.unsure} Jev was unsure about`, v: x.rows.smart.acc_unsure * 100, us: true },
+      ], `${SETS[k]}: Fast and Smart, overall and on the items Jev was unsure about`))).join("");
+      out.push(bsec(s, cards, foot));
+      continue;
+    }
+    const tables = pres.map((p) => ({ p, t: ruledTable(p) }));
+    if (key === "single-label" && tables[0]?.t) {
+      const { head, rows } = tables[0].t;
+      const sets = head.map((h, i) => [h, i] as const).filter(([, i]) => i > 0 && rows.some((r) => !Number.isNaN(pctOf(r[i]))));
+      const others = head.map((h, i) => [h, i] as const).filter(([, i]) => i > 0 && !sets.some(([, j]) => j === i));
+      const cap = (h: string) => h.charAt(0).toUpperCase() + h.slice(1);
+      const cards = sets.map(([h, i]) => card(`${cap(h)} accuracy`, bars(rows.filter((r) => !Number.isNaN(pctOf(r[i]))).map((r, k) => {
+        const m = r[0].match(/^(.*?)\s*\((.*)\)$/) ?? r[0].match(/^(.*?),\s*(.*)$/);
+        return { name: m ? m[1] : r[0], sub: m ? m[2] : undefined, v: pctOf(r[i]), us: k === 0 };
+      }), `${h} accuracy`))).join("")
+        + card("Speed and cost", `<div class="dtable btable"><table><thead><tr><th scope="col">${esc(head[0])}</th>${others.map(([h]) => `<th scope="col" class="n">${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows
+          .map((r, k) => `<tr${k === 0 ? ' class="is-us"' : ""}><td>${esc(r[0])}</td>${others.map(([, i]) => `<td class="n">${esc(r[i])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`, true);
+      out.push(bsec(s, cards, foot));
+      continue;
+    }
+    if (key === "calibration") {
+      const rows = s.body.map((l) => l.match(/^\s*([[(][\d.]+,\s*[\d.]+[\])])\s+(\d+)\s+([\d.]+%)\s+(\d+)\s+([\d.]+%)\s*$/)).filter(Boolean) as RegExpMatchArray[];
+      const label = (b: string) => { const [lo, hi] = b.slice(1, -1).split(/,\s*/); return lo === "0.0" ? `Below ${hi}` : `${lo} to ${hi}`; };
+      const cards = rows.length
+        ? card("AG News", bars(rows.map((r, k) => ({ name: label(r[1]), sub: `${r[2]} items`, v: pctOf(r[3]), us: k === 0 })), "AG News accuracy by confidence"))
+          + card("Emotion", bars(rows.map((r, k) => ({ name: label(r[1]), sub: `${r[4]} items`, v: pctOf(r[5]), us: k === 0 })), "Emotion accuracy by confidence"))
+        : "";
+      out.push(bsec(s, cards, foot));
+      continue;
+    }
+    // Everything else: its tables as tables, the rest as prose.
+    const cards = tables.map(({ p, t }) => t
+      ? card(t.group || s.title, `<div class="dtable btable"><table><thead><tr>${t.head.map((h, i) => `<th scope="col"${i ? ' class="n"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${t.rows
+        .map((r) => `<tr>${r.map((c, i) => `<td${i ? ' class="n"' : ""}>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${t.notes.map((n) => `<p class="cell__body bcard__note">${inline(n)}</p>`).join("")}`, true)
+      : card(s.title, blocks(p), true)).join("");
+    out.push(bsec(s, cards, foot));
+  }
+  return { title: d.title, lede: ledeHtml(d.lede).text, html: out.join("\n") };
+}
+
+export function benchmarkPage(doc: string, signedIn = false): string {
+  const b = benchmarkSections(doc);
+  const body = `${headBlock("Benchmark", b.lede, `<p class="pg-head__meta"><a class="inline" href="https://github.com/mrmps/classifier-dev/tree/main/eval">eval/ on GitHub</a></p>`)}\n${b.html}`;
+  return sitePage({ title: "Benchmark, classifier.dev", desc: "classifier.dev measured on public test sets: accuracy, calibration, escalation, multi-label and speed.", path: "/benchmark", kind: "benchmark", body, signedIn });
+}
+
+export { slug };

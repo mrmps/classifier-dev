@@ -1094,8 +1094,8 @@ CHANGES, TERMINATION AND CONTACT
 // the copies drifted: the HTML page said "vs code" where the Markdown said "VS
 // code", and a block the Markdown fenced could have re-flowed as prose in HTML.
 
-/** A section heading: an UPPERCASE line, flush left. */
-export const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}$/.test(l) && l.trim() === l;
+/** A section heading: an UPPERCASE line, flush left, with at most a lowercase aside in brackets ("ESCALATION (the smart tier)"). */
+export const isHeading = (l: string) => /^[A-Z][A-Z0-9 ,/()'-]{2,}( \([a-z0-9 ,'-]+\))?$/.test(l) && l.trim() === l;
 
 /** The heading in sentence case, keeping the acronyms and product names the docs use. */
 export function headingTitle(line: string): string {

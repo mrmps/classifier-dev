@@ -300,11 +300,11 @@ export const HOME_TEMPLATE = String.raw`<!doctype html>
     </div>
     <div class="uses" data-rise>
       <div class="uses__nav" role="tablist" aria-orientation="vertical" aria-label="Use cases" data-tabs="uses">
-        <button role="tab" id="ut-search" aria-controls="up-search" aria-selected="true"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg></span><span class="uses__t">Filter search results</span><span class="uses__d">Your agent reads 7 results, not 40</span></button>
-        <button role="tab" id="ut-tickets" aria-controls="up-tickets" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-ticket"/></svg></span><span class="uses__t">Route support tickets</span><span class="uses__d">The sure ones route themselves</span></button>
-        <button role="tab" id="ut-logs" aria-controls="up-logs" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-scroll-text"/></svg></span><span class="uses__t">Bucket logs and errors</span><span class="uses__d">Thousands of lines, a handful of buckets</span></button>
-        <button role="tab" id="ut-pre" aria-controls="up-pre" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg></span><span class="uses__t">Pre-filter before an LLM</span><span class="uses__d">Spend reasoning only on what's left</span></button>
-        <button role="tab" id="ut-mod" aria-controls="up-mod" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-shield-check"/></svg></span><span class="uses__t">Moderate uploads</span><span class="uses__d">Images and clips, before they go live</span></button>
+        <button role="tab" id="ut-search" aria-controls="up-search" aria-selected="true"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg></span><span class="uses__t">Filter search results</span><span class="uses__d"><span>Your agent reads 7 results, not 40</span></span></button>
+        <button role="tab" id="ut-tickets" aria-controls="up-tickets" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-ticket"/></svg></span><span class="uses__t">Route support tickets</span><span class="uses__d"><span>The sure ones route themselves</span></span></button>
+        <button role="tab" id="ut-logs" aria-controls="up-logs" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-scroll-text"/></svg></span><span class="uses__t">Bucket logs and errors</span><span class="uses__d"><span>Thousands of lines, a handful of buckets</span></span></button>
+        <button role="tab" id="ut-pre" aria-controls="up-pre" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg></span><span class="uses__t">Pre-filter before an LLM</span><span class="uses__d"><span>Spend reasoning only on what's left</span></span></button>
+        <button role="tab" id="ut-mod" aria-controls="up-mod" aria-selected="false" tabindex="-1"><span class="uses__ico"><svg class="i" aria-hidden="true"><use href="#i-shield-check"/></svg></span><span class="uses__t">Moderate uploads</span><span class="uses__d"><span>Images and clips, before they go live</span></span></button>
       </div>
       <div class="tab-panels uses__panels">
         <div class="use-panel" role="tabpanel" id="up-search" aria-labelledby="ut-search">
@@ -686,18 +686,16 @@ print(res.json()["results"])</pre>
 <footer class="foot">
   <div class="rail">
     <div class="cells foot__updates" id="updates">
-      <div class="cell foot__updates-head">
-        <h2 class="cell__title">Get the updates</h2>
-        <p class="cell__body">One email when something new ships. Nothing in between.</p>
+      <div class="cell upd2">
+        <p class="upd2__say">Get an email when something new ships.</p>
+        <form class="upd" method="post" action="/subscribe" data-subscribe>
+          <div class="upd2__field">
+            <input class="upd__email" type="email" name="email" required autocomplete="email" spellcheck="false" placeholder="you@example.com" aria-label="Your email address">
+            <button type="submit" class="upd2__go" aria-label="Subscribe"><span>Subscribe</span><svg class="i" aria-hidden="true"><use href="#i-arrow-right"/></svg></button>
+          </div>
+          <p class="upd__said" role="alert" data-say></p>
+        </form>
       </div>
-      <form class="cell upd" method="post" action="/subscribe" data-subscribe>
-        <div class="upd__row">
-          <input class="upd__email" type="email" name="email" required autocomplete="email" spellcheck="false" placeholder="you@example.com" aria-label="Your email address">
-          <button type="submit" class="btn btn--ink">Subscribe</button>
-        </div>
-        <p class="upd__said" role="alert" data-say></p>
-        <p class="upd__terms">Confirm by email. Unsubscribe by replying.</p>
-      </form>
     </div>
     <div class="cells foot__cells">
       <div class="cell foot__brand">
@@ -767,6 +765,7 @@ print(res.json()["results"])</pre>
 <script src="/site/motion.js" defer></script>
 <script src="/site/uses.js" defer></script>
 <script type="module" src="/site/signal.js"></script>
+<script src="/site/chat.js" defer></script>
 <script src="/site/brand.js" defer></script>
 </body>
 </html>

@@ -43,6 +43,7 @@ export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
 import { siteHomeHtml, sitePolicy } from "./site/home";
+import { benchmarkPage, docPage, rowsPage } from "./site/pages";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
@@ -380,6 +381,9 @@ function notFound(req: Request, origin: string) {
     404,
   );
 }
+
+/** How the redesigned pages name each plain-text page in their header. */
+const SITE_HEADINGS: Record<string, string> = { developers: "Developers", "mcp-setup": "MCP setup", about: "About classifier.dev", contact: "Contact", privacy: "Privacy", terms: "Terms" };
 
 /** The plain-text pages and how each is described to browsers and crawlers. */
 const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = {
@@ -1766,19 +1770,13 @@ const worker = {
       const pg = PAGE_DOCS[pageKey];
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
-      if (pageWantsHtml)
-        return html(
-          pageKey === "pricing"
-            ? pricingHtml(signedIn)
-            : docHtml({
-                title: pg.title,
-                desc: pg.desc,
-                doc: pg.doc,
-                path: `/${pageKey}`,
-                here: pageKey,
-                signedIn,
-              }),
-        );
+      if (pageWantsHtml) {
+        // Pricing keeps its own page for now; the rest render their text in the redesigned layouts.
+        if (pageKey === "pricing") return html(pricingHtml(signedIn));
+        const heading = SITE_HEADINGS[pageKey] ?? pg.title;
+        const page = { path: `/${pageKey}`, heading, title: `${heading}, classifier.dev`, desc: pg.desc, doc: pg.doc, signedIn };
+        return html(pageKey === "about" || pageKey === "contact" ? rowsPage(page) : docPage(page), 200, {}, origin);
+      }
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
     }
 
@@ -2003,7 +2001,8 @@ const worker = {
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
     if (req.method === "GET" && path === "chat") {
-      if (wantsHtml) return html(homeHtml({ chat: true, signedIn }), 200, { link: LINKS(origin) });
+      // The home page; its chat panel opens itself at /chat.
+      if (wantsHtml) return html(siteHomeHtml({ signedIn }), 200, { link: LINKS(origin) }, origin);
       return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
     }
 
@@ -2014,7 +2013,7 @@ const worker = {
       if (path === "benchmark.md" || wantsMarkdown) {
         return markdown(toMarkdown(BENCHMARK, { title: "classifier.dev benchmark", canonical: `${origin}/benchmark`, description: "Measured accuracy, calibration, cost and latency." }));
       }
-      if (wantsHtml) return html(benchmarkHtml(signedIn));
+      if (wantsHtml) return html(benchmarkPage(BENCHMARK, signedIn), 200, {}, origin);
       return text(BENCHMARK, 200, { vary: "accept" });
     }
     if (path === "robots.txt") return text(robotsTxt(origin), 200, CACHE_HOUR);

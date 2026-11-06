@@ -69,7 +69,7 @@ test("the prices and limits on the page are the ones the service enforces", () =
 
 test("the updates form asks only for an email and posts to /subscribe", () => {
   const html = siteHomeHtml();
-  const form = html.slice(html.indexOf('<form class="cell upd"'), html.indexOf("</form>", html.indexOf('<form class="cell upd"')));
+  const form = html.slice(html.indexOf('<form class="upd"'), html.indexOf("</form>", html.indexOf('<form class="upd"')));
   expect(form).toContain('action="/subscribe"');
   expect(form).toContain('type="email" name="email" required');
   expect(form).not.toContain('name="wants"');
