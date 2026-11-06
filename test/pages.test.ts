@@ -52,6 +52,8 @@ describe("the HTML and the Markdown of a page agree", () => {
         expect(fromMd.length).toBeGreaterThan(3);
         continue;
       }
+      // Pricing puts its designed plans above the text, so it has headings of its own besides every one the text has.
+      if (path === "/pricing") { for (const h of fromMd) expect(fromHtml).toContain(h); continue; }
       expect(fromHtml).toEqual(fromMd);
     }
   });

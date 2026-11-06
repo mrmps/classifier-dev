@@ -50,6 +50,9 @@ export function siteValues(): Record<string, string> {
     "smart.below": `${Math.round(ESCALATE_BELOW * 100)}%`,
     "max.inputs": count(MAX_INPUTS),
     "long.tokens": words(LONG_CONTEXT_JOB_MAX_TOKENS),
+    // Rate limits per plan: the free tier's, times the plan's multiplier (the pricing page).
+    ...Object.fromEntries(([["free", free], ["pro", pro], ["scale", scale]] as const).flatMap(([k, plan]) =>
+      (["fast", "smart"] as const).map((t) => [`lim.${k}.${t}`, `${count(TIERS[t].rpm * plan.rateLimitMultiplier)}/min · ${count(TIERS[t].daily * plan.rateLimitMultiplier)}/day`]))),
   };
 }
 

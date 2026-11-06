@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import worker, { type Env, ESCALATE_BELOW, MAX_INPUTS, TIERS } from "../src/index";
 import { siteHomeHtml, siteValues, fillValues } from "../src/site/home";
 import { HOME_TEMPLATE } from "../src/site/home-template";
+import { PRICING_TOP } from "../src/site/pricing-template";
 import { BILLING_PLANS } from "../src/lib/billing";
 import { BENCHMARK } from "../src/docs";
 import VS_JEV from "../src/vs-jev.json";
@@ -46,7 +47,7 @@ test("signed in, the nav offers the dashboard instead of logging in", () => {
 });
 
 test("every value the design names is filled from the constants, and none is left over", () => {
-  const keys = new Set([...HOME_TEMPLATE.matchAll(/<data value="([a-z0-9.-]+)">/g)].map((m) => m[1]));
+  const keys = new Set([...(HOME_TEMPLATE + PRICING_TOP).matchAll(/<data value="([a-z0-9.-]+)">/g)].map((m) => m[1]));
   const values = siteValues();
   expect([...keys].sort()).toEqual(Object.keys(values).sort());
   expect(() => fillValues('<data value="nope">1</data>')).toThrow();

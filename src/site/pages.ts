@@ -7,6 +7,8 @@ import { esc } from "../ui";
 import { sitePage } from "./shell";
 import { blocks, inline, ledeHtml, parse, ruledTable, slug, type Section } from "./doc";
 import VS_JEV from "../vs-jev.json";
+import { PRICING_TOP } from "./pricing-template";
+import { fillValues } from "./home";
 
 const sections = (list: Section[]) => list.map((s) => `<h2 id="${s.id}">${esc(s.title)}</h2>${blocks(s.body)}`).join("");
 
@@ -192,5 +194,37 @@ export function benchmarkPage(doc: string, signedIn = false): string {
 }
 
 export { slug };
+
+// ---------------------------------------------------------------- pricing
+
+/** A section's prose paragraphs; its aligned key-value lines are what the designed blocks above show. */
+function prose(body: string[]): string[] {
+  const out: string[] = [];
+  let buf: string[] = [];
+  const flush = () => {
+    if (buf.length && !buf.some((l) => /\S {2,}\S/.test(l.trim())) && !/^\s{4,}/.test(buf[0])) out.push(inline(buf.map((l) => l.trim()).join(" ")));
+    buf = [];
+  };
+  for (const l of body) { if (!l.trim()) flush(); else buf.push(l); }
+  flush();
+  return out;
+}
+
+export function pricingPage(doc: string, signedIn = false): string {
+  const d = parse(doc);
+  const rows = [{ title: "Before you start", id: "before-you-start", body: d.lede }, ...d.sections]
+    .map((s) => ({ ...s, paras: prose(s.body) })).filter((s) => s.paras.length)
+    .map((s) => `    <div class="cells prow" id="${s.id}">
+      <div class="cell prow__head"><h2 class="prow__title">${esc(s.title)}</h2></div>
+      <div class="cell prow__body">${s.paras.map((p) => `<p>${p}</p>`).join("")}</div>
+    </div>`).join("\n");
+  const body = [
+    headBlock("Pricing", "Try it without an API key, account or card. Create a workspace when you want usage credits, named API keys, shared billing and usage by connection."),
+    fillValues(PRICING_TOP),
+    '<section class="sec pg-sub"><div class="rail"><div class="sec-head"><div class="sec-head__copy"><h2 class="t-title">Details</h2><p class="t-body">The fine print, as the plain-text pricing page has it.</p></div></div></div></section>',
+    `<section class="sec prows">\n  <div class="rail">\n${rows}\n  </div>\n</section>`,
+  ].join("\n");
+  return sitePage({ title: "Pricing, classifier.dev", desc: "Start free, then add a workspace plan for usage credits, API keys and billing.", path: "/pricing", kind: "pricing", body, signedIn });
+}
 
 export { sitePage, messagePage } from "./shell";

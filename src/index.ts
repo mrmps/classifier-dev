@@ -43,7 +43,7 @@ export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
 import { pricingHtml } from "./pricingui";
 import { siteHomeHtml, sitePolicy } from "./site/home";
-import { benchmarkPage, docPage, rowsPage } from "./site/pages";
+import { benchmarkPage, docPage, pricingPage, rowsPage } from "./site/pages";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
@@ -1771,8 +1771,8 @@ const worker = {
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
       if (pageWantsHtml) {
-        // Pricing keeps its own page for now; the rest render their text in the redesigned layouts.
-        if (pageKey === "pricing") return html(pricingHtml(signedIn));
+        // Every page renders its text in the redesigned layouts; pricing adds its designed plans on top.
+        if (pageKey === "pricing") return html(pricingPage(PRICING, signedIn), 200, {}, origin);
         const heading = SITE_HEADINGS[pageKey] ?? pg.title;
         const page = { path: `/${pageKey}`, heading, title: `${heading}, classifier.dev`, desc: pg.desc, doc: pg.doc, signedIn };
         return html(pageKey === "about" || pageKey === "contact" ? rowsPage(page) : docPage(page), 200, {}, origin);
