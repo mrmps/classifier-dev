@@ -3,7 +3,6 @@ import worker, { type Env, ESCALATE_BELOW, MAX_INPUTS, TIERS } from "../src/inde
 import { siteHomeHtml, siteValues, fillValues } from "../src/site/home";
 import { HOME_TEMPLATE } from "../src/site/home-template";
 import { BILLING_PLANS } from "../src/lib/billing";
-import { ROADMAP } from "../src/newsletter";
 import { BENCHMARK } from "../src/docs";
 import VS_JEV from "../src/vs-jev.json";
 
@@ -68,11 +67,12 @@ test("the prices and limits on the page are the ones the service enforces", () =
   has("rate.web", "$2.20");
 });
 
-test("the updates form is built from the roadmap and posts to /subscribe", () => {
+test("the updates form asks only for an email and posts to /subscribe", () => {
   const html = siteHomeHtml();
-  expect(html).toContain('action="/subscribe"');
-  for (const r of ROADMAP) expect(html).toContain(`id="want-${r.key}" type="checkbox" name="wants" value="${r.key}"`);
-  expect(html).not.toContain("<!--@roadmap-->");
+  const form = html.slice(html.indexOf('<form class="cell upd"'), html.indexOf("</form>", html.indexOf('<form class="cell upd"')));
+  expect(form).toContain('action="/subscribe"');
+  expect(form).toContain('type="email" name="email" required');
+  expect(form).not.toContain('name="wants"');
 });
 
 test("every benchmark figure on the page is one /benchmark publishes", () => {

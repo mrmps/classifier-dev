@@ -690,20 +690,13 @@ print(res.json()["results"])</pre>
         <h2 class="cell__title">Get the updates</h2>
         <p class="cell__body">One email when something new ships. Nothing in between.</p>
       </div>
-      <form class="cell upd" method="post" action="/subscribe" data-subscribe data-step="1">
+      <form class="cell upd" method="post" action="/subscribe" data-subscribe>
         <div class="upd__row">
           <input class="upd__email" type="email" name="email" required autocomplete="email" spellcheck="false" placeholder="you@example.com" aria-label="Your email address">
-          <button type="submit" class="btn btn--ink" data-next>Subscribe</button>
+          <button type="submit" class="btn btn--ink">Subscribe</button>
         </div>
-        <p class="upd__who" hidden><span data-who></span><button type="button" class="upd__change" data-change>Change</button></p>
-        <div class="upd__more">
-          <fieldset class="upd__pick"><legend class="upd__legend">What would you use first? Optional.</legend>
-        <!--@roadmap-->
-          </fieldset>
-          <div class="upd__acts"><button type="submit" class="btn btn--ink btn--sm" data-done>Done</button><button type="submit" class="btn btn--soft btn--sm" data-skip>Skip</button></div>
-        </div>
-        <p class="upd__said" role="status" aria-live="polite" data-say></p>
-        <p class="upd__terms">Confirm by email. Your address and what you ticked are kept apart from API traffic. Unsubscribe by replying.</p>
+        <p class="upd__said" role="alert" data-say></p>
+        <p class="upd__terms">Confirm by email. Your address is kept apart from API traffic. Unsubscribe by replying.</p>
       </form>
     </div>
     <div class="cells foot__cells">
