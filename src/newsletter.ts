@@ -28,6 +28,7 @@
  * using the same DATABASE_URL as the account application.
  */
 
+import { messagePage } from "./site/shell";
 import type { Env } from "./index";
 import { btn, esc, page } from "./ui";
 
@@ -276,19 +277,19 @@ export async function subscribe(
 /** GET is read-only: scanners must not activate subscriptions by opening a link. */
 export function confirmationPage(token: string, wants: ReadonlyArray<string> = [], desiredLatencyMs: number | null = null): string {
   const names = wantedNames(wants);
-  return page({
+  const picked = [
+    names.length ? `You ticked: ${names.join(", ")}.` : "",
+    desiredLatencyMs !== null ? `Desired latency: ${desiredLatencyMs} ms.` : "",
+  ].filter(Boolean).join(" ");
+  return messagePage({
     title: "confirm subscription · classifier.dev",
-    body: `<div class="page"><main><article class="doc prose">
-      <header><h1>Confirm your subscription</h1></header>
-      <p>Get one email when a classifier.dev roadmap item ships.</p>
-      ${names.length ? `<p class="quote">You ticked: ${esc(names.join(", "))}.</p>` : ""}
-      ${desiredLatencyMs !== null ? `<p class="quote">Desired latency: ${desiredLatencyMs} ms.</p>` : ""}
-      <form method="post" action="/${CONFIRM_PATH}">
+    heading: "Confirm your subscription",
+    message: `Get one email when a classifier.dev roadmap item ships.${picked ? ` ${picked}` : ""}`,
+    form: `<form method="post" action="/${CONFIRM_PATH}" class="pg-msg__acts">
         <input type="hidden" name="token" value="${esc(token)}">
-        ${btn("Confirm subscription", { cls: "cta", type: "submit" })}
+        <button type="submit" class="btn btn--ink btn--sm">Confirm subscription</button>
       </form>
-      <p>If you did not request updates, you can close this page.</p>
-    </article></main></div>`,
+      <p class="pg-head__meta">If you did not request updates, you can close this page.</p>`,
   });
 }
 
@@ -340,12 +341,5 @@ export async function notify(
  * in that case, so the answer has to be a page rather than a JSON body.
  */
 export function resultPage(ok: boolean, message: string): string {
-  return page({
-    title: "classifier.dev updates",
-    body: `<div class="page"><main><article class="doc prose">
-  <header><h1><span class="syn"># </span>classifier.dev updates</h1></header>
-  <p class="${ok ? "quote" : "note"}">${esc(message)}</p>
-  <p class="row">${btn("back to classifier.dev", { cls: "dim", href: "/" })}</p>
-</article></main></div>`,
-  });
+  return messagePage({ title: "classifier.dev updates", heading: "classifier.dev updates", message, ok });
 }

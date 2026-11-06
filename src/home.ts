@@ -489,7 +489,7 @@ export function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, 
   return out.join("");
 }
 
-const AGENT_PROMPT =
+export const AGENT_PROMPT =
   "Set up the classifier.dev skill: run `npx skills add https://classifier.dev`, " +
   "then read https://classifier.dev/skill.md and follow it all the way through.";
 
@@ -522,7 +522,7 @@ export const META = (title: string, desc: string, path = "/") => `<meta name="de
  * it, and the three questions agents ask first. JSON-LD is how crawlers and
  * answer engines read identity without parsing prose.
  */
-const JSON_LD = () => {
+export const JSON_LD = () => {
   const graph = [
     {
       "@type": "SoftwareApplication",

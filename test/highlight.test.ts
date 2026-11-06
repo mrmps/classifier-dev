@@ -34,18 +34,18 @@ describe("code blocks", () => {
     const html = await (await fetchPage("/developers")).text();
     const langs = [...html.matchAll(/<code class="language-(\w+)">/g)].map((m) => m[1]);
     expect(new Set(langs)).toEqual(new Set(["bash", "javascript", "python", "go", "json"]));
-    expect(html).toContain('<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/');
-    expect(html).toMatch(/integrity="sha384-[A-Za-z0-9+/=]+" crossorigin="anonymous"/);
+    // The redesigned pages mark the language but load no highlighter from a CDN.
+    expect(html).not.toContain("cdnjs.cloudflare.com");
     const md = toMarkdown(DEVELOPERS, { title: "t", canonical: "c", description: "d" });
     expect(md).toContain("```python\nfrom classifier_dev import classify");
   });
 
-  test("the policy lets in highlight.js by its directory and nothing else from that host", async () => {
-    for (const path of ["/", "/developers", "/benchmark"]) {
+  test("the redesigned pages let in their own files from /site/ and nothing from a CDN", async () => {
+    for (const path of ["/developers", "/benchmark"]) {
       const csp = (await fetchPage(path)).headers.get("content-security-policy")!;
       const scriptSrc = csp.split("; ").find((d) => d.startsWith("script-src "))!;
-      expect(scriptSrc).toContain(HL_ORIGIN);
-      expect(scriptSrc).not.toMatch(/https:\/\/cdnjs\.cloudflare\.com(\s|$)/);
+      expect(scriptSrc).toStartWith("script-src https://classifier.dev/site/");
+      expect(csp).not.toContain(HL_ORIGIN);
     }
   });
 });

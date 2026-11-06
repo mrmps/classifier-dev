@@ -1,0 +1,7 @@
+# Written by the design prototype's tools/port.py.
+/site/fonts/*
+  Cache-Control: public, max-age=604800
+/site/assets/*
+  Cache-Control: public, max-age=604800
+/site/public/*
+  Cache-Control: public, max-age=604800

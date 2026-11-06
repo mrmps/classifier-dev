@@ -485,15 +485,14 @@ describe("the checklist on the page", () => {
   const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
   const home = async () => (await worker.fetch(new Request("https://classifier.dev/", { headers: { accept: "text/html" } }), env, ctx)).text();
 
-  it("offers every roadmap item as a box in both forms, posting the key", async () => {
+  // Subscribing takes only an email; the toast that follows offers every roadmap item.
+  it("offers every roadmap item as a box, posting the key", async () => {
     const html = await home();
     for (const r of ROADMAP) {
       expect(html).toContain(`id="want-${r.key}" type="checkbox" name="wants" value="${r.key}"`);
-      expect(html).toContain(`id="dock-${r.key}" type="checkbox" name="wants" value="${r.key}"`);
       expect(html).toContain(r.what);
     }
     expect(html).toContain('id="want-desired-latency" type="number"');
-    expect(html).toContain('id="dock-desired-latency" type="number"');
   });
 
   it("says what is kept, the same way the plain text does", async () => {

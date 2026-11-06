@@ -14,7 +14,6 @@ import { SKILL_MD, skillIndex } from "./skill";
 import { DOCS, BENCHMARK } from "./docs";
 import { OPENAPI, LLMS_TXT, type ErrorCode } from "./openapi";
 import { FAVICON_SVG, ogPngBytes, UNFURLERS, unfurlHtml } from "./brand";
-import { homeHtml, benchmarkHtml, docHtml } from "./home";
 import { handleMcp, productServer, docsServer, type ClassifyFn } from "./mcp";
 import { ABOUT, CONTACT, DEVELOPERS, MCP_SETUP, PRICING, PRIVACY, TERMS, isHeading, toMarkdown } from "./pages";
 import { AGENTS_MD } from "./agents";
@@ -41,7 +40,8 @@ import { hasClassifyQuery, readGet, readTier, suggest, USAGE, type GetRequest } 
 export { RateLimiter } from "./limiter";
 export { QuotaCoordinator } from "./admission";
 import { admit, type AdmissionResult, type Quota } from "./admission";
-import { pricingHtml } from "./pricingui";
+import { siteHomeHtml, sitePolicy } from "./site/home";
+import { benchmarkPage, docPage, pricingPage, rowsPage } from "./site/pages";
 import { typeSafeCompatibleResponse, typeSafeDecisionCount, typeSafeLabelSets, unsupportedSystemOneInput } from "./typesafe-compat";
 
 export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
@@ -116,7 +116,7 @@ export interface Env extends LayaEnv, SpendingEnv, ImajevEnv, JevomniEnv {
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 // Jev packs a thousand short inputs into one upstream request; see jev.ts.
-const MAX_INPUTS = 1000;
+export const MAX_INPUTS = 1000;
 const MAX_LABELS = 100;
 // The LLM fallback answers single-label with one letter token, which caps it at
 // 26; past that it runs the multi-label prompt and keeps the top pick.
@@ -131,7 +131,7 @@ const CHUNKLAYA_MAX_INPUTS = 20;
 /** The schedule that runs the alert check rather than the digest. */
 const ALERT_CRON = "*/15 * * * *";
 // Smart tier: a fast answer below this confidence is re-asked of the reasoning chain.
-const ESCALATE_BELOW = 0.7;
+export const ESCALATE_BELOW = 0.7;
 
 /**
  * Each tier is a chain, not a single model. The primary is the cheapest thing
@@ -151,7 +151,7 @@ const ESCALATE_BELOW = 0.7;
  * deepseek-v4-flash do, of everything benchmarked. Multi-label answers carry no
  * confidence anyway, so that chain is free to pick on F1 and price alone.
  */
-const TIERS = {
+export const TIERS = {
   fast: {
     // A full 1,000-input batch must not lock the caller out for the rest of
     // the minute; the daily cap is the real ceiling.
@@ -248,9 +248,10 @@ const SECURITY = {
 const SCRIPT = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
 const policies = new Map<string, string>();
 
-async function pagePolicy(body: string): Promise<string> {
+async function pagePolicy(body: string, siteOrigin?: string): Promise<string> {
   const scripts = [...body.matchAll(SCRIPT)].map((m) => m[1]);
-  const cached = policies.get(scripts.join("\u0000"));
+  const key = (siteOrigin ? `site:${siteOrigin}\u0000` : "") + scripts.join("\u0000");
+  const cached = policies.get(key);
   if (cached) return cached;
   const hashes = await Promise.all(
     scripts.map(async (src) => {
@@ -258,6 +259,12 @@ async function pagePolicy(body: string): Promise<string> {
       return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
     }),
   );
+  // The redesigned home page loads its own files from /site/ (src/site/home.ts says which).
+  if (siteOrigin) {
+    const policy = sitePolicy(siteOrigin, hashes);
+    if (policies.size < 64) policies.set(key, policy);
+    return policy;
+  }
   const policy = [
     "default-src 'none'",
     // Our own scripts by hash, and highlight.js by its one directory on cdnjs
@@ -273,7 +280,7 @@ async function pagePolicy(body: string): Promise<string> {
     "frame-ancestors 'self'",
   ].join("; ");
   // Bounded by the number of distinct pages, which is a handful.
-  if (policies.size < 64) policies.set(scripts.join("\u0000"), policy);
+  if (policies.size < 64) policies.set(key, policy);
   return policy;
 }
 
@@ -373,6 +380,9 @@ function notFound(req: Request, origin: string) {
   );
 }
 
+/** How the redesigned pages name each plain-text page in their header. */
+const SITE_HEADINGS: Record<string, string> = { developers: "Developers", "mcp-setup": "MCP setup", about: "About classifier.dev", contact: "Contact", privacy: "Privacy", terms: "Terms" };
+
 /** The plain-text pages and how each is described to browsers and crawlers. */
 const PAGE_DOCS: Record<string, { doc: string; title: string; desc: string }> = {
   developers: { doc: DEVELOPERS, title: "developers", desc: "Quickstart, every surface (REST, MCP, CLI, skill), limits, errors, versioning. No key needed." },
@@ -466,7 +476,7 @@ const text = (body: string, status = 200, extra: Record<string, string> = {}) =>
   });
 
 /** The rendered site. Same document as text(), for clients that asked for HTML. */
-const html = async (body: string, status = 200, extra: Record<string, string> = {}) =>
+const html = async (body: string, status = 200, extra: Record<string, string> = {}, siteOrigin?: string) =>
   new Response(body, {
     status,
     headers: {
@@ -474,7 +484,7 @@ const html = async (body: string, status = 200, extra: Record<string, string> = 
       "cache-control": "public, max-age=300",
       // Representations depend on Accept and agent-specific User-Agent handling.
       vary: "accept, user-agent, cookie",
-      "content-security-policy": await pagePolicy(body),
+      "content-security-policy": await pagePolicy(body, siteOrigin),
       ...CORS,
       ...SECURITY,
       ...extra,
@@ -1758,19 +1768,13 @@ const worker = {
       const pg = PAGE_DOCS[pageKey];
       const md = () => toMarkdown(pg.doc, { title: `classifier.dev ${pg.title}`, canonical: `${origin}/${pageKey}`, description: pg.desc });
       if (path.endsWith(".md") || wantsMarkdown) return markdown(md(), 200, CACHE_HOUR);
-      if (pageWantsHtml)
-        return html(
-          pageKey === "pricing"
-            ? pricingHtml(signedIn)
-            : docHtml({
-                title: pg.title,
-                desc: pg.desc,
-                doc: pg.doc,
-                path: `/${pageKey}`,
-                here: pageKey,
-                signedIn,
-              }),
-        );
+      if (pageWantsHtml) {
+        // Every page renders its text in the redesigned layouts; pricing adds its designed plans on top.
+        if (pageKey === "pricing") return html(pricingPage(PRICING, signedIn), 200, {}, origin);
+        const heading = SITE_HEADINGS[pageKey] ?? pg.title;
+        const page = { path: `/${pageKey}`, heading, title: `${heading}, classifier.dev`, desc: pg.desc, doc: pg.doc, signedIn };
+        return html(pageKey === "about" || pageKey === "contact" ? rowsPage(page) : docPage(page), 200, {}, origin);
+      }
       return text(pg.doc, 200, { vary: "accept, user-agent", ...CACHE_HOUR });
     }
 
@@ -1895,17 +1899,17 @@ const worker = {
       try {
         const claim = await newsletter.verifyToken(env, token);
         if (!claim) return req.method === "GET" || form
-          ? html(newsletter.resultPage(false, "This confirmation link is invalid or expired. Subscribe again for a new link."), 400, privateHeaders)
+          ? html(newsletter.resultPage(false, "This confirmation link is invalid or expired. Subscribe again for a new link."), 400, privateHeaders, origin)
           : json({ error: "invalid or expired confirmation token; subscribe again" }, 400, privateHeaders);
-        if (req.method === "GET") return html(newsletter.confirmationPage(token as string, claim.wants, claim.desiredLatencyMs), 200, privateHeaders);
+        if (req.method === "GET") return html(newsletter.confirmationPage(token as string, claim.wants, claim.desiredLatencyMs), 200, privateHeaders, origin);
         const { email, wants, desiredLatencyMs } = claim;
         const added = await newsletter.subscribe(env, email, form ? "form" : "api", wants, desiredLatencyMs);
         if (added) ctx.waitUntil(newsletter.notify(env, email, form ? "form" : "api", wants, desiredLatencyMs).catch(() => console.error("subscription notification failed")));
-        return form ? html(newsletter.resultPage(true, "Email confirmed. Your request has been recorded."), 200, privateHeaders)
+        return form ? html(newsletter.resultPage(true, "Email confirmed. Your request has been recorded."), 200, privateHeaders, origin)
           : json({ ok: true, status: "confirmed", wants, ...(desiredLatencyMs !== null ? { desired_latency_ms: desiredLatencyMs } : {}) }, 200, privateHeaders);
       } catch {
         return req.method === "GET" || form
-          ? html(newsletter.resultPage(false, "Could not confirm just now. Try this link again shortly."), 503, privateHeaders)
+          ? html(newsletter.resultPage(false, "Could not confirm just now. Try this link again shortly."), 503, privateHeaders, origin)
           : json({ error: "could not confirm; retry shortly" }, 503, privateHeaders);
       }
     }
@@ -1937,12 +1941,12 @@ const worker = {
 
       if (!email) {
         return form
-          ? html(newsletter.resultPage(false, "That does not look like an email address."), 400)
+          ? html(newsletter.resultPage(false, "That does not look like an email address."), 400, {}, origin)
           : json({ error: "that does not look like an email address" }, 400);
       }
       if (wants.includes(newsletter.FASTER_INFERENCE_KEY) && desiredLatencyMs === null) {
         const message = `choose a desired latency from ${newsletter.MIN_DESIRED_LATENCY_MS} to ${newsletter.MAX_DESIRED_LATENCY_MS} ms`;
-        return form ? html(newsletter.resultPage(false, message), 400) : json({ error: message }, 400);
+        return form ? html(newsletter.resultPage(false, message), 400, {}, origin) : json({ error: message }, 400);
       }
 
       // Enough to stop a script filling the table, loose enough that a shared
@@ -1958,7 +1962,7 @@ const worker = {
       })();
       if (slow) {
         return form
-          ? html(newsletter.resultPage(false, "That was a lot of signups. Try again in a minute."), 429)
+          ? html(newsletter.resultPage(false, "That was a lot of signups. Try again in a minute."), 429, {}, origin)
           : json({ error: "too many signups from this address; try again in a minute" }, 429, {
               "retry-after": "60",
             });
@@ -1969,12 +1973,12 @@ const worker = {
       } catch (e) {
         console.error(e instanceof newsletter.Unavailable ? e.message : "confirmation email failed");
         return form
-          ? html(newsletter.resultPage(false, "Could not send confirmation just now. Try again shortly."), 503)
+          ? html(newsletter.resultPage(false, "Could not send confirmation just now. Try again shortly."), 503, {}, origin)
           : json({ error: "could not send confirmation; try again shortly" }, 503);
       }
 
       return form
-        ? html(newsletter.resultPage(true, "Check your inbox to confirm your subscription."), 202, { "cache-control": "no-store" })
+        ? html(newsletter.resultPage(true, "Check your inbox to confirm your subscription."), 202, { "cache-control": "no-store" }, origin)
         : json({ ok: true, status: "pending_confirmation", wants, ...(desiredLatencyMs !== null ? { desired_latency_ms: desiredLatencyMs } : {}) }, 202, { "cache-control": "no-store" });
     }
 
@@ -1991,11 +1995,12 @@ const worker = {
       if (UNFURLERS.test(req.headers.get("user-agent") ?? "")) {
         return html(unfurlHtml(), 200, { "cache-control": "public, max-age=3600", ...link });
       }
-      if (wantsHtml) return html(homeHtml({ signedIn }), 200, link);
+      if (wantsHtml) return html(siteHomeHtml({ signedIn }), 200, link, origin);
       return text(DOCS, 200, { vary: "accept, user-agent", ...link });
     }
     if (req.method === "GET" && path === "chat") {
-      if (wantsHtml) return html(homeHtml({ chat: true, signedIn }), 200, { link: LINKS(origin) });
+      // The home page with its chat panel open.
+      if (wantsHtml) return html(siteHomeHtml({ signedIn, chat: true }), 200, { link: LINKS(origin) }, origin);
       return text(`The chat is a page: open ${origin}/chat in a browser.\nAgents get the same tools at ${origin}/mcp; the chat itself is POST ${origin}/${API_VERSION}/chat with {"messages": [{"role": "user", "content": "..."}]} and answers as an event stream.\n`);
     }
 
@@ -2006,7 +2011,7 @@ const worker = {
       if (path === "benchmark.md" || wantsMarkdown) {
         return markdown(toMarkdown(BENCHMARK, { title: "classifier.dev benchmark", canonical: `${origin}/benchmark`, description: "Measured accuracy, calibration, cost and latency." }));
       }
-      if (wantsHtml) return html(benchmarkHtml(signedIn));
+      if (wantsHtml) return html(benchmarkPage(BENCHMARK, signedIn), 200, {}, origin);
       return text(BENCHMARK, 200, { vary: "accept" });
     }
     if (path === "robots.txt") return text(robotsTxt(origin), 200, CACHE_HOUR);

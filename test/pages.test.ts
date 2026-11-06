@@ -15,7 +15,11 @@ const markdown = (path: string) => get(path, { accept: "text/markdown" });
 const PAGES = ["/", "/developers", "/benchmark", "/mcp-setup", "/pricing", "/privacy", "/terms", "/about", "/contact"];
 
 const hrefs = (page: string) => [...page.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
-const htmlHeadings = (page: string) => [...page.matchAll(/<h2>(?:<span class="syn">## <\/span>)?([^<]+)<\/h2>/g)].map((m) => m[1]);
+// The page's own headings: those in <main>, not the footer's column titles.
+const htmlHeadings = (page: string) => {
+  const main = page.includes("<main") ? page.slice(page.indexOf("<main"), page.indexOf("</main>")) : page;
+  return [...main.matchAll(/<h2(?: [^>]*)?>(?:<span class="syn">## <\/span>)?([^<]+)<\/h2>/g)].map((m) => m[1].replace(/&amp;/g, "&"));
+};
 const mdHeadings = (doc: string) => [...doc.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
 
 test("removed billing routes return not found", async () => {
@@ -40,11 +44,17 @@ describe("the HTML and the Markdown of a page agree", () => {
     for (const path of PAGES) {
       const fromHtml = htmlHeadings(await html(path));
       const fromMd = mdHeadings(await markdown(path === "/" ? "/index.md" : `${path}.md`));
-      // The home page adds its own sections, swaps UPDATES for the form, and
-      // keeps the agent-only feedback instructions out of the browser page.
-      const expected = path === "/" ? fromMd.filter((h) => !["Updates", "Agent feedback"].includes(h)) : fromMd;
-      for (const h of expected) expect(fromHtml).toContain(h);
-      if (path !== "/") expect(fromHtml).toEqual(fromMd);
+      // The home page is a designed page, not the document rendered: it names the
+      // document (the same text curl gets) as its Markdown alternate instead.
+      if (path === "/") {
+        const page = await html(path);
+        expect(page).toContain('<link rel="alternate" type="text/markdown" href="/index.md"');
+        expect(fromMd.length).toBeGreaterThan(3);
+        continue;
+      }
+      // Pricing puts its designed plans above the text, so it has headings of its own besides every one the text has.
+      if (path === "/pricing") { for (const h of fromMd) expect(fromHtml).toContain(h); continue; }
+      expect(fromHtml).toEqual(fromMd);
     }
   });
 
@@ -75,7 +85,7 @@ describe("agent feedback on the landing page", () => {
     const page = await html("/");
     expect(page).not.toContain('<a class="site-link" href="/.well-known/agent-feedback.json">Agent feedback</a>');
     expect(page).not.toContain("<h2><span class=\"syn\">## </span>Agent feedback</h2>");
-    expect(page).toContain('<a class="inline" href="/.well-known/agent-feedback.json">agent feedback</a>');
+    expect(page).toContain('<a href="/.well-known/agent-feedback.json">Agent feedback</a>');
   });
 });
 
@@ -116,10 +126,11 @@ describe("links in a rendered document", () => {
 /** A block a reader would paste into a shell gets a copy control, whatever the shell tool. */
 test("command blocks carry a copy button", async () => {
   const setup = await html("/mcp-setup");
-  expect(setup).toMatch(/<pre>(?:<code[^>]*>)?claude mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
-  expect(setup).toMatch(/<pre>(?:<code[^>]*>)?codex mcp add[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
+  // The redesigned pages: a code block is a <pre> followed by its copy button.
+  expect(setup).toMatch(/<pre[^>]*>(?:<code[^>]*>)?claude mcp add[^]*?<\/pre><button type="button" class="copy"/);
+  expect(setup).toMatch(/<pre[^>]*>(?:<code[^>]*>)?codex mcp add[^]*?<\/pre><button type="button" class="copy"/);
   const dev = await html("/developers");
-  expect(dev).toMatch(/<pre>(?:<code[^>]*>)?curl <a class="inline" href="https:\/\/classifier\.dev\/spam[^]*?<\/pre><p class="row"><button[^>]*data-copy="1"/);
+  expect(dev).toMatch(/<pre[^>]*>(?:<code[^>]*>)?curl <a class="inline" href="https:\/\/classifier\.dev\/spam[^]*?<\/pre><button type="button" class="copy"/);
 });
 
 /**
