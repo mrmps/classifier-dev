@@ -62,14 +62,14 @@ export function fillValues(html: string, values = siteValues()): string {
   });
 }
 
-/** The updates checklist, one box per ROADMAP item; "faster" also asks for the latency wanted. */
+/** The updates checklist: a chip per ROADMAP item (its detail as the title); "faster" also asks for the latency wanted. */
 export function roadmapFields(): string {
-  return ROADMAP.map((r) => {
-    const latency = r.key === FASTER_INFERENCE_KEY
-      ? `\n          <span class="upd__latency" data-latency hidden><label for="want-desired-latency">Desired latency</label><span class="upd__ms"><input id="want-desired-latency" type="number" name="desired_latency_ms" min="${MIN_DESIRED_LATENCY_MS}" max="${MAX_DESIRED_LATENCY_MS}" step="1" inputmode="numeric" aria-describedby="want-latency-unit"><span id="want-latency-unit">ms</span></span></span>`
-      : "";
-    return `        <div class="upd__choice"><label class="upd__opt" for="want-${r.key}"><input id="want-${r.key}" type="checkbox" name="wants" value="${r.key}"><span class="upd__box" aria-hidden="true"><svg class="i"><use href="#i-check"/></svg></span><span class="upd__name">${esc(r.name)}</span><span class="upd__what">${esc(r.what)}</span></label>${latency}</div>`;
-  }).join("\n");
+  const chips = ROADMAP.map((r) =>
+    `          <label class="upd__chip" for="want-${r.key}" title="${esc(r.what)}"><input id="want-${r.key}" type="checkbox" name="wants" value="${r.key}"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>${esc(r.name)}</label>`);
+  const latency = ROADMAP.some((r) => r.key === FASTER_INFERENCE_KEY)
+    ? [`          <span class="upd__latency" data-latency hidden><label for="want-desired-latency">Desired latency</label><input id="want-desired-latency" type="number" name="desired_latency_ms" min="${MIN_DESIRED_LATENCY_MS}" max="${MAX_DESIRED_LATENCY_MS}" step="1" inputmode="numeric" aria-describedby="want-latency-unit"><span id="want-latency-unit">ms</span></span>`]
+    : [];
+  return [...chips, ...latency].join("\n");
 }
 
 const LOGIN = '<a class="btn btn--soft btn--sm nav__login" href="/login">Log in</a>';

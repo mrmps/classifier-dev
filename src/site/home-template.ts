@@ -688,16 +688,16 @@ print(res.json()["results"])</pre>
     <div class="cells foot__updates" id="updates">
       <div class="cell foot__updates-head">
         <h2 class="cell__title">Get the updates</h2>
-        <p class="cell__body">What is being built on top of the free tier. Tick what you would use first, and get one email when it ships.</p>
+        <p class="cell__body">One email when something you ticked ships. Nothing in between.</p>
       </div>
       <form class="cell upd" method="post" action="/subscribe" data-subscribe>
-        <fieldset class="upd__pick"><legend class="sr">What you would use first</legend>
-        <!--@roadmap-->
-        </fieldset>
         <div class="upd__row">
           <input class="upd__email" type="email" name="email" required autocomplete="email" spellcheck="false" placeholder="you@example.com" aria-label="Your email address">
           <button type="submit" class="btn btn--ink">Subscribe</button>
         </div>
+        <fieldset class="upd__pick"><legend class="upd__legend">What would you use first?</legend>
+        <!--@roadmap-->
+        </fieldset>
         <p class="upd__said" role="status" aria-live="polite" data-say></p>
         <p class="upd__terms">Confirm by email. Your address and what you ticked are kept apart from API traffic. Unsubscribe by replying.</p>
       </form>
