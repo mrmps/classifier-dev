@@ -489,7 +489,7 @@ export function renderDoc(doc: string, skipTitle: boolean, swap: Record<string, 
   return out.join("");
 }
 
-const AGENT_PROMPT =
+export const AGENT_PROMPT =
   "Set up the classifier.dev skill: run `npx skills add https://classifier.dev`, " +
   "then read https://classifier.dev/skill.md and follow it all the way through.";
 

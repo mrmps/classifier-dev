@@ -7,7 +7,7 @@
 // <data value="key"> element whose text is filled here from the same constants the API,
 // the pricing page and the plain text use.
 import { HOME_TEMPLATE } from "./home-template";
-import { JSON_LD } from "../home";
+import { AGENT_PROMPT, JSON_LD } from "../home";
 import { esc } from "../ui";
 import { BILLING_PLANS, TOP_UP_MAX_CENTS, TOP_UP_MIN_CENTS, creditsToDollars } from "../lib/billing";
 import { CLASSIFICATION_PRICING, LONG_CONTEXT_PRICING } from "../lib/classification-pricing";
@@ -91,6 +91,8 @@ for (const marker of [LOGIN, MENU_LOGIN, ROADMAP_SLOT])
 let pages: { out: string; in: string } | null = null;
 function build() {
   const page = fillValues(HOME_TEMPLATE)
+    // The setup prompt the page copies and deep-links is the site's own, the one curl prints.
+    .replace(/data-agent-prompt="[^"]*"/, `data-agent-prompt="${esc(AGENT_PROMPT)}"`)
     .replace(ROADMAP_SLOT, roadmapFields())
     // Search engines get the same structured data as before: the FAQ quotes the measured accuracies.
     .replace("</head>", `${JSON_LD()}\n</head>`);

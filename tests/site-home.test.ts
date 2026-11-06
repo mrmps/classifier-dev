@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import worker, { type Env, ESCALATE_BELOW, MAX_INPUTS, TIERS } from "../src/index";
 import { siteHomeHtml, siteValues, fillValues } from "../src/site/home";
+import { AGENT_PROMPT } from "../src/home";
+import { esc } from "../src/ui";
 import { HOME_TEMPLATE } from "../src/site/home-template";
 import { PRICING_TOP } from "../src/site/pricing-template";
 import { BILLING_PLANS } from "../src/lib/billing";
@@ -93,4 +95,8 @@ test("every benchmark figure on the page is one /benchmark publishes", () => {
   const shown = [...section.matchAll(/<span class="bars__num">([\d.]+%?)<\/span>/g)].map((m) => m[1]);
   expect(shown.length).toBeGreaterThan(10);
   for (const figure of shown) expect(published).toContain(figure);
+});
+
+test("the page carries the site's own agent prompt", () => {
+  expect(siteHomeHtml()).toContain(`data-agent-prompt="${esc(AGENT_PROMPT)}"`);
 });
