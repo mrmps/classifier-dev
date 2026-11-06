@@ -481,21 +481,22 @@ describe("email confirmation", () => {
   });
 });
 
-describe("the updates form on the page", () => {
+describe("the checklist on the page", () => {
   const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
   const home = async () => (await worker.fetch(new Request("https://classifier.dev/", { headers: { accept: "text/html" } }), env, ctx)).text();
 
-  // The home page asks for an email only: one click to subscribe. The roadmap
-  // checklist stays in the plain text, the Markdown and POST /subscribe's wants.
-  it("posts an email to /subscribe without asking for more", async () => {
+  // Subscribing takes only an email; the toast that follows offers every roadmap item.
+  it("offers every roadmap item as a box, posting the key", async () => {
     const html = await home();
-    expect(html).toContain('action="/subscribe"');
-    expect(html).toContain('type="email" name="email" required');
-    expect(html).not.toContain('name="wants"');
+    for (const r of ROADMAP) {
+      expect(html).toContain(`id="want-${r.key}" type="checkbox" name="wants" value="${r.key}"`);
+      expect(html).toContain(r.what);
+    }
+    expect(html).toContain('id="want-desired-latency" type="number"');
   });
 
   it("says what is kept, the same way the plain text does", async () => {
-    expect(await home()).toContain("kept apart from API traffic");
+    expect(await home()).toContain("what you ticked");
     expect(roadmapDoc()).toContain("what you ticked");
   });
 });

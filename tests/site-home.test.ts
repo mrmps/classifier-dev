@@ -73,6 +73,9 @@ test("the updates form asks only for an email and posts to /subscribe", () => {
   expect(form).toContain('action="/subscribe"');
   expect(form).toContain('type="email" name="email" required');
   expect(form).not.toContain('name="wants"');
+  // The interests come after, in a toast built from the roadmap.
+  expect(html).not.toContain("<!--@roadmap-->");
+  expect(html.slice(html.indexOf('id="utoast"'))).toContain('name="wants"');
 });
 
 test("every benchmark figure on the page is one /benchmark publishes", () => {

@@ -14,6 +14,7 @@ import { CLASSIFICATION_PRICING, LONG_CONTEXT_PRICING } from "../lib/classificat
 import { SCRAPE_NANODOLLARS } from "../scrape";
 import { LONG_CONTEXT_JOB_MAX_TOKENS } from "../long-context";
 import { ESCALATE_BELOW, MAX_INPUTS, TIERS } from "../index";
+import { ROADMAP, FASTER_INFERENCE_KEY, MIN_DESIRED_LATENCY_MS, MAX_DESIRED_LATENCY_MS } from "../newsletter";
 
 const count = (n: number) => n.toLocaleString("en-US");
 const usd = (dollars: number, digits = dollars % 1 === 0 ? 0 : 2) =>
@@ -61,18 +62,33 @@ export function fillValues(html: string, values = siteValues()): string {
   });
 }
 
+/**
+ * The chips in the toast that follows a subscribe: one per ROADMAP item (its detail as the title),
+ * and for "faster" the latency wanted. All optional; the page sends them with the email.
+ */
+export function roadmapFields(): string {
+  const chips = ROADMAP.map((r) =>
+    `    <label class="upd__chip" for="want-${r.key}" title="${esc(r.what)}"><input id="want-${r.key}" type="checkbox" name="wants" value="${r.key}"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>${esc(r.name)}</label>`);
+  const latency = ROADMAP.some((r) => r.key === FASTER_INFERENCE_KEY)
+    ? [`    <span class="upd__latency" data-latency hidden><label for="want-desired-latency">Desired latency</label><input id="want-desired-latency" type="number" name="desired_latency_ms" min="${MIN_DESIRED_LATENCY_MS}" max="${MAX_DESIRED_LATENCY_MS}" step="1" inputmode="numeric" aria-describedby="want-latency-unit"><span id="want-latency-unit">ms</span></span>`]
+    : [];
+  return [...chips, ...latency].join("\n");
+}
+
 const LOGIN = '<a class="btn btn--soft btn--sm nav__login" href="/login">Log in</a>';
 const MENU_LOGIN = '<a class="menu__row" href="/login">Log in</a>';
 const DASHBOARD = '<a class="btn btn--soft btn--sm nav__login" href="/app">Dashboard</a>';
 const MENU_DASHBOARD = '<a class="menu__row" href="/app">Dashboard</a>';
+const ROADMAP_SLOT = "<!--@roadmap-->";
 
-for (const marker of [LOGIN, MENU_LOGIN])
+for (const marker of [LOGIN, MENU_LOGIN, ROADMAP_SLOT])
   if (!HOME_TEMPLATE.includes(marker)) throw new Error(`site/home: the template lost ${marker}`);
 
 // Built on first use, not at import: the constants come from modules that import this one.
 let pages: { out: string; in: string } | null = null;
 function build() {
   const page = fillValues(HOME_TEMPLATE)
+    .replace(ROADMAP_SLOT, roadmapFields())
     // Search engines get the same structured data as before: the FAQ quotes the measured accuracies.
     .replace("</head>", `${JSON_LD()}\n</head>`);
   return { out: page, in: page.replace(LOGIN, DASHBOARD).replace(MENU_LOGIN, MENU_DASHBOARD) };

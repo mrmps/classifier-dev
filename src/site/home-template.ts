@@ -696,7 +696,7 @@ print(res.json()["results"])</pre>
           <button type="submit" class="btn btn--ink">Subscribe</button>
         </div>
         <p class="upd__said" role="alert" data-say></p>
-        <p class="upd__terms">Confirm by email. Your address is kept apart from API traffic. Unsubscribe by replying.</p>
+        <p class="upd__terms">Confirm by email. Unsubscribe by replying.</p>
       </form>
     </div>
     <div class="cells foot__cells">
@@ -746,6 +746,14 @@ print(res.json()["results"])</pre>
   <div class="ctoast__agents"><a class="ctoast__agent" data-deeplink="claude"><img src="/site/assets/logos/claudecode-color.svg" alt="" width="20" height="20"><span>Claude Code</span><svg class="i ctoast__go" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></a><a class="ctoast__agent" data-deeplink="codex"><img src="/site/assets/logos/codex-color.svg" alt="" width="20" height="20"><span>Codex</span><svg class="i ctoast__go" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></a><a class="ctoast__agent" data-deeplink="cursor"><img src="/site/assets/logos/cursor.svg" alt="" width="20" height="20"><span>Cursor</span><svg class="i ctoast__go" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></a><a class="ctoast__agent" data-deeplink="grok"><img src="/site/assets/logos/grok.svg" alt="" width="20" height="20"><span>Grok</span><svg class="i ctoast__go" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></a></div>
   <button type="button" class="ctoast__more" aria-expanded="false" aria-controls="ctoast-more"><span>More options</span><svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
   <div class="reveal ctoast__reveal" id="ctoast-more"><div class="ctoast__body" data-lenis-prevent></div></div>
+  <span class="ctoast__timer" aria-hidden="true"></span>
+</section>
+<section class="ctoast utoast" id="utoast" aria-labelledby="utoast-title" hidden>
+  <div class="ctoast__head"><span class="ctoast__ok" aria-hidden="true"><svg class="i"><use href="#i-check"/></svg></span><div><h2 class="ctoast__title" id="utoast-title" tabindex="-1">Check your inbox to confirm</h2><p class="ctoast__sub">Anything you want to hear about first? Optional.</p></div><button type="button" class="x" data-ut-close aria-label="Close"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button></div>
+  <div class="utoast__pick" role="group" aria-label="What you would use first">
+    <!--@roadmap-->
+  </div>
+  <div class="utoast__foot"><p>Your address and what you ticked are kept apart from API traffic.</p><button type="button" class="btn btn--ink btn--sm" data-ut-done>Done</button></div>
   <span class="ctoast__timer" aria-hidden="true"></span>
 </section>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
