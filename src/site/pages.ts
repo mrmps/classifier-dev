@@ -4,26 +4,9 @@
 //   rowsPage     about, contact: a row per section, its title and links on the left, the text on the right
 //   benchmarkPage  /benchmark: charts and tables from BENCHMARK and vs-jev.json
 import { esc } from "../ui";
-import { SHELL_FOOT, SHELL_HEAD, SHELL_NAV, SHELL_SCRIPTS } from "./shell-template";
+import { sitePage } from "./shell";
 import { blocks, inline, ledeHtml, parse, ruledTable, slug, type Section } from "./doc";
 import VS_JEV from "../vs-jev.json";
-
-const LOGIN = /<a class="nav__login" href="\/login">Log in<\/a>/;
-const MENU_LOGIN = '<a class="menu__row" href="/login">Log in</a>';
-for (const [ok, what] of [[LOGIN.test(SHELL_NAV), "nav login"], [SHELL_NAV.includes(MENU_LOGIN), "menu login"], [SHELL_FOOT.includes('href="/index.md"'), "footer Markdown link"]] as const)
-  if (!ok) throw new Error(`site/pages: the shell lost its ${what}`);
-
-/** A whole page in the shell. `path` names the page's Markdown alternate (path + ".md"). */
-export function sitePage(o: { title: string; desc: string; path: string; kind: string; body: string; signedIn?: boolean }): string {
-  const md = `${o.path}.md`;
-  const head = SHELL_HEAD
-    .replace(/<title>[^<]*<\/title>/, `<title>${esc(o.title)}</title>`)
-    .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(o.desc)}">\n<link rel="alternate" type="text/markdown" href="${md}" title="This page as Markdown">`);
-  const nav = o.signedIn
-    ? SHELL_NAV.replace(LOGIN, '<a class="nav__login" href="/app">Dashboard</a>').replace(MENU_LOGIN, '<a class="menu__row" href="/app">Dashboard</a>')
-    : SHELL_NAV;
-  return `${head}</head>\n<body class="docs-page sub-page sub-page--${o.kind}">\n${nav}\n<main id="main">\n<div class="dband" aria-hidden="true"></div>\n${o.body}\n</main>\n\n${SHELL_FOOT.replace('href="/index.md"', `href="${md}"`)}\n\n${SHELL_SCRIPTS}\n</body>\n</html>\n`;
-}
 
 const sections = (list: Section[]) => list.map((s) => `<h2 id="${s.id}">${esc(s.title)}</h2>${blocks(s.body)}`).join("");
 
@@ -209,3 +192,5 @@ export function benchmarkPage(doc: string, signedIn = false): string {
 }
 
 export { slug };
+
+export { sitePage, messagePage } from "./shell";

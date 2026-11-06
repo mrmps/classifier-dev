@@ -1901,17 +1901,17 @@ const worker = {
       try {
         const claim = await newsletter.verifyToken(env, token);
         if (!claim) return req.method === "GET" || form
-          ? html(newsletter.resultPage(false, "This confirmation link is invalid or expired. Subscribe again for a new link."), 400, privateHeaders)
+          ? html(newsletter.resultPage(false, "This confirmation link is invalid or expired. Subscribe again for a new link."), 400, privateHeaders, origin)
           : json({ error: "invalid or expired confirmation token; subscribe again" }, 400, privateHeaders);
-        if (req.method === "GET") return html(newsletter.confirmationPage(token as string, claim.wants, claim.desiredLatencyMs), 200, privateHeaders);
+        if (req.method === "GET") return html(newsletter.confirmationPage(token as string, claim.wants, claim.desiredLatencyMs), 200, privateHeaders, origin);
         const { email, wants, desiredLatencyMs } = claim;
         const added = await newsletter.subscribe(env, email, form ? "form" : "api", wants, desiredLatencyMs);
         if (added) ctx.waitUntil(newsletter.notify(env, email, form ? "form" : "api", wants, desiredLatencyMs).catch(() => console.error("subscription notification failed")));
-        return form ? html(newsletter.resultPage(true, "Email confirmed. Your request has been recorded."), 200, privateHeaders)
+        return form ? html(newsletter.resultPage(true, "Email confirmed. Your request has been recorded."), 200, privateHeaders, origin)
           : json({ ok: true, status: "confirmed", wants, ...(desiredLatencyMs !== null ? { desired_latency_ms: desiredLatencyMs } : {}) }, 200, privateHeaders);
       } catch {
         return req.method === "GET" || form
-          ? html(newsletter.resultPage(false, "Could not confirm just now. Try this link again shortly."), 503, privateHeaders)
+          ? html(newsletter.resultPage(false, "Could not confirm just now. Try this link again shortly."), 503, privateHeaders, origin)
           : json({ error: "could not confirm; retry shortly" }, 503, privateHeaders);
       }
     }
@@ -1943,12 +1943,12 @@ const worker = {
 
       if (!email) {
         return form
-          ? html(newsletter.resultPage(false, "That does not look like an email address."), 400)
+          ? html(newsletter.resultPage(false, "That does not look like an email address."), 400, {}, origin)
           : json({ error: "that does not look like an email address" }, 400);
       }
       if (wants.includes(newsletter.FASTER_INFERENCE_KEY) && desiredLatencyMs === null) {
         const message = `choose a desired latency from ${newsletter.MIN_DESIRED_LATENCY_MS} to ${newsletter.MAX_DESIRED_LATENCY_MS} ms`;
-        return form ? html(newsletter.resultPage(false, message), 400) : json({ error: message }, 400);
+        return form ? html(newsletter.resultPage(false, message), 400, {}, origin) : json({ error: message }, 400);
       }
 
       // Enough to stop a script filling the table, loose enough that a shared
@@ -1964,7 +1964,7 @@ const worker = {
       })();
       if (slow) {
         return form
-          ? html(newsletter.resultPage(false, "That was a lot of signups. Try again in a minute."), 429)
+          ? html(newsletter.resultPage(false, "That was a lot of signups. Try again in a minute."), 429, {}, origin)
           : json({ error: "too many signups from this address; try again in a minute" }, 429, {
               "retry-after": "60",
             });
@@ -1975,12 +1975,12 @@ const worker = {
       } catch (e) {
         console.error(e instanceof newsletter.Unavailable ? e.message : "confirmation email failed");
         return form
-          ? html(newsletter.resultPage(false, "Could not send confirmation just now. Try again shortly."), 503)
+          ? html(newsletter.resultPage(false, "Could not send confirmation just now. Try again shortly."), 503, {}, origin)
           : json({ error: "could not send confirmation; try again shortly" }, 503);
       }
 
       return form
-        ? html(newsletter.resultPage(true, "Check your inbox to confirm your subscription."), 202, { "cache-control": "no-store" })
+        ? html(newsletter.resultPage(true, "Check your inbox to confirm your subscription."), 202, { "cache-control": "no-store" }, origin)
         : json({ ok: true, status: "pending_confirmation", wants, ...(desiredLatencyMs !== null ? { desired_latency_ms: desiredLatencyMs } : {}) }, 202, { "cache-control": "no-store" });
     }
 
