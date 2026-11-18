@@ -99,21 +99,28 @@ export async function typeSafeCompatibleResponse(
     if (parsed.model && !["jev-latest", JEV_ACCOUNT_MODEL].includes(parsed.model)) throw new SpendingError(400, "unpriced_model", "This TypeSafe model is not configured for spending.");
     body = JSON.stringify({ ...parsed, model: JEV_ACCOUNT_MODEL });
   }
-  await meter?.beforeCall?.("typesafe", JEV_ACCOUNT_MODEL, 0);
-
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
   let response: Response;
-  try {
-    response = await providerFetch(meter, "typesafe", JEV_ACCOUNT_MODEL, 0, upstream, {
-      method: request.method,
-      headers,
-      body,
-      signal: request.signal,
-    });
-  } catch {
-    return Response.json(
-      { error: "TypeSafe is temporarily unavailable." },
-      { status: 502, headers: { "cache-control": "no-store" } },
-    );
+  for (let attempt = 0; ; attempt++) {
+    await meter?.beforeCall?.("typesafe", JEV_ACCOUNT_MODEL, 0);
+    try {
+      response = await providerFetch(meter, "typesafe", JEV_ACCOUNT_MODEL, 0, upstream, {
+        method: request.method,
+        headers,
+        body,
+        signal,
+      });
+    } catch (error) {
+      if (error instanceof SpendingError) throw error;
+      response = Response.json(
+        { error: "TypeSafe is temporarily unavailable." },
+        { status: 502, headers: { "cache-control": "no-store" } },
+      );
+    }
+    if (attempt === 1 || signal.aborted || ![502, 503, 504].includes(response.status)) break;
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (signal.aborted) break;
+    await response.body?.cancel();
   }
 
   if (response.ok && meter) {

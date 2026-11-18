@@ -111,6 +111,70 @@ function providers(onCall?: () => Promise<void>, spur: unknown = {}) {
   return calls;
 }
 
+test("System One recovers one transient provider failure and settles one customer charge", async () => {
+  for (const failure of [502, 503, 504, "network"] as const) {
+    const s = setup();
+    const env = { ...s.env, APP_DB: database(), APP_ACCOUNTS_ENABLED: "true", API_KEY_ENCRYPTION_KEY: "test-only-key-encryption-secret-32-characters" } as Env & AppEnv;
+    await provisionTestAccount(new Request("http://localhost/auth/demo", { headers: { origin: "http://localhost" } }), env);
+    await env.APP_DB.prepare("UPDATE app_accounts SET paid_balance=balance WHERE id='local-demo'").run();
+    const enrolled = await performAction("local-demo", { type: "enroll", client: "Codex" }, env);
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      if (++calls === 1) {
+        if (failure === "network") throw new TypeError("connection reset");
+        return Response.json({ error: "temporary upstream failure" }, { status: failure });
+      }
+      return Response.json({ model: "jev-1.13.0", usage: { input_tokens: 100, output_tokens: 0 }, answers: { category: { choice: "billing" } } });
+    }) as typeof fetch;
+    const response = await accountClassification(request(undefined, "/v1/systemone", {
+      model: "jev-latest", state: "invoice question", questions: { category: { type: "choice", criteria: { billing: null, support: null } } },
+    }, { authorization: `Bearer ${enrolled.secret}` }), env, "API", s.ctx);
+    await s.flush();
+    expect(response!.status).toBe(200);
+    expect((await response!.json()).answers.category.choice).toBe("billing");
+    expect(calls).toBe(2);
+    const { results } = await env.APP_DB.prepare("SELECT status,credits::integer AS credits,input_tokens::integer AS input_tokens FROM app_usage").all();
+    expect(results).toEqual([{ status: "completed", credits: 1, input_tokens: 100 }]);
+    expect(await env.APP_DB.prepare("SELECT balance::integer AS balance,paid_balance::integer AS paid_balance FROM app_accounts WHERE id='local-demo'").first()).toEqual({ balance: 499999, paid_balance: 499999 });
+  }
+});
+
+test("System One caps provider retries and preserves nonretryable responses", async () => {
+  for (const status of [502, 503, 504, 401, 402, 422, 429]) {
+    const s = setup();
+    let calls = 0;
+    globalThis.fetch = (async url => {
+      if (String(url).startsWith("https://api.spur.us/")) return Response.json({});
+      calls++;
+      return Response.json({ detail: "provider refusal" }, { status, headers: { "retry-after": "17" } });
+    }) as typeof fetch;
+    const response = await worker.fetch(request(undefined, "/v1/systemone", {
+      state: "invoice", questions: { urgent: { type: "noul" } },
+    }), s.env, s.ctx);
+    await s.flush();
+    expect(response.status).toBe(status);
+    expect(response.headers.get("retry-after")).toBe("17");
+    expect(calls).toBe([502, 503, 504].includes(status) ? 2 : 1);
+  }
+});
+
+test("System One does not retry a cancelled request or exceed its spending allowance", async () => {
+  const { typeSafeCompatibleResponse } = await import("../src/typesafe-compat");
+  const { newMeter } = await import("../src/cost");
+  const { Permit } = await import("../src/spending/permit");
+  const controller = new AbortController();
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; controller.abort(); throw new DOMException("Aborted", "AbortError"); }) as typeof fetch;
+  await typeSafeCompatibleResponse(new Request("https://classifier.dev/v1/systemone", { method: "POST", signal: controller.signal }), "fixture", "{}");
+  expect(calls).toBe(1);
+  calls = 0;
+  globalThis.fetch = (async () => { calls++; return Response.json({}, { status: 502 }); }) as typeof fetch;
+  const meter = newMeter();
+  meter.permit = new Permit(1, Date.now() + 30000);
+  await expect(typeSafeCompatibleResponse(new Request("https://classifier.dev/v1/systemone", { method: "POST" }), "fixture", "{}", meter)).rejects.toMatchObject({ code: "request_spending_limit" });
+  expect(calls).toBe(0);
+});
+
 test("HTTP concurrency is atomic across aliases, IPv6 spellings, and caller-supplied forwarding headers", async () => {
   const s = setup();
   let release!: () => void;
