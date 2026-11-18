@@ -1541,9 +1541,10 @@ const worker = {
       const headers = { "cache-control": "public, max-age=60" };
       if (!held && cache) ctx.waitUntil(cache.put(key, json(snapshot, 200, headers)).catch(() => {}));
       if (path === "v1/status") return json(snapshot, 200, headers);
-      if (path.endsWith(".md") || wantsMarkdown) return markdown(statusText(snapshot), 200, headers);
-      if (wantsHtml) return html(statusHtml(snapshot, signedIn), 200, headers);
-      return text(statusText(snapshot), 200, headers);
+      const representationHeaders = { ...headers, vary: "accept, user-agent, cookie" };
+      if (path.endsWith(".md") || wantsMarkdown) return markdown(statusText(snapshot), 200, representationHeaders);
+      if (wantsHtml) return html(statusHtml(snapshot, signedIn), 200, representationHeaders);
+      return text(statusText(snapshot), 200, representationHeaders);
     }
     if (req.method === "GET" && (path === "v1/health" || path === "health")) {
       const base = { ok: true, service: "classifier.dev", version: API_VERSION, time: new Date().toISOString(), docs: `${origin}/developers` };

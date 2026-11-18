@@ -87,6 +87,20 @@ for (const unavailable of [false, true]) {
     assert.equal(html.status, 200);
     assert.match(html.headers.get("content-security-policy"), /sha256-/);
     assert.match(body, /Smart escalation/);
+    assert.match(html.headers.get("vary"), /accept/);
+    const plain = await mf.dispatchFetch("https://classifier.dev/status", {
+      headers: { accept: "text/plain" },
+    });
+    assert.match(plain.headers.get("vary"), /accept/);
+    const negotiatedMarkdown = await mf.dispatchFetch(
+      "https://classifier.dev/status",
+      { headers: { accept: "text/markdown" } },
+    );
+    assert.match(
+      negotiatedMarkdown.headers.get("content-type"),
+      /text\/markdown/,
+    );
+    assert.match(negotiatedMarkdown.headers.get("vary"), /accept/);
     assert.doesNotMatch(body, /private-fixture|private upstream diagnostics/);
     const head = await mf.dispatchFetch(
       "https://classifier.dev/v1/status?cache-key=ignored",

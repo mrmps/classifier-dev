@@ -233,6 +233,21 @@ try {
   s = await snapshot();
   assert.equal(get(s, "chat").successful, 1);
   assert.equal(get(s, "chat").status, "operational");
+  const now = Math.floor(Date.now() / 1000);
+  const oldestTimestamp = now - 86400 + 1;
+  db.query(
+    "INSERT INTO classifier_events(timestamp,blob1,blob4,double2) VALUES(?, 'fast', '502', 10)",
+  ).run(oldestTimestamp);
+  s = await snapshot();
+  assert.ok(
+    s.history.some(
+      (bucket) =>
+        new Date(bucket.at).getTime() <= oldestTimestamp * 1000 &&
+        oldestTimestamp * 1000 < new Date(bucket.at).getTime() + 900000 &&
+        bucket.failed > 0,
+    ),
+    "the oldest partial bucket must remain in the rolling 24h history",
+  );
   artifacts.sampled = s;
   for (const method of ["POST", "DELETE"])
     assert.equal((await nativeFetch(`${base}/status`, { method })).status, 405);
@@ -279,6 +294,20 @@ try {
     ).text(),
   );
   queryDown = false;
+  db.exec("DELETE FROM classifier_events");
+  providerDown = true;
+  assert.equal((await classify()).status, 502);
+  s = await snapshot();
+  assert.equal(s.status, "outage");
+  assert.ok(s.history.some((bucket) => bucket.status === "outage"));
+  artifacts.outage = s;
+  await writeFile(
+    "captures/status-outage.html",
+    await (
+      await nativeFetch(`${base}/status`, { headers: { accept: "text/html" } })
+    ).text(),
+  );
+  providerDown = false;
   db.exec("DELETE FROM classifier_events");
   uncertain = false;
   await classify();
