@@ -1,3 +1,4 @@
+import { readStatus, statusHtml, statusText, type StatusSnapshot } from "./status";
 import { imajevResponse, imajevEnabled, isImageRequest, type ImajevEnv } from "./imajev";
 import { jevomniResponse, jevomniEnabled, isJevomniRequest, JEVOMNI_MODEL, type JevomniEnv } from "./jevomni";
 import { sharingPreference, requireSharingStorage, SharingError, SHARING_HINT, SHARING_NOTICE, saveTrainingData } from "./training-data";
@@ -1270,6 +1271,7 @@ export function record(env: Env, ctx: ExecutionContext, d: {
   attempted: number;
   /** Smart-tier answers that could not reach the reasoning model. */
   escalationFailed: number;
+  escalated?: number;
   meter?: Meter;
   images?: number;
   mode?: "single" | "multi" | "dimensions";
@@ -1291,7 +1293,7 @@ export function record(env: Env, ctx: ExecutionContext, d: {
           // double3 and blob7/blob8 were added after launch: rows written before
           // that read back as 0 and "", so cost and failure reasons are only
           // meaningful from that deploy forward.
-          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed, d.status === 200 ? d.attempted : 0, d.dimensions ?? 1, d.uncertain ?? 0, d.fallbackDecisions ?? 0, usage.input, usage.output, usage.known, d.images ?? 0, usage.calls],
+          doubles: [d.n, d.ms, d.usd, d.attempted, d.escalationFailed, d.status === 200 ? d.attempted : 0, d.dimensions ?? 1, d.uncertain ?? 0, d.fallbackDecisions ?? 0, usage.input, usage.output, usage.known, d.images ?? 0, usage.calls, d.escalated ?? 0],
           indexes: [caller],
         });
       } catch {
@@ -1529,6 +1531,19 @@ const worker = {
     }
     if (path === ".well-known/security.txt" || path === "security.txt") {
       return text(securityTxt(origin), 200, CACHE_HOUR);
+    }
+    if (["status", "status.md", "v1/status"].includes(path)) {
+      if (req.method !== "GET") return json({ error: "Use GET to read service status" }, 405, { allow: "GET, HEAD, OPTIONS" });
+      const key = new Request(`${origin}/v1/status`);
+      const cache = typeof caches === "undefined" ? undefined : (caches as CacheStorage & { default: Cache }).default;
+      const held = await cache?.match(key).catch(() => undefined);
+      const snapshot = held ? await held.json() as StatusSnapshot : await readStatus(env);
+      const headers = { "cache-control": "public, max-age=60" };
+      if (!held && cache) ctx.waitUntil(cache.put(key, json(snapshot, 200, headers)).catch(() => {}));
+      if (path === "v1/status") return json(snapshot, 200, headers);
+      if (path.endsWith(".md") || wantsMarkdown) return markdown(statusText(snapshot), 200, headers);
+      if (wantsHtml) return html(statusHtml(snapshot, signedIn), 200, headers);
+      return text(statusText(snapshot), 200, headers);
     }
     if (req.method === "GET" && (path === "v1/health" || path === "health")) {
       const base = { ok: true, service: "classifier.dev", version: API_VERSION, time: new Date().toISOString(), docs: `${origin}/developers` };
@@ -2517,7 +2532,7 @@ const worker = {
     record(env, ctx, {
       tier, n: results.length, ms, labels, ip, country, status: 200, client,
       model: modelSummary.modelsUsed.join(","), meter, usd: meter.usd,
-      reason: "", agent, attempted: inputs.length, escalationFailed, mode,
+      reason: "", agent, attempted: inputs.length, escalationFailed, escalated: results.filter(r => r.escalated).length, mode,
       dimensions: dimensions?.length ?? 1,
       uncertain: countUncertain(results),
       fallbackDecisions,

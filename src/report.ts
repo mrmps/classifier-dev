@@ -11,11 +11,12 @@ const WINDOW_HOURS = 8; // three reports a day
  * deploy or maintain beyond this worker — and emails a plain-text summary.
  * Degrades to KV-only counts if Analytics Engine is unavailable.
  */
-export async function sql(env: Env, query: string) {
+export async function sql(env: Env, query: string, signal?: AbortSignal) {
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/analytics_engine/sql`,
     {
       method: "POST",
+      signal,
       headers: { authorization: `Bearer ${env.CF_ANALYTICS_TOKEN}`, "content-type": "text/plain" },
       body: query,
     },
