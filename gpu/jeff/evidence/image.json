@@ -1,0 +1,16 @@
+{
+  "image": "ghcr.io/mrmps/classifier-dev/jeff-serving@sha256:0b3c46aaa8f9d756e1374294413f47c908bb736abc561f58b9e48bfad3cd568b",
+  "source_commit": "d801130f7efb3809d6027366002aa7780129b925",
+  "build_run": "https://github.com/mrmps/classifier-dev/actions/runs/37289018621",
+  "anonymous_manifest_status": 200,
+  "verified": [
+    "Docker build",
+    "CPU dependency imports",
+    "Pinned recipe and weight hashes",
+    "Registry publish and anonymous manifest access"
+  ],
+  "not_verified": [
+    "Container GPU inference",
+    "Salad allocation and gateway"
+  ]
+}

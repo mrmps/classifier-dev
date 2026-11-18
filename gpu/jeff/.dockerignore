@@ -1,0 +1,7 @@
+*
+!requirements.txt
+!recipe.lock.json
+!fetch.py
+!engine.py
+!server.py
+!entrypoint.sh

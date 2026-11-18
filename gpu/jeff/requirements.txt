@@ -1,0 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cu130
+torch==2.13.0
+torchvision==0.28.0
+transformers==5.17.0
+triton==3.7.1
+fla-core==0.5.2
+einops==0.8.2
+Pillow==11.3.0
+safetensors==0.8.0
+huggingface_hub==1.33.0
+aiohttp==3.14.3

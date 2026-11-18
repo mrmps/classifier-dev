@@ -1,0 +1,50 @@
+{
+  "name": "jeff-fast",
+  "display_name": "Jeff Fast",
+  "container": {
+    "image": "<registry>/<repository>@sha256:<image-digest>",
+    "resources": {
+      "cpu": 4,
+      "memory": 16384,
+      "storage_amount": 32212254720,
+      "gpu_classes": ["<gpu-class-uuid-from-live-api>"]
+    },
+    "environment_variables": {
+      "JEFF_API_KEY": "<inject-at-deploy-time>",
+      "JEFF_HOST": "::"
+    },
+    "priority": "medium"
+  },
+  "replicas": 1,
+  "restart_policy": "always",
+  "autostart_policy": false,
+  "networking": {
+    "protocol": "http",
+    "port": 8080,
+    "auth": false
+  },
+  "startup_probe": {
+    "http": {"path": "/readyz", "port": 8080, "scheme": "http", "headers": []},
+    "initial_delay_seconds": 0,
+    "period_seconds": 60,
+    "timeout_seconds": 5,
+    "failure_threshold": 20,
+    "success_threshold": 1
+  },
+  "readiness_probe": {
+    "http": {"path": "/readyz", "port": 8080, "scheme": "http", "headers": []},
+    "initial_delay_seconds": 0,
+    "period_seconds": 5,
+    "timeout_seconds": 3,
+    "failure_threshold": 3,
+    "success_threshold": 1
+  },
+  "liveness_probe": {
+    "http": {"path": "/healthz", "port": 8080, "scheme": "http", "headers": []},
+    "initial_delay_seconds": 0,
+    "period_seconds": 10,
+    "timeout_seconds": 5,
+    "failure_threshold": 3,
+    "success_threshold": 1
+  }
+}
