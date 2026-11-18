@@ -63,6 +63,15 @@ jobs:
         with:
           name: chat-analytics-e2e
           path: captures/chat-analytics.json
+      - name: Verify public status from actual request outcomes
+        run: bun e2e/status.ts && node e2e/status-worker.mjs
+      - name: Save public status evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: status-e2e
+          path: |
+            captures/status-e2e.json
+            captures/status-worker-e2e.json
       - name: Verify model analytics from request to dashboard
         run: npm run test:e2e:model-analytics
       - name: Save model analytics evidence

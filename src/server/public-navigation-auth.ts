@@ -17,6 +17,7 @@ const PUBLIC_DOCUMENT_PATHS = new Set([
   "docs",
   "mcp-setup",
   "pricing",
+  "status",
   "about",
   "contact",
   "privacy",
