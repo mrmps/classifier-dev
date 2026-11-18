@@ -1538,8 +1538,8 @@ const worker = {
       const cache = typeof caches === "undefined" ? undefined : (caches as CacheStorage & { default: Cache }).default;
       const held = await cache?.match(key).catch(() => undefined);
       const snapshot = held ? await held.json() as StatusSnapshot : await readStatus(env);
-      const headers = { "cache-control": "public, max-age=60" };
-      if (!held && cache) ctx.waitUntil(cache.put(key, json(snapshot, 200, headers)).catch(() => {}));
+      if (!held && cache) ctx.waitUntil(cache.put(key, json(snapshot, 200, { "cache-control": "public, max-age=60" })).catch(() => {}));
+      const headers = { "cache-control": "no-cache" };
       if (path === "v1/status") return json(snapshot, 200, headers);
       const representationHeaders = { ...headers, vary: "accept, user-agent, cookie" };
       if (path.endsWith(".md") || wantsMarkdown) return markdown(statusText(snapshot), 200, representationHeaders);

@@ -39,10 +39,13 @@ export type StatusSnapshot = {
     requests: number;
     failed: number;
     escalation_failed: number;
+    counts_partial: boolean;
   }[];
 };
 const WINDOW = 15;
 const n = (value: unknown) => {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim()))
+    throw new Error("Missing status aggregate");
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0)
     throw new Error("Invalid status aggregate");
@@ -67,20 +70,25 @@ const combine = (states: ServiceStatus[]): ServiceStatus =>
       ? "operational"
       : "unknown";
 
-function requestQuery(minutes: number, history: boolean) {
+function bounds(cutoff: Date, minutes: number) {
+  const stamp = (ms: number) =>
+    new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+  return `timestamp > toDateTime('${stamp(cutoff.getTime() - minutes * 60_000)}') AND timestamp <= toDateTime('${stamp(cutoff.getTime())}')`;
+}
+function requestQuery(cutoff: Date, minutes: number, history: boolean) {
   return `SELECT ${history ? "toStartOfInterval(timestamp, INTERVAL '15' MINUTE) AS bucket," : ""}
-    blob4 AS status, double5 AS failed_per_request, double15 AS escalated_per_request, sum(_sample_interval) AS requests,
+    blob4 AS status, blob7 AS reason, double5 AS failed_per_request, double15 AS escalated_per_request, sum(_sample_interval) AS requests,
     sum(double2 * _sample_interval) AS ms_sum,
     sum(double5 * _sample_interval) AS escalation_failed,
     sum(double15 * _sample_interval) AS escalated, max(timestamp) AS latest
-    FROM classifier_events WHERE timestamp > toDateTime(now()) - INTERVAL '${minutes}' MINUTE
-    GROUP BY ${history ? "bucket, " : ""}status, failed_per_request, escalated_per_request`;
+    FROM classifier_events WHERE ${bounds(cutoff, minutes)}
+    GROUP BY ${history ? "bucket, " : ""}status, reason, failed_per_request, escalated_per_request`;
 }
-function chatQuery(minutes: number, history: boolean) {
+function chatQuery(cutoff: Date, minutes: number, history: boolean) {
   return `SELECT ${history ? "toStartOfInterval(timestamp, INTERVAL '15' MINUTE) AS bucket," : ""}
     blob2 AS outcome, sum(_sample_interval) AS requests,
     sum(double2 * _sample_interval) AS ms_sum, max(timestamp) AS latest
-    FROM classifier_chat_events WHERE timestamp > toDateTime(now()) - INTERVAL '${minutes}' MINUTE
+    FROM classifier_chat_events WHERE ${bounds(cutoff, minutes)}
     GROUP BY ${history ? "bucket, " : ""}outcome`;
 }
 function component(
@@ -99,7 +107,14 @@ function component(
     const ok = chat ? row.outcome === "completed" : row.status === "200";
     const error = chat
       ? row.outcome === "failed" || row.outcome === "unavailable"
-      : /^5\d\d$/.test(String(row.status));
+      : /^5\d\d$/.test(String(row.status)) ||
+        (row.status === "429" &&
+          [
+            "chunklaya_busy",
+            "typesafe_429",
+            "imajev_429",
+            "jevomni_429",
+          ].includes(String(row.reason)));
     if (ok) successful += count;
     else if (error) failed += count;
     else rejected += count;
@@ -151,25 +166,25 @@ export async function readStatus(env: Env): Promise<StatusSnapshot> {
   const queries = [
     {
       name: "classification",
-      query: requestQuery(WINDOW, false),
+      query: requestQuery(generated, WINDOW, false),
       chat: false,
       history: false,
     },
     {
       name: "chat",
-      query: chatQuery(WINDOW, false),
+      query: chatQuery(generated, WINDOW, false),
       chat: true,
       history: false,
     },
     {
       name: "classification_history",
-      query: requestQuery(1440, true),
+      query: requestQuery(generated, 1440, true),
       chat: false,
       history: true,
     },
     {
       name: "chat_history",
-      query: chatQuery(1440, true),
+      query: chatQuery(generated, 1440, true),
       chat: true,
       history: true,
     },
@@ -229,6 +244,9 @@ export async function readStatus(env: Env): Promise<StatusSnapshot> {
         requests: api.requests + assistant.requests,
         failed: api.failed + assistant.failed,
         escalation_failed: smart.failed,
+        counts_partial:
+          unavailable.includes("classification_history") ||
+          unavailable.includes("chat_history"),
       };
     },
   );
@@ -325,7 +343,7 @@ export function statusHtml(s: StatusSnapshot, signedIn = false) {
   const bars = s.history
     .map(
       (b) =>
-        `<span class="history-bar ${b.status}" title="${esc(`${time(b.at)} · ${STATUS_LABEL[b.status]} · ${count(b.requests)} requests · ${count(b.failed)} server failures · ${count(b.escalation_failed)} failed escalations`)}"></span>`,
+        `<span class="history-bar ${b.status}" title="${esc(`${time(b.at)} · ${b.counts_partial ? "Partial counts · " : ""}${STATUS_LABEL[b.status]} · ${count(b.requests)} requests · ${count(b.failed)} service failures · ${count(b.escalation_failed)} failed escalations`)}"></span>`,
     )
     .join("");
   const affected = s.history.filter((b) => b.failed || b.escalation_failed);
@@ -359,7 +377,7 @@ ${s.unavailable.length ? '<p class="telemetry-note history-note">Some request an
         : `<div class="history-bars" role="img" aria-label="${affected.length} intervals with observed failures; grey intervals have no conclusive request evidence.">${bars}</div><div class="history-labels"><span>${time(new Date(new Date(s.generated_at).getTime() - 86_400_000).toISOString())} yesterday</span><span>Now</span></div>
 <div class="history-legend"><span class="state operational"><i aria-hidden="true"></i>No issues observed</span><span class="state degraded"><i aria-hidden="true"></i>Failures observed</span><span class="state outage"><i aria-hidden="true"></i>Requests failing</span><span class="state unknown"><i aria-hidden="true"></i>${historyIncomplete ? "Unverified" : "No evidence"}</span></div>${historyIncomplete ? '<p class="history-note">History is incomplete. Some request analytics could not be read.</p>' : ""}`
     }
-${affected.length ? `<details><summary>View ${affected.length} ${affected.length === 1 ? "interval" : "intervals"} with failures</summary><ul>${affected.map((b) => `<li>${esc(b.at.replace("T", " ").replace(".000Z", " UTC"))}: ${count(b.failed)} server failures, ${count(b.escalation_failed)} failed escalations</li>`).join("")}</ul></details>` : ""}</section>
+${affected.length ? `<details><summary>View ${affected.length} ${affected.length === 1 ? "interval" : "intervals"} with failures</summary><ul>${affected.map((b) => `<li>${esc(b.at.replace("T", " ").replace(".000Z", " UTC"))}: ${count(b.failed)} service failures, ${count(b.escalation_failed)} failed escalations</li>`).join("")}</ul></details>` : ""}</section>
 <section class="status-explanation" aria-label="How status is measured"><p>Based on recorded classification and chat outcomes, with sampling-adjusted estimates and up to a few minutes of reporting delay. No recent traffic means no evidence, never a health check passed.</p><p>A failed Smart escalation is degraded even when the API returns HTTP 200 with the first model’s answer. Escalation success counts begin with this status page’s release. API success rates exclude rejected requests${api.rejected === null ? "" : ` (${count(api.rejected)} recorded)`}, including validation, credit and quota limits. Chat excludes invalid, rate-limited and stopped turns.</p><p>This page measures request completion, not answer accuracy, login or billing. <a class="inline" href="/contact">Report a problem →</a></p></section>
 ${FOOT}</main></div>`,
   });

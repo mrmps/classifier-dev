@@ -13,6 +13,7 @@ for (const name of ["classifier_events", "classifier_chat_events"])
   db.exec(`CREATE TABLE ${name}(timestamp INTEGER, _sample_interval REAL DEFAULT 1, index1 TEXT,
     ${Array.from({ length: 20 }, (_, i) => `blob${i + 1} TEXT DEFAULT ''`).join(",")},
     ${Array.from({ length: 20 }, (_, i) => `double${i + 1} REAL DEFAULT 0`).join(",")})`);
+let malformedQuery = false;
 let queryDown = false,
   chatQueryDown = false,
   providerDown = false,
@@ -81,7 +82,16 @@ globalThis.fetch = (async (input, init) => {
         (_, n, unit) =>
           `(unixepoch()-${Number(n) * (unit === "HOUR" ? 3600 : 60)})`,
       );
-    return Response.json({ data: db.query(sql).all() });
+    const data = db
+      .query(sql.replace(/toDateTime\('([^']+)'\)/g, "unixepoch('$1')"))
+      .all() as Record<string, unknown>[];
+    if (
+      malformedQuery &&
+      String(init?.body).includes("FROM classifier_events") &&
+      data.length
+    )
+      data[0]!.requests = null;
+    return Response.json({ data });
   }
   if (url.includes("openrouter.ai")) {
     const body = JSON.parse(String(init?.body));
@@ -141,7 +151,7 @@ const base = `http://127.0.0.1:${server.port}`;
 const snapshot = async () => {
   const r = await nativeFetch(`${base}/v1/status`);
   assert.equal(r.status, 200);
-  assert.match(r.headers.get("cache-control") ?? "", /max-age=60/);
+  assert.match(r.headers.get("cache-control") ?? "", /no-cache/);
   return r.json() as Promise<StatusSnapshot>;
 };
 const classify = (tier = "fast") =>
@@ -169,6 +179,11 @@ try {
   s = await snapshot();
   assert.equal(get(s, "api").status, "operational");
   assert.equal(get(s, "escalation").status, "unknown");
+  malformedQuery = true;
+  s = await snapshot();
+  assert.equal(get(s, "api").status, "unknown");
+  assert.equal(get(s, "api").requests, null);
+  malformedQuery = false;
   uncertain = true;
   escalationDown = true;
   const degraded = await classify("smart");
@@ -213,12 +228,13 @@ try {
   s = await snapshot();
   assert.equal(get(s, "api").failed, 3);
   assert.equal(get(s, "escalation").failed, 3);
+  const meanBeforeRejection = get(s, "api").avg_ms;
   db.exec(
     "INSERT INTO classifier_events(timestamp,blob1,blob4,double2,_sample_interval) VALUES(unixepoch(),'fast','429',999999,100)",
   );
   s = await snapshot();
   assert.equal(get(s, "api").rejected, 100);
-  assert.ok(get(s, "api").avg_ms < 999999);
+  assert.equal(get(s, "api").avg_ms, meanBeforeRejection);
   assert.equal(get(s, "api").successful, 9);
   const conversation = await nativeFetch(`${base}/v1/chat`, {
     method: "POST",
@@ -249,6 +265,31 @@ try {
     "the oldest partial bucket must remain in the rolling 24h history",
   );
   artifacts.sampled = s;
+  db.exec(
+    "INSERT INTO classifier_events(timestamp,blob1,blob4,blob7,double2) VALUES(unixepoch(),'fast','429','chunklaya_busy',10)",
+  );
+  s = await snapshot();
+  assert.equal(get(s, "api").failed, 4);
+  assert.equal(get(s, "api").rejected, 100);
+  assert.equal(get(s, "api").status, "degraded");
+  db.exec(
+    "INSERT INTO classifier_events(timestamp,blob1,blob4,double2) VALUES(unixepoch()+600,'fast','502',10)",
+  );
+  s = await snapshot();
+  assert.equal(
+    get(s, "api").failed,
+    4,
+    "all queries must exclude events after the common cutoff",
+  );
+  chatQueryDown = true;
+  s = await snapshot();
+  assert.ok(s.history.every((bucket) => bucket.counts_partial));
+  assert.ok(
+    s.history.some((bucket) => bucket.failed > 0),
+    "surviving history failures stay visible",
+  );
+  chatQueryDown = false;
+  artifacts.capacity = s;
   for (const method of ["POST", "DELETE"])
     assert.equal((await nativeFetch(`${base}/status`, { method })).status, 405);
   assert.equal(
@@ -311,7 +352,10 @@ try {
   db.exec("DELETE FROM classifier_events");
   uncertain = false;
   await classify();
-  artifacts.recovered = await snapshot();
+  const recovered = await snapshot();
+  assert.equal(recovered.status, "operational");
+  assert.equal(get(recovered, "api").failed, 0);
+  artifacts.recovered = recovered;
   await writeFile(
     "captures/status-e2e.json",
     JSON.stringify(artifacts, null, 2) + "\n",

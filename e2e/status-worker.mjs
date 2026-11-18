@@ -76,10 +76,21 @@ for (const unavailable of [false, true]) {
     await mf.ready;
     const json = await mf.dispatchFetch("https://classifier.dev/v1/status");
     assert.equal(json.status, 200);
-    assert.match(json.headers.get("cache-control"), /max-age=60/);
+    assert.match(json.headers.get("cache-control"), /no-cache/);
     const snapshot = await json.json();
     assert.equal(snapshot.status, unavailable ? "unknown" : "degraded");
     assert.equal(snapshot.components[0].requests, unavailable ? null : 5);
+    const cache = (await mf.getCaches()).default;
+    let cached;
+    for (let i = 0; i < 100 && !cached; i++) {
+      cached = await cache.match("https://classifier.dev/v1/status");
+      if (!cached) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.ok(
+      cached,
+      "the initial snapshot cache write must finish before testing cache reuse",
+    );
+    assert.match(cached.headers.get("cache-control"), /max-age=60/);
     const html = await mf.dispatchFetch("https://classifier.dev/status", {
       headers: { accept: "text/html" },
     });
