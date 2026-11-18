@@ -9,6 +9,7 @@ import { isAppRequest } from "./http/dispatch";
 import { appEnvironment } from "./server/environment";
 import { autumnWebhook } from "./http/autumn-webhook";
 import { syncAutumnAccounts } from "./server/billing-sync";
+import { recoverTokenSettlements } from "./server/token-settlement-recovery";
 import { sweepAutoTopUps } from "./server/auto-top-up";
 import { syncComplimentaryProAccounts } from "./server/complimentary-pro";
 import {
@@ -79,6 +80,7 @@ export default {
   ) {
     const env = appEnvironment(bindings);
     if (env.APP_ACCOUNTS_ENABLED === "true") {
+      ctx.waitUntil(recoverTokenSettlements(env.APP_DB));
       ctx.waitUntil(syncAutumnAccounts(env));
       ctx.waitUntil(syncComplimentaryProAccounts(env));
       ctx.waitUntil(sweepAutoTopUps(env));

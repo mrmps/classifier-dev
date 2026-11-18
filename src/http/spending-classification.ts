@@ -7,7 +7,7 @@ import { newMeter } from "../cost";
 import { AppError, hashToken, now, type AppEnv } from "../server/db";
 import { classificationCharge, classificationInputTokens, longContextCharge } from "../lib/classification-pricing";
 import { isLongContextRequest, longContextInputTokens, LongContextError, LONG_CONTEXT_MAX_INPUTS, LONG_CONTEXT_MAX_DECISIONS, LONG_CONTEXT_MAX_TOKENS } from "../long-context";
-import { refundTokenReservation, settleTokenReservation } from "../server/token-ledger";
+import { queueTokenSettlement, applyTokenSettlement } from "../server/token-settlement-recovery";
 import { Permit } from "../spending/permit";
 import { boundedRequest } from "../spending";
 import { SpendingError, errorResponse, fingerprint, policy } from "../spending/policy";
@@ -149,12 +149,14 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
         ? tokens.reduce((sum, t) => sum + t.inputTokens!, 0) : null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          if (!scrapeCharged && (!response.ok || (!longContext && (!actual || (actual.used === 0 && !actual.tokens.some(row => row.provider === "runpod")))))) await refundTokenReservation(env.APP_DB, id);
-          else await settleTokenReservation(env.APP_DB, id, charge, {
+          await queueTokenSettlement(env.APP_DB, id, {
+            refund: !scrapeCharged && (!response.ok || (!longContext && (!actual || (actual.used === 0 && !actual.tokens.some(row => row.provider === "runpod"))))),
+            charge,
             inputTokens: longContext ? upstreamInputTokens : inputTokens,
             outputTokens: tokens.length && tokens.every(t => t.outputTokens !== null) ? tokens.reduce((sum, t) => sum + t.outputTokens!, 0) : null,
+            escalations: typeof escalations === "number" ? escalations : 0,
           });
-          if (charge !== null) await env.APP_DB.prepare("UPDATE app_usage SET escalations=? WHERE id=? AND status='completed'").bind(escalations, id).run();
+          await applyTokenSettlement(env.APP_DB, id);
           writeAccountAnalytics(env, { accountId: result.account_id, keyId: result.agent_id, requestId: id, source,
             tier: body.tier === "smart" ? "smart" : "fast", status: response.ok ? "success" : "error", items,
             inputTokens: longContext ? upstreamInputTokens : inputTokens, longContext: meter.longContext,
@@ -165,7 +167,7 @@ export async function spendingClassification(request: Request, env: AppEnv & Par
           // auto top-up threshold; the claim statement enforces every limit.
           if (response.ok) { try { await maybeAutoTopUp(env, result.account_id); } catch { /* the sweep retries */ } }
           return;
-        } catch { /* Durable pending funds remain unavailable until reconciliation. */ }
+        } catch { /* The scheduled sweep retries persisted settlement intents. */ }
       }
     };
     ctx.waitUntil(settle());
