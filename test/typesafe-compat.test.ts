@@ -12,6 +12,10 @@ import worker, { type Env } from "../src/index";
 import { DOCS } from "../src/docs";
 import { OPENAPI } from "../src/openapi";
 import { DEVELOPERS } from "../src/pages";
+import { newMeter } from "../src/cost";
+import { Permit } from "../src/spending/permit";
+import { SpendingError } from "../src/spending/policy";
+import { typeSafeCompatibleResponse } from "../src/typesafe-compat";
 
 const realFetch = globalThis.fetch;
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
@@ -235,5 +239,54 @@ describe("the TypeSafe-compatible API", () => {
     expect(body.api.typesafe_system_one.url).toBe("https://classifier.dev/v1/systemone");
     expect(body.api.typesafe_models.url).toBe("https://classifier.dev/v1/models");
     expect(body.sdks.typesafe.api_key.workspace).toContain("classifier_agent_");
+  });
+
+  describe("failure reasons", () => {
+    const sdkBody = JSON.stringify({ state: "ticket", questions: { urgent: { type: "noul" } } });
+    async function send(upstream: typeof fetch) {
+      const h = harness();
+      const points: { blobs: string[] }[] = [];
+      const pending: Promise<unknown>[] = [];
+      Object.assign(h.env, { PRIVACY_SALT: "test-salt", STATS: { get: async () => null, put: async () => {} }, AE: { writeDataPoint: (p: { blobs: string[] }) => points.push(p) } });
+      globalThis.fetch = upstream;
+      const response = await worker.fetch(new Request("https://classifier.dev/v1/systemone", {
+        method: "POST",
+        headers: { authorization: "Bearer unused", "content-type": "application/json" },
+        body: sdkBody,
+      }), h.env, { waitUntil: (p: Promise<unknown>) => pending.push(p) } as unknown as ExecutionContext);
+      await Promise.all(pending);
+      return { response, reason: points.at(-1)?.blobs[6] };
+    }
+
+    test("a 502 TypeSafe returned keeps its status", async () => {
+      const { response, reason } = await send((async () => Response.json({ detail: "bad gateway" }, { status: 502 })) as unknown as typeof fetch);
+      expect(response.status).toBe(502);
+      expect(reason).toBe("typesafe_502");
+    });
+
+    test("TypeSafe sending nothing is recorded as our own failure, not a TypeSafe 502", async () => {
+      const { response, reason } = await send((async () => { throw new TypeError("network connection lost"); }) as unknown as typeof fetch);
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: "TypeSafe is temporarily unavailable.", code: "typesafe" });
+      expect(reason).toBe("typesafe");
+    });
+
+    test("a provider timeout is recorded as timeout", async () => {
+      const { response, reason } = await send((async () => { throw new DOMException("timed out", "TimeoutError"); }) as unknown as typeof fetch);
+      expect(response.status).toBe(502);
+      expect(reason).toBe("timeout");
+    });
+
+    test("a spending refusal surfaces as the spending error instead of a 502", async () => {
+      let calls = 0;
+      globalThis.fetch = (async () => { calls++; return Response.json({}); }) as typeof fetch;
+      const meter = newMeter();
+      meter.permit = new Permit(0, Date.now() + 60_000);
+      const request = new Request("https://classifier.dev/v1/systemone", { method: "POST", body: sdkBody });
+      const failure = await typeSafeCompatibleResponse(request, "provider-secret", sdkBody, meter).catch(error => error);
+      expect(failure).toBeInstanceOf(SpendingError);
+      expect((failure as SpendingError).code).toBe("request_spending_limit");
+      expect(calls).toBe(0);
+    });
   });
 });

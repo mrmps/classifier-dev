@@ -65,6 +65,18 @@ export function typeSafeLabelSets(body: string): { labels: string[]; cost: numbe
   }
 }
 
+/**
+ * Responses this adapter made itself because TypeSafe never answered. Keyed by
+ * the object rather than read from the body, so nothing TypeSafe returns can
+ * pass for our own failure.
+ */
+const LOCAL_FAILURES = new WeakMap<Response, "typesafe" | "timeout">();
+
+/** The analytics reason for a non-2xx passthrough: our own failure code, or TypeSafe's status. */
+export function typeSafeFailureReason(response: Response): string {
+  return LOCAL_FAILURES.get(response) ?? `typesafe_${response.status}`;
+}
+
 /** Forward one official TypeSafe SDK request using the service credential. */
 export async function typeSafeCompatibleResponse(
   request: Request,
@@ -109,11 +121,17 @@ export async function typeSafeCompatibleResponse(
       body,
       signal: request.signal,
     });
-  } catch {
-    return Response.json(
-      { error: "TypeSafe is temporarily unavailable." },
+  } catch (error) {
+    // A spending refusal is ours, not TypeSafe's; the caller receives it as
+    // the spending error and analytics must not count it as a provider 502.
+    if (error instanceof SpendingError) throw error;
+    const code = error instanceof Error && error.name === "TimeoutError" ? "timeout" : "typesafe";
+    const failure = Response.json(
+      { error: "TypeSafe is temporarily unavailable.", code },
       { status: 502, headers: { "cache-control": "no-store" } },
     );
+    LOCAL_FAILURES.set(failure, code);
+    return failure;
   }
 
   if (response.ok && meter) {

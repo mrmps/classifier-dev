@@ -23,6 +23,7 @@ const REASON_TEXT: Record<string, string> = {
   chain_exhausted: "every model in the chain failed",
   batch_unavailable: "batch too large for the LLM fallback",
   timeout: "upstream timed out",
+  typesafe: "TypeSafe sent no response",
   upstream_other: "other upstream failure",
 };
 export const reasonText = (r: string) =>
